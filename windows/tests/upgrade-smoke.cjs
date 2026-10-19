@@ -17,11 +17,21 @@ const previousURL='https://github.com/orkunisitmak/clipboardline-desktop/release
 const previousSHA='0f6f1aa59a406b5d7d2e2a64eb1dc1797fde4fc205e8781eb381645137923541';
 const powershell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
 const report={sourceRevision:process.env.GITHUB_SHA,platform:process.platform,arch:process.arch,version:pkg.version,build:pkg.clipboardLineBuild||63,previousVersion:'1.7.0',previousBuild:62,scope:'real-old-install-and-data -> corrected-client isolated signed fixture -> actual candidate NSIS replacement and automatic reopen',oldClientCodeModified:false,publicFeedChanged:false,productionKeyChanged:false,checks:[],startedAt:new Date().toISOString()};
-let application;
+let application,installerObserver,observerOutput;
 const check=(name,details={})=>{report.checks.push({name,passed:true,...details});console.log('PASS '+name);};
 const hash=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 async function until(reader,predicate,timeout=120000){const end=Date.now()+timeout;let last;while(Date.now()<end){try{last=await reader();if(predicate(last))return last;}catch{}await new Promise(resolve=>setTimeout(resolve,300));}throw new Error('Timed out waiting for upgrade state: '+JSON.stringify(last));}
 function processInfo(){const script="$payload=[Console]::In.ReadToEnd()|ConvertFrom-Json;$rows=@(Get-CimInstance Win32_Process|Where-Object {$_.ExecutablePath -eq $payload.path -and $_.CommandLine -notmatch '--type='}|ForEach-Object {$p=Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue;@{pid=$_.ProcessId;commandLine=$_.CommandLine;window=$p.MainWindowHandle.ToInt64();version=(Get-Item $_.ExecutablePath).VersionInfo.ProductVersion}});ConvertTo-Json -InputObject $rows -Compress";const raw=execFileSync(powershell,['-NoProfile','-NonInteractive','-Command',script],{input:JSON.stringify({path:installed}),encoding:'utf8',timeout:15000,windowsHide:true,env:windowsEnvironment()});return JSON.parse(raw.replace(/^\uFEFF/,'').trim()||'[]');}
+function installDiagnostics(){
+  const script=String.raw`$payload=[Console]::In.ReadToEnd()|ConvertFrom-Json;$processes=@(Get-CimInstance Win32_Process|Where-Object {$_.ProcessId -ne $PID -and ($_.Name -like '*ClipBoardLine*' -or $_.CommandLine -like '*ClipBoardLine-Setup-*')}|ForEach-Object {@{pid=$_.ProcessId;parent=$_.ParentProcessId;name=$_.Name;path=$_.ExecutablePath;commandLine=$_.CommandLine}});$registry=@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKCU:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*')|ForEach-Object {Get-ItemProperty $_ -ErrorAction SilentlyContinue}|Where-Object {$_.DisplayName -like 'ClipBoardLine*'}|ForEach-Object {@{name=$_.DisplayName;version=$_.DisplayVersion;location=$_.InstallLocation;uninstall=$_.UninstallString}};$exe=@{path=$payload.path;exists=(Test-Path -LiteralPath $payload.path)};if($exe.exists){$exe.version=(Get-Item -LiteralPath $payload.path).VersionInfo.ProductVersion};$shortcuts=@();try{$shell=New-Object -ComObject WScript.Shell;foreach($directory in @((Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'),(Join-Path $env:USERPROFILE 'Desktop'))){if(Test-Path $directory){Get-ChildItem -LiteralPath $directory -Filter 'ClipBoardLine.lnk' -Recurse -ErrorAction SilentlyContinue|ForEach-Object {$link=$shell.CreateShortcut($_.FullName);$shortcuts+=@{path=$_.FullName;target=$link.TargetPath;arguments=$link.Arguments}}}}}catch{};@{expectedExecutable=$exe;processes=$processes;registry=@($registry);shortcuts=$shortcuts;explorerProcesses=@(Get-Process -Name explorer -ErrorAction SilentlyContinue).Count}|ConvertTo-Json -Compress -Depth 5`;
+  try{const raw=execFileSync(powershell,['-NoProfile','-NonInteractive','-Command',script],{input:JSON.stringify({path:installed}),encoding:'utf8',timeout:20000,windowsHide:true,env:windowsEnvironment()});return JSON.parse(raw.replace(/^\uFEFF/,'').trim());}catch(error){return{error:String(error.message).slice(0,500)};}
+}
+async function startInstallerObserver(sourceProcessId,userdata){
+  observerOutput=path.join(temporary,'installer-process.json');const config=path.join(temporary,'installer-observer-config.json');
+  fs.writeFileSync(config,JSON.stringify({sourceProcessId,installer:path.join(userdata,'ci-upgrade-cache',`ClipBoardLine-Setup-${pkg.clipboardLineBuild||63}.exe`),output:observerOutput}));
+  installerObserver=spawn(powershell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.resolve('tests/upgrade-observer.ps1'),'-Config',config],{windowsHide:true,stdio:'ignore',env:windowsEnvironment()});
+  const ready=await until(()=>JSON.parse(fs.readFileSync(observerOutput,'utf8')),value=>['waiting','failed'].includes(value.status),15000);assert.equal(ready.status,'waiting',JSON.stringify(ready));
+}
 async function runInstaller(file,args){await new Promise((resolve,reject)=>{const child=spawn(file,args,{windowsHide:true,stdio:'ignore'});child.once('error',reject);child.once('exit',code=>code===0?resolve():reject(new Error('Installer exited '+code)));});}
 async function main(){
   assert.ok(fs.existsSync(installer)&&fs.existsSync(candidate),'Build the candidate installer and unpacked application first.');
@@ -63,10 +73,14 @@ async function main(){
   const offer=await page.evaluate(()=>window.clipboardLine.command('checkUpdates'));assert.equal(offer.update.availableBuild,manifest.build);assert.equal(offer.update.availableVersion,pkg.version);assert.equal(offer.update.canInstall,true);
   report.fixture={actualClientVersion:pkg.version,actualClientBuild:pkg.clipboardLineBuild||63,simulatedInstalledVersion:'1.7.0',simulatedInstalledBuild:62,testKeyInjectedOnlyIntoIsolatedMain:true,installerSHA256:candidateSHA,installerBytes:candidateSize};
   check('corrected candidate client verifies a dedicated local signed fixture and offers the exact candidate installer');
+  report.beforeInstallation=installDiagnostics();await startInstallerObserver(application.process().pid,userdata);
   const closed=application.waitForEvent('close',{timeout:60000});
   const request=page.evaluate(()=>window.clipboardLine.command('installUpdate')).then(result=>{if(result?.result?.error)throw new Error(result.result.error);return closed;}).catch(error=>{if(/closed|Target|destroyed/i.test(error.message))return closed;throw error;});
   await Promise.race([closed,request]);application=null;
-  const reopened=await until(processInfo,rows=>rows.some(row=>row.commandLine?.includes('--updated')&&row.window&&String(row.version).startsWith(pkg.version)),180000);
+  let reopened;try{reopened=await until(processInfo,rows=>rows.some(row=>row.commandLine?.includes('--updated')&&row.window&&String(row.version).startsWith(pkg.version)),180000);}finally{
+    report.afterInstallation=installDiagnostics();try{report.installerProcess=JSON.parse(fs.readFileSync(observerOutput,'utf8'));}catch(error){report.installerProcess={error:String(error.message).slice(0,300)};}
+    console.log('Upgrade installation diagnostics '+JSON.stringify({before:report.beforeInstallation,after:report.afterInstallation,installer:report.installerProcess}));
+  }
   report.reopenedProcessIds=reopened.map(row=>row.pid);check('main installUpdate verifies/downloads and launches actual NSIS; force-run automatically reopens installed candidate with --updated');
   const current=await until(()=>JSON.parse(fs.readFileSync(libraryFile)),data=>data.items.some(item=>item.id===noteId));
   const keptNote=current.items.find(item=>item.id===noteId),keptImage=current.items.find(item=>item.id===image.id);
@@ -80,6 +94,7 @@ async function main(){
 }
 main().catch(error=>{report.passed=false;report.error=String(error.stack||error.message);console.error(report.error);process.exitCode=1;}).finally(async()=>{
   if(application)await application.close().catch(()=>{});
+  if(installerObserver&&!installerObserver.killed)installerObserver.kill();
   // Stop only this fixture's installed process tree. Never target other paths.
   try{for(const row of processInfo())execFileSync('taskkill.exe',['/PID',String(row.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});}catch{}
   fs.writeFileSync(path.join(output,'windows-upgrade.json'),JSON.stringify(report,null,2));
