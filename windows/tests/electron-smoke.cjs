@@ -23,6 +23,7 @@ async function main(){
   report.rendererErrors=[];page.on('pageerror',error=>{if(report.rendererErrors.length<20)report.rendererErrors.push(String(error.stack||error.message).slice(0,2000));});
   report.rendererConsole=[];page.on('console',entry=>{if(entry.type()==='error'&&report.rendererConsole.length<20)report.rendererConsole.push(entry.text().slice(0,2000));});
   await until(()=>application.evaluate(()=>!!global.__clipboardLineTest),Boolean);
+  const nativeInitialization=await application.evaluate(async()=>{try{return{focus:await global.__clipboardLineTest.native.capture()};}catch(error){return{error:error.message};}});assert.ok(!nativeInitialization.error,JSON.stringify(nativeInitialization));check('native UIA focus bridge initializes Microsoft system providers');
   const preferences=await page.evaluate(()=>window.clipboardLine.diagnostics());
   assert.equal(preferences.contextIsolated,true);assert.equal(preferences.sandboxed,true);
   assert.equal(await page.evaluate(()=>typeof require),'undefined');assert.equal(await page.evaluate(()=>typeof process),'undefined');check('sandbox and isolated, typed preload only');
