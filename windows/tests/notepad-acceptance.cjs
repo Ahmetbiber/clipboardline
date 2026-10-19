@@ -43,7 +43,7 @@ module.exports=async function notepadAcceptance({page,application,textItem,check
     if(ready.status==='unavailable'){
       result={application:'Notepad',status:'unavailable',reason:ready.reason};results.push(result);console.log('UNAVAILABLE Notepad: '+ready.reason);return result;
     }
-    assert.equal(ready.status,'ready',JSON.stringify({reason:ready.reason,discovery:ready.discovery}));
+    assert.equal(ready.status,'ready',JSON.stringify({reason:ready.reason,discovery:ready.discovery,discoveryErrors:ready.discoveryErrors,windows:ready.windows,processes:ready.notepadProcesses}));
     const focused=await command('focus');assert.equal(focused.text,seed);if(focused.selectionMethod==='UIA TextPattern')assert.equal(focused.selectedText,seed);else assert.equal(focused.selectionMethod,'Native CtrlA');assert.equal(focused.foreground,true);assert.equal(focused.editorFocused,true);
     await application.evaluate(()=>global.__clipboardLineTest.command('show'));
     const target=await application.evaluate(()=>global.__clipboardLineTest.getTarget());

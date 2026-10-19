@@ -4,13 +4,22 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class NotepadAcceptanceNative {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window,int command);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr window);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window,out uint processId);
+  private delegate bool WindowCallback(IntPtr window,IntPtr parameter);
+  [DllImport("user32.dll")] private static extern bool EnumWindows(WindowCallback callback,IntPtr parameter);
+  [DllImport("user32.dll",CharSet=CharSet.Unicode)] private static extern int GetWindowText(IntPtr window,StringBuilder text,int size);
+  [DllImport("user32.dll",CharSet=CharSet.Unicode)] private static extern int GetClassName(IntPtr window,StringBuilder text,int size);
+  public static IntPtr[] Windows() { var result=new List<IntPtr>();EnumWindows((window,parameter)=>{result.Add(window);return true;},IntPtr.Zero);return result.ToArray(); }
+  public static string Title(IntPtr window) { var text=new StringBuilder(2048);GetWindowText(window,text,text.Capacity);return text.ToString(); }
+  public static string Class(IntPtr window) { var text=new StringBuilder(256);GetClassName(window,text,text.Capacity);return text.ToString(); }
   [DllImport("user32.dll")] public static extern uint SendInput(uint count,INPUT[] inputs,int size);
   [StructLayout(LayoutKind.Sequential)] public struct INPUT { public uint type; public InputUnion union; }
   [StructLayout(LayoutKind.Explicit)] public struct InputUnion { [FieldOffset(0)] public KEYBDINPUT keyboard; [FieldOffset(0)] public MOUSEINPUT mouse; }
@@ -31,7 +40,7 @@ $configuration=[System.IO.File]::ReadAllText($Config)|ConvertFrom-Json
 # writes or a second paste path. Microsoft API contracts:
 # https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.textpattern.getselection
 # https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/find-and-highlight-text-using-ui-automation
-$script:status=@{status='starting';lastSerial='';commandError='';discovery=@()}
+$script:status=@{status='starting';lastSerial='';commandError='';discovery=@();discoveryErrors=@();windows=@();notepadProcesses=@()}
 $script:root=$null;$script:editor=$null;$script:textPattern=$null;$script:valuePattern=$null;$script:suffix='';$script:handle=[IntPtr]::Zero;$script:owner=0;$script:runtime='';$script:ownerStarted=$null
 function Write-State {
   $temporary=$configuration.output+'.tmp'
@@ -44,7 +53,7 @@ function Owned-Document {
   if ($ownerNow -ne $script:owner) { throw 'Notepad window ownership changed.' }
   $process=Get-Process -Id $ownerNow -ErrorAction Stop
   if ($process.ProcessName -ine 'notepad' -or $process.StartTime.ToUniversalTime().Ticks -ne $script:ownerStarted) { throw 'Notepad process identity changed.' }
-  if ($script:root.Current.Name.IndexOf([string]$configuration.token,[StringComparison]::OrdinalIgnoreCase) -lt 0) { throw 'Notepad changed away from the owned document; no other document was read.' }
+  if ([NotepadAcceptanceNative]::Title($script:handle).IndexOf([string]$configuration.token,[StringComparison]::OrdinalIgnoreCase) -lt 0) { throw 'Notepad changed away from the owned document; no other document was read.' }
   if ([string]::Join('.',$script:editor.GetRuntimeId()) -ne $script:runtime) { throw 'The owned Notepad editor changed.' }
 }
 function Raw-DocumentText {
@@ -99,17 +108,21 @@ try {
   catch { $script:status.status='unavailable';$script:status.reason='Windows Notepad could not be launched: '+$_.Exception.Message;Write-State;exit 0 }
   $deadline=[DateTime]::UtcNow.AddSeconds(25)
   do {
-    $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition)
-    foreach ($window in $windows) {
+    $script:status.windows=@();$script:status.notepadProcesses=@(Get-Process -Name notepad -ErrorAction SilentlyContinue|ForEach-Object {@{processId=$_.Id;handle=$_.MainWindowHandle.ToInt64().ToString();titleLength=$_.MainWindowTitle.Length;titleHasToken=$_.MainWindowTitle.IndexOf([string]$configuration.token,[StringComparison]::OrdinalIgnoreCase) -ge 0}})
+    foreach ($handle in [NotepadAcceptanceNative]::Windows()) {
+      $hasToken=$false
       try {
-        if ($window.Current.Name.IndexOf([string]$configuration.token,[StringComparison]::OrdinalIgnoreCase) -lt 0) { continue }
-        $process=Get-Process -Id $window.Current.ProcessId -ErrorAction Stop
+        [uint32]$windowOwner=0;[void][NotepadAcceptanceNative]::GetWindowThreadProcessId($handle,[ref]$windowOwner)
+        $process=Get-Process -Id $windowOwner -ErrorAction Stop
         if ($process.ProcessName -ine 'notepad') { continue }
+        $title=[NotepadAcceptanceNative]::Title($handle);$hasToken=$title.IndexOf([string]$configuration.token,[StringComparison]::OrdinalIgnoreCase) -ge 0
+        if ($script:status.windows.Count -lt 12) { $script:status.windows+=@{processId=$process.Id;handle=$handle.ToInt64().ToString();class=[NotepadAcceptanceNative]::Class($handle);titleLength=$title.Length;titleHasToken=$hasToken} }
+        if (-not $hasToken) { continue }
+        $window=[System.Windows.Automation.AutomationElement]::FromHandle($handle)
         # The unique active filename scopes every content read to our fixture.
-        $types=[System.Windows.Automation.OrCondition]::new(
-          [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Document),
-          [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Edit))
-        $editors=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,$types)
+        # Modern Notepad may expose a custom/Pane control with the standard
+        # text patterns. The exact UUID caption scopes this provider search.
+        $editors=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
         foreach ($candidate in $editors) {
           if ($candidate.Current.IsOffscreen -or -not $candidate.Current.IsEnabled -or $candidate.Current.IsPassword) { continue }
           $text=$null;[void]$candidate.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern,[ref]$text)
@@ -122,12 +135,12 @@ try {
           foreach ($terminator in @('',"`r","`r`n","`n")) { if ($raw -ceq ([string]$configuration.seed+$terminator)) {$suffix=$terminator;break} }
           if ($null -eq $suffix) { continue }
           $script:root=$window;$script:editor=$candidate;$script:textPattern=$text;$script:valuePattern=$value;$script:suffix=$suffix
-          $script:handle=[IntPtr]$window.Current.NativeWindowHandle;$script:owner=$process.Id;$script:ownerStarted=$process.StartTime.ToUniversalTime().Ticks;$script:runtime=[string]::Join('.',$candidate.GetRuntimeId())
+          $script:handle=$handle;$script:owner=$process.Id;$script:ownerStarted=$process.StartTime.ToUniversalTime().Ticks;$script:runtime=[string]::Join('.',$candidate.GetRuntimeId())
           $version='';try {$version=[string]$process.MainModule.FileVersionInfo.FileVersion} catch {}
-          $script:status=@{status='ready';lastSerial='';commandError='';handle=$script:handle.ToInt64().ToString();processId=$script:owner;runtime=$script:runtime;version=$version;processHandoff=$process.Id -ne $launcher.Id;providerTerminator=$suffix.Replace("`r",'CR').Replace("`n",'LF');selectionMethod=if ($null -ne $text) {'UIA TextPattern'} else {'Native CtrlA'};discovery=$script:status.discovery}
+          $script:status=@{status='ready';lastSerial='';commandError='';handle=$script:handle.ToInt64().ToString();processId=$script:owner;runtime=$script:runtime;version=$version;processHandoff=$process.Id -ne $launcher.Id;providerTerminator=$suffix.Replace("`r",'CR').Replace("`n",'LF');selectionMethod=if ($null -ne $text) {'UIA TextPattern'} else {'Native CtrlA'};discovery=$script:status.discovery;discoveryErrors=$script:status.discoveryErrors;windows=$script:status.windows;notepadProcesses=$script:status.notepadProcesses}
           break
         }
-      } catch { }
+      } catch { if ($hasToken -and $script:status.discoveryErrors.Count -lt 6) { $script:status.discoveryErrors+=@{kind=$_.Exception.GetType().FullName;message=$_.Exception.Message.Substring(0,[Math]::Min(256,$_.Exception.Message.Length))} } }
       if ($null -ne $script:editor) { break }
     }
     if ($null -eq $script:editor) { Start-Sleep -Milliseconds 150 }
@@ -170,7 +183,7 @@ try {
             do {
               Start-Sleep -Milliseconds 100
               $stillOwned=$false
-              try {$stillOwned=[NotepadAcceptanceNative]::IsWindow($script:handle) -and $script:root.Current.Name.IndexOf([string]$configuration.token,[StringComparison]::OrdinalIgnoreCase) -ge 0} catch {}
+              try {$stillOwned=[NotepadAcceptanceNative]::IsWindow($script:handle) -and [NotepadAcceptanceNative]::Title($script:handle).IndexOf([string]$configuration.token,[StringComparison]::OrdinalIgnoreCase) -ge 0} catch {}
             } while ($stillOwned -and [DateTime]::UtcNow -lt $closedDeadline)
             $script:status.documentClosed=-not $stillOwned;$script:status.status='closed';$keepRunning=$false
           } else { throw 'Unknown Notepad fixture action.' }
