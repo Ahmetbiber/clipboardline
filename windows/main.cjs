@@ -7,6 +7,7 @@ const {pathToFileURL} = require('node:url');
 const {spawn} = require('node:child_process');
 const {Store,plainURL,ids} = require('./lib/model.cjs');
 const {privateClipboard}=require('./lib/clipboard-policy.cjs');
+const {mediaOrigin}=require('./lib/media-policy.cjs');
 const native = require('./lib/native.cjs');
 const {metadataFetch,linkMetadata} = require('./lib/network.cjs');
 const {Updates} = require('./lib/updates.cjs');
@@ -211,18 +212,17 @@ else app.whenReady().then(async()=>{
   protocol.handle('appmedia',async request=>{
     try{
       if(testMode&&mediaDiagnostics.length<100)mediaDiagnostics.push({method:request.method,origin:request.headers.get('Origin'),initiator:request.initiatorOrigin??null});
-      // CORS permits the local opaque-origin editor to export its canvas.
+      // CORS permits the local editor to export its canvas.
       // Sender/frame controls remain the application authorization boundary;
       // origin checks here also reject remote-site media reads.
-      if(request.method!=='GET')return new Response('Not found',{status:404});
-      if(request.initiatorOrigin&&!['null','file://'].includes(request.initiatorOrigin))return new Response('Not found',{status:404});
-      if(request.headers.get('Origin')&&request.headers.get('Origin')!=='null')return new Response('Not found',{status:404});
+      const corsOrigin=mediaOrigin({method:request.method,origin:request.headers.get('Origin'),initiator:request.initiatorOrigin});
+      if(!corsOrigin)return new Response('Not found',{status:404});
       const url=new URL(request.url);const match=/^\/([0-9a-f-]{36})(\/original|\/thumbnail)?$/.exec(url.pathname);
       if(url.hostname!=='media'||!match||url.search||url.hash)return new Response('Not found',{status:404});
       let file;
       if(match[2]==='/thumbnail'){const item=store.item(match[1]);if(!/^[a-f0-9]{64}\.png$/.test(item.thumbnailFile||''))return new Response('Not found',{status:404});file=path.join(store.mediaDirectory,item.thumbnailFile);if(fs.lstatSync(file).isSymbolicLink())return new Response('Not found',{status:404});}
       else file=store.mediaPath(match[1],match[2]==='/original');
-      const response=await net.fetch(pathToFileURL(file).href);return new Response(response.body,{headers:{'Content-Type':'image/png','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Access-Control-Allow-Origin':'null','Vary':'Origin'}});
+      const response=await net.fetch(pathToFileURL(file).href);return new Response(response.body,{headers:{'Content-Type':'image/png','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Access-Control-Allow-Origin':corsOrigin,'Vary':'Origin'}});
     }catch{return new Response('Not found',{status:404});}
   });
   window=new BrowserWindow({width:1200,height:760,minWidth:640,minHeight:360,show:false,frame:false,backgroundColor:'#18191d',alwaysOnTop:true,icon:appIcon(),
