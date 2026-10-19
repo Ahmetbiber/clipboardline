@@ -4,9 +4,9 @@
 
 Images, text and links, close at hand. Keep recent copies on three shelves, save what matters in a local Library, and move through it all with your keyboard.
 
-[Türkçe README](README.tr.md) · [Download for Mac](https://github.com/orkunisitmak/clipboardline-app/releases/latest) · [Explore source](https://github.com/orkunisitmak/clipboardline-desktop)
+[Türkçe README](README.tr.md) · [Download for Mac](https://github.com/orkunisitmak/clipboardline-app/releases/latest) · [Download for Windows x64](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.0-build62/ClipBoardLine-Setup-1.7.0-x64.exe) · [Explore source](https://github.com/orkunisitmak/clipboardline-desktop)
 
-> The current application uses Swift, AppKit, SwiftUI, Vision and Core ML. It supports macOS 14 or later on Apple silicon and Intel. A separate Windows implementation is included in this source repository; see the platform matrix below for gaps and native validation status.
+> The macOS edition uses Swift, AppKit, SwiftUI, Vision and Core ML on macOS 14 or later, for Apple silicon and Intel. The separate Electron edition is available for Windows x64; see the platform matrix for differences and native validation evidence.
 
 ## Your first five minutes
 
@@ -38,7 +38,7 @@ Images, text and links, close at hand. Keep recent copies on three shelves, save
 
 ## macOS default keyboard shortcuts
 
-This table lists macOS defaults. Windows modifiers and global keys are listed in the platform matrix below; see the [Windows guide](windows/README.md) for its own behavior. Settings → Keyboard shortcuts can change or disable browsing bindings and global hotkeys. Single-letter keys belong to the app only while browsing; text fields keep normal typing. ⌘ Command · ⌥ Option/Alt · ⌃ Control · ⇧ Shift.
+This table lists macOS defaults. The complete [Windows keymap](#windows-default-keyboard-shortcuts) below has its own contexts; see also the [Windows guide](windows/README.md). Settings → Keyboard shortcuts can change or disable browsing bindings and global hotkeys. Single-letter keys belong to the app only while browsing; text fields keep normal typing. ⌘ Command · ⌥ Option/Alt · ⌃ Control · ⇧ Shift.
 
 ### Global access
 
@@ -119,6 +119,104 @@ This table lists macOS defaults. Windows modifiers and global keys are listed in
 | `T` | Text annotation | Select then double-click existing text to edit again. |
 | `Backspace / Forward Delete` | Delete selected annotation | In markup; does not remove the shelf item. |
 
+## Windows default keyboard shortcuts
+
+These are the Windows defaults, separate from the macOS table. Control replaces Command and Alt replaces Option, but the scopes below are authoritative. The three global keys and the 48 local action bindings can be changed or disabled in Settings → Keyboard shortcuts. Fixed Enter, Escape, selection aliases, dialog and editor control keys keep their contextual behavior; changing a local action does not remap those fixed handlers. Text fields keep normal typing before browsing shortcuts.
+
+[Windows native guide](windows/README.md) · [Platform differences](#platform-support-and-current-gaps)
+
+### Windows · Global access
+
+| Default | Action | Where / details |
+| --- | --- | --- |
+| `Ctrl+Alt+Space` | Show / hide shelves | Works while another application is active. |
+| `Ctrl+Alt+S` | Open shelf search | Shows shelves with the shared search field focused. |
+| `Ctrl+Alt+A` | Capture a screen | Captures the display under the pointer; opens the new image in crop/preview. |
+
+### Windows · Browse, select and find
+
+| Default | Action | Where / details |
+| --- | --- | --- |
+| `L` | Open Library | From focused shelves or a shelf-origin preview. |
+| `← / →` | Previous / next item | Shelves, Library and previews; the preview changes in place. |
+| `↑ / ↓` | Move between rows or items | Shelf search / shelf preview: previous or next visible nonempty shelf. Library and its previews: grid row (list: item). Shelves outside search: previous / next item. |
+| `Ctrl+← / Ctrl+→` | First / last result | Current shelf or Library result set, including previews. |
+| `Alt+← / Alt+→` | Previous / next page | Nine-item jumps in the active shelf; also jumps nine Library results. Works in previews. |
+| `Tab / Shift+Tab` | Cycle active shelf | Both cycle in the same direction. Shelves only; dialogs use normal focus traversal. |
+| `1–9` | Choose numbered card | Active shelf’s current nine-item page; outside preview. |
+| `Shift+← / Shift+→ / Shift+↑ / Shift+↓` | Extend selection | While browsing shelves or Library; text fields keep normal editing. |
+| `Ctrl+A` | Select all current results | Active shelf or current Library result set. |
+| `Ctrl+Click / Shift+Click` | Individual / range selection | Add or remove individual cards; extend a contiguous range. |
+| `Shift+S` | Search visible shelves | One literal query across enabled image OCR, text and link rows. Hidden shelves are excluded. |
+| `Ctrl+F` | Focus Library search | Library browsing only. Native editing fields keep their shortcuts. |
+| `Ctrl+0 / Ctrl+1 / Ctrl+2 / Ctrl+3` | All / images / text / links | Library type filters only. |
+| `Ctrl+K` | Open Actions | Shelves, Library, previews and Settings; not during text-preview editing. Type to filter; ↑/↓ choose; Enter runs; Esc closes. |
+| `Enter / ↑ / ↓ / Esc in search` | Leave or close search | Enter or arrows focus results; press Enter again to copy. Esc clears the query and closes shelf search. |
+
+### Windows · Copy, organize and recover
+
+| Default | Action | Where / details |
+| --- | --- | --- |
+| `Enter` | Copy and return focus | Browsing: copies the selection/current preview and closes the window. Windows also closes Library-origin browsing; macOS Library differs. Editing and dialogs handle Enter first. |
+| `Ctrl+C` | Copy and keep browsing | Selected batch, or the current item when a preview is open. |
+| `Ctrl+Enter` | Paste into the previous app | Needs the original editable target; secure or changed targets are rejected. While editing text/image, saves and finishes editing first. |
+| `P / Ctrl+P` | Toggle pin / favorite | One action for images, text and links; supports selected batches. Ctrl+P is a fixed alias. |
+| `F / Ctrl+Shift+F` | Toggle pinned-only results | Active shelf, or Library saved/pinned scope; previews support it. Ctrl+Shift+F is a fixed alias. |
+| `Shift+P` | Pin to folder | Batch picker: type to filter; ↑/↓ choose; Enter confirms; Esc exits. Ctrl+N creates a folder in the picker. |
+| `Alt+P` | Name and pin | With multiple selections, Enter saves the current name and advances; Esc leaves remaining items unchanged. |
+| `Ctrl+Shift+T` | Add tags | Applies to the selected batch; preserves each item’s existing tags. |
+| `S` | Take down from shelf | Shelves/shelf previews only. The next surviving neighbor stays selected and an open preview stays open. Saved records remain in Library. |
+| `Backspace` | Undo shelf take-down | Shelves/previews: latest removal, up to 32 batches this session. Library opens the Trash confirmation instead. |
+| `Delete` | Move to Trash with confirmation | Browsing shelves or Library. In an image editor, deletes the selected annotation instead. |
+| `Ctrl+Shift+E` | Export selected copies | Choose a destination folder; external originals stay in place. |
+
+### Windows · Shelf visibility
+
+| Default | Action | Where / details |
+| --- | --- | --- |
+| `Shift+I / Shift+T / Shift+L` | Toggle Images / Texts / Links | Shelves and shelf-origin previews. Closing the last row hides the shelves. |
+| `Ctrl+Shift+B` | All shelves / active shelf | Shelves only; Library type filters are separate. |
+
+### Windows · Preview, text and image editing
+
+| Default | Action | Where / details |
+| --- | --- | --- |
+| `Space` | Open / close preview | While browsing. In text fields it types a space; in image editing it is held to pan. |
+| `Esc` | Close current layer | Outside editing: closes preview, then search, then hides the app. Dialogs and editors use the rules below. |
+| `Ctrl+O` | Open selected link in browser | Selected link in shelves, Library or preview; Ctrl+Enter remains paste. |
+| `Ctrl+Shift+C` | Copy recognized image text | Selected image or image preview; local English/Turkish OCR. Keeps browsing open. |
+| `E` | Edit text | Opens the selected text’s editable preview. Enter adds a newline; Ctrl+Enter or Esc saves and finishes. |
+| `M` | Enter / finish image markup | Selected image or image preview. When an image editor is already open, saves and finishes it. |
+| `C` | Open image crop | Selected image, image preview or markup; original pixels remain available. |
+| `Enter / Esc in crop` | Apply / cancel crop | Enter saves and leaves the editor. Esc restores the pre-crop area and switches to the Select tool, keeping the editor open. |
+| `Ctrl+Enter / Esc in markup` | Save and finish markup | Outside the Crop tool, either saves and finishes. Plain Enter does not copy while editing. Save failures keep the draft open. |
+| `Ctrl+S` | Save without leaving markup | Image editor only; keeps editing open. |
+| `Ctrl+Z / Ctrl+Shift+Z` | Undo / redo image edits | Current image-editor session. Native text fields keep their own undo. |
+| `Backspace / Delete in markup` | Delete selected annotation | Does not remove the image item; crop selection is separate. |
+| `Wheel / double-click` | Zoom / reset image | Wheel zooms from 100% to 400% of the initial fit; double-click outside editing resets. |
+| `Drag / Shift+wheel / hold Space+drag` | Pan image | Drag when zoomed; Shift+wheel pans. In image editing, hold Space and drag. |
+
+### Windows · Markup tools
+
+| Default | Action | Where / details |
+| --- | --- | --- |
+| `V` | Select / move / resize annotation | Image editor only. Double-click an existing text annotation to edit its text. |
+| `B / H` | Pen / translucent marker | Image editor only; color and width are in the top toolbar. |
+| `R / O` | Rectangle / ellipse | Image editor; hold Shift while drawing for a square / circle. |
+| `A / D` | Arrow / line | Image editor; hold Shift while drawing to constrain angles to 45° steps. |
+| `T` | Text annotation | Image editor only; opens a dialog for the annotation’s text. |
+
+### Windows · Dialogs and shortcut recording
+
+| Default | Action | Where / details |
+| --- | --- | --- |
+| `↑ / ↓ / Enter / Esc` | Choose, confirm or cancel | Actions and folder pickers. In a multiline note, Enter is a newline; Ctrl+Enter confirms. |
+| `Ctrl+N in folder picker` | Create a folder | Returns to the picker after creation. |
+| `Tab / Shift+Tab in dialogs` | Move focus | Dialog focus is contained in its controls; these keys do not switch shelves there. |
+| `Esc / Backspace / Delete while recording` | Cancel / disable a binding | Esc cancels recording. Backspace or Delete records Off; choose Save to apply. These recording keys are fixed. |
+
+The supported global actions are shelves, search and screen capture. Separate global Library and copy-latest shortcuts are not implemented. See the Windows native guide for collection defaults, platform gaps, build commands and native acceptance evidence.
+
 ## Local collection. Explicit connections.
 
 - **Stored on your Mac.** History, folders, tags, notes, thumbnails and search indexes live locally. ClipBoardLine does not provide cloud sync. Local storage is not a password vault; choose what you copy and retain.
@@ -163,6 +261,8 @@ Sparkle provides the updater. Apple Vision and the original MobileCLIP-S2 models
 
 
 ## Platform support and current gaps
+
+The first Windows edition, [1.7.0 build 62](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.0-build62), is available as an [x64 installer](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.0-build62/ClipBoardLine-Setup-1.7.0-x64.exe). [Native Windows CI](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39260700144) passed all 71 acceptance checks: 23 from source, 24 packaged and 24 installed, including real text/image paste, image-batch copying, capture, crop and local OCR. The platform differences below remain.
 
 The Windows source implementation is included; native acceptance is tracked separately for source, packaged and installed Windows builds. A passing JavaScript test is not proof of native paste or installer behavior. Check the Windows CI result and release assets before treating a build as validated. macOS and Windows data stores are separate; cross-device sync and automatic migration between them are not provided.
 

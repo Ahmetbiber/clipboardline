@@ -10,6 +10,8 @@ checks. A passing model or renderer test on another operating system does not
 certify native Windows paste, capture, global keys or installation. Check the
 actual Windows CI result and release assets for the build you use.
 
+The first Windows edition is [1.7.0 build 62](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.0-build62): [download the x64 installer](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.0-build62/ClipBoardLine-Setup-1.7.0-x64.exe). [Native Windows CI](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39260700144) passed all **71 acceptance checks** (source 23, packaged 24, installed 24), including actual text/image paste, image batches, capture, crop and local OCR. The documented platform gaps still apply.
+
 ## Start with collection off
 
 Clipboard text, image and link capture all default to **off**. Open **Settings →
@@ -26,50 +28,9 @@ place. There is no cloud sync, automatic macOS history import or encrypted vault
 
 ## Keyboard workflow
 
-Local bindings can be changed or disabled in **Settings → Keyboard shortcuts**.
-Single-letter keys apply while browsing; text fields keep normal editing.
+The complete [English Windows keymap](../README.md#windows-default-keyboard-shortcuts) and [Turkish Windows keymap](../README.tr.md#windows-varsayılan-klavye-kısayolları) list all three global shortcuts, 48 configurable local actions, fixed editor/dialog keys and their contexts. The static [English index](../docs/index.html#windows-shortcuts) and [Turkish index](../docs/tr/index.html#windows-shortcuts) carry the same reference.
 
-| Default | Action and scope |
-| --- | --- |
-| `Ctrl+Alt+Space` | Show/hide shelves from another application. |
-| `Ctrl+Alt+S` | Show shelves with search focused. |
-| `Ctrl+Alt+A` | Capture the current display, then open image crop/preview. |
-| `L` | Open Library from shelves. |
-| `Tab` / `Shift+Tab` | Cycle the active shelf. |
-| `Left` / `Right` | Previous/next item. |
-| `Up` / `Down` | Shelf search or shelf preview: previous/next visible nonempty row. Library: grid row or list item. Outside shelf search: previous/next item. |
-| `Ctrl+Left` / `Ctrl+Right` | First/last result. |
-| `Alt+Left` / `Alt+Right` | Previous/next page of nine shelf cards. |
-| `1`–`9` | Choose the numbered card on the active shelf's current page. |
-| `Shift+arrows` / `Ctrl+Click` / `Ctrl+A` | Range, individual and all-result selection. |
-| `Space` | Open/close the focused item's preview. |
-| `Enter` | Copy the selection/current preview, close the browsing window and return focus. This also closes Library-origin browsing in Windows; macOS Library differs. |
-| `Ctrl+C` | Copy while keeping browsing open. |
-| `Ctrl+Enter` | Explicitly paste into the previous editable Windows field. Secure or changed targets are rejected. In a text editor it first saves/finishes editing. |
-| `P` / `Ctrl+P` | Toggle pin/favorite. |
-| `F` / `Ctrl+Shift+F` | Toggle pinned-only results. |
-| `Shift+P` | Pin to folder; type to filter, arrows to choose, Enter to confirm. `Ctrl+N` creates a folder in the picker. |
-| `Alt+P` | Name and pin; with a batch, Enter saves then advances, Esc exits without changing the rest. |
-| `Ctrl+Shift+T` | Add tags to the selected items. |
-| `S` | Take down from shelves; preview advances to a surviving neighbor. |
-| `Backspace` | Undo shelf take-down; in Library it opens the Trash confirmation. |
-| `Delete` | Open the Trash confirmation. |
-| `Ctrl+Shift+E` | Export selected copies through a folder chooser. |
-| `Shift+S` | One text/OCR search across enabled shelves. Enter/Up/Down leaves the field for browsing; a subsequent Enter copies. |
-| `Ctrl+F` | Focus Library search. |
-| `Ctrl+0` / `Ctrl+1` / `Ctrl+2` / `Ctrl+3` | Library filter: all/image/text/link. |
-| `Ctrl+K` | Contextual Actions; arrows browse, Enter runs, Esc cancels. |
-| `Shift+I` / `Shift+T` / `Shift+L` | Toggle image/text/link shelves. |
-| `Ctrl+Shift+B` | Toggle all shelves versus the current shelf. |
-| `Ctrl+O` | Open the selected link in the default browser. |
-| `Ctrl+Shift+C` | Recognize and copy text from the selected image locally. |
-| `E` | Edit a text preview. Enter adds a newline; Ctrl+Enter or Esc saves and finishes. |
-| `M` / `C` | Enter image markup / crop. |
-| `V`, `B`, `H`, `R`, `O`, `A`, `D`, `T` | Markup: select, pen, marker, rectangle, ellipse, arrow, line, text. |
-| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo/redo in the current image editor session. |
-| `Ctrl+S` | Save image edits without leaving markup. |
-| `Enter` / `Esc` in crop | Apply / cancel the pending crop. |
-| Wheel / drag | Zoom 100–400% of fitted view and pan; double-click resets. Hold Space to pan while marking up. |
+Single-letter commands apply while browsing; text fields keep normal typing. Fixed native/editor control keys keep their own contexts even when an action binding is changed. In Windows, Enter copies and closes Library-origin browsing as well as shelf-origin browsing; macOS Library behavior differs.
 
 The global actions currently supported are shelf toggle, shelf search and screen
 capture. Separate global Library and copy-latest hotkeys are not implemented.
@@ -125,6 +86,8 @@ See [component licenses and notices](THIRD_PARTY_NOTICES.md), the project
 
 ## Türkçe
 
+İlk Windows sürümü [1.7.0 build 62](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.0-build62) için [x64 kurulumunu indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.0-build62/ClipBoardLine-Setup-1.7.0-x64.exe). [Gerçek Windows CI](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39260700144) 71 kabul kontrolünü geçti (kaynaktan 23, paketlenmiş 24, kurulmuş 24); gerçek metin/görsel yapıştırma, görsel grupları, yakalama, kırpma ve yerel OCR dahildir. Belgelenmiş platform farkları sürer.
+
 Bu klasör, ayrı Electron/Windows uygulamasını içerir. Kaynak, paketlenmiş ve
 kurulmuş uygulamanın yerel kabul testleri ayrıdır; başka sistemde geçen JavaScript
 testi, Windows'ta gerçek yapıştırma veya kurulumun geçtiği anlamına gelmez.
@@ -138,8 +101,7 @@ sunulmaz.
 
 Windows'ta Command yerine **Control**, Option yerine **Alt** kullanılır. Genel
 kısayollar `Ctrl+Alt+Space` (askı), `Ctrl+Alt+S` (arama) ve `Ctrl+Alt+A` (ekran
-yakalama) olarak gelir; Ayarlar'dan değiştirilebilir. Yukarıdaki tablo Windows'a
-özgü varsayılanların tamamını ve bağlamlarını gösterir. Enter Windows'ta
+yakalama) olarak gelir; Ayarlar'dan değiştirilebilir. [Türkçe Windows kısayol tablosu](../README.tr.md#windows-varsayılan-klavye-kısayolları), üç genel ve 48 değiştirilebilir yerel işlemin yanı sıra sabit düzenleyici/pencere tuşlarını ve bağlamlarını içerir. Enter Windows'ta
 kütüphaneden de kopyalayıp pencereyi kapatır; macOS kütüphane davranışı farklıdır.
 
 Görsel anlam araması, Quick Look ve kayıt Trim eşdeğeri yoktur. Tesseract OCR

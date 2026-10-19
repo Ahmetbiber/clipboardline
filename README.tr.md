@@ -4,9 +4,9 @@
 
 Görseller, metinler ve linkler elinin altında. Son kopyalarını üç askıda tut, önemli olanları yerel kütüphaneye kaydet ve tümünde klavyeyle hızla gezin.
 
-[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-app/releases/latest) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop)
+[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-app/releases/latest) · [Windows x64 için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.0-build62/ClipBoardLine-Setup-1.7.0-x64.exe) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop)
 
-> Mevcut uygulama Swift, AppKit, SwiftUI, Vision ve Core ML kullanır. Apple silicon ve Intel’de macOS 14 veya üstünü destekler. Ayrı Windows uygulaması bu kaynak deposuna dahildir; farklar ve yerel doğrulama durumu aşağıdaki platform tablosundadır.
+> macOS sürümü Swift, AppKit, SwiftUI, Vision ve Core ML kullanır; Apple silicon ve Intel’de macOS 14 veya üstünü destekler. Ayrı Electron sürümü Windows x64 için kullanılabilir; farklar ve gerçek Windows doğrulama kanıtı aşağıdaki platform tablosundadır.
 
 ## İlk beş dakikan
 
@@ -38,7 +38,7 @@ Görseller, metinler ve linkler elinin altında. Son kopyalarını üç askıda 
 
 ## macOS varsayılan klavye kısayolları
 
-Bu tablo macOS varsayılanlarını gösterir. Windows değiştiricileri ve genel kısayolları aşağıdaki platform tablosunda, ek ayrıntılar [Windows rehberinde](windows/README.md) bulunur. Ayarlar → Klavye kısayolları bölümünden gezinme tuşları ve genel kısayollar değiştirilebilir veya kapatılabilir. Tek harfli tuşlar yalnızca gezinirken uygulama komutu olur; metin alanlarında normal yazım korunur. ⌘ Command · ⌥ Option/Alt · ⌃ Control · ⇧ Shift.
+Bu tablo macOS varsayılanlarını gösterir. Aşağıdaki [Windows kısayol tablosu](#windows-varsayılan-klavye-kısayolları) kendi bağlamlarını açıklar; ek ayrıntılar [Windows rehberindedir](windows/README.md#türkçe). Ayarlar → Klavye kısayolları bölümünden gezinme tuşları ve genel kısayollar değiştirilebilir veya kapatılabilir. Tek harfli tuşlar yalnızca gezinirken uygulama komutu olur; metin alanlarında normal yazım korunur. ⌘ Command · ⌥ Option/Alt · ⌃ Control · ⇧ Shift.
 
 ### Her uygulamadan erişim
 
@@ -119,6 +119,104 @@ Bu tablo macOS varsayılanlarını gösterir. Windows değiştiricileri ve genel
 | `T` | Metin işareti | Var olan metni seçip çift tıklayarak yeniden düzenle. |
 | `Backspace / Forward Delete` | Seçili işareti sil | İşaretleme modunda; askıdaki öğeyi kaldırmaz. |
 
+## Windows varsayılan klavye kısayolları
+
+Bunlar macOS tablosundan ayrı Windows varsayılanlarıdır. Command yerine Control, Option yerine Alt kullanılır; geçerli bağlam aşağıdaki tablodur. Üç genel kısayol ve 48 yerel işlem kısayolu Ayarlar → Klavye kısayolları bölümünden değiştirilebilir veya kapatılabilir. Sabit Enter, Escape, seçim eşdeğerleri, pencere ve düzenleyici denetimleri bağlama göre davranmaya devam eder; yerel bir işlemi değiştirmek bu sabit işleyicileri değiştirmez. Metin alanlarında normal yazım, gezinme kısayollarından önce gelir.
+
+[Windows yerel kullanım rehberi](windows/README.md#türkçe) · [Platform farkları](#platform-desteği-ve-mevcut-farklar)
+
+### Windows · Her uygulamadan erişim
+
+| Varsayılan | İşlem | Nerede / ayrıntı |
+| --- | --- | --- |
+| `Ctrl+Alt+Space` | Askıları aç / kapat | Başka uygulama etkinken çalışır. |
+| `Ctrl+Alt+S` | Askı aramasını aç | Askıları, ortak arama alanı odaktayken açar. |
+| `Ctrl+Alt+A` | Ekran görüntüsü al | İmlecin bulunduğu ekranı yakalar; yeni görseli kırpma/önizlemede açar. |
+
+### Windows · Gezinme, seçim ve arama
+
+| Varsayılan | İşlem | Nerede / ayrıntı |
+| --- | --- | --- |
+| `L` | Kütüphaneyi aç | Odaklı askılardan veya askıdan açılmış önizlemeden. |
+| `← / →` | Önceki / sonraki öğe | Askılar, kütüphane ve önizlemeler; önizleme yerinde değişir. |
+| `↑ / ↓` | Satırlar veya öğeler arasında gezin | Askı araması / askı önizlemesi: önceki veya sonraki görünür dolu askı. Kütüphane ve önizlemesi: ızgara satırı (listede öğe). Askıda arama dışında: önceki / sonraki öğe. |
+| `Ctrl+← / Ctrl+→` | İlk / son sonuç | Geçerli askı veya kütüphane sonuçları; önizlemeler dahil. |
+| `Alt+← / Alt+→` | Önceki / sonraki sayfa | Etkin askıda dokuz öğe atlar; kütüphanede de dokuz sonuç ilerler. Önizlemede çalışır. |
+| `Tab / Shift+Tab` | Etkin askıyı değiştir | İkisi de aynı yönde döner. Yalnızca askılar; pencerelerde normal odak geçişi kullanılır. |
+| `1–9` | Numaralı kartı seç | Etkin askının geçerli dokuz öğelik sayfası; önizleme dışındayken. |
+| `Shift+← / Shift+→ / Shift+↑ / Shift+↓` | Seçimi genişlet | Askılarda veya kütüphanede gezinirken; metin alanlarında normal düzenleme korunur. |
+| `Ctrl+A` | Geçerli sonuçların tümünü seç | Etkin askı veya geçerli kütüphane sonuçları. |
+| `Ctrl+Click / Shift+Click` | Tekil / aralık seçimi | Kartları tek tek ekle veya çıkar; bitişik bir aralığı seç. |
+| `Shift+S` | Görünür askılarda ara | Açık görsel OCR, metin ve link satırlarında tek sözcük araması. Kapalı askılar dahil edilmez. |
+| `Ctrl+F` | Kütüphane aramasını odakla | Yalnız kütüphanede gezinirken. Yerel düzenleme alanları kendi kısayollarını korur. |
+| `Ctrl+0 / Ctrl+1 / Ctrl+2 / Ctrl+3` | Tümü / görsel / metin / link | Yalnız kütüphane tür filtreleri. |
+| `Ctrl+K` | Eylemler’i aç | Askılar, kütüphane, önizlemeler ve Ayarlar; metin önizlemesini düzenlerken çalışmaz. Yazarak ara; ↑/↓ seç; Enter çalıştır; Esc kapat. |
+| `Enter / ↑ / ↓ / Esc (arama)` | Aramadan sonuçlara geç / aramayı kapat | Enter veya oklar sonuçları odaklar; kopyalamak için yeniden Enter. Esc sorguyu temizler ve askı aramasını kapatır. |
+
+### Windows · Kopyalama, düzenleme ve kurtarma
+
+| Varsayılan | İşlem | Nerede / ayrıntı |
+| --- | --- | --- |
+| `Enter` | Kopyala ve odağı geri ver | Gezinirken seçimi/geçerli önizlemeyi kopyalar ve pencereyi kapatır. Windows’ta kütüphaneden de kapanır; macOS kütüphanesi farklıdır. Düzenleyiciler ve pencereler Enter’ı önce kendileri işler. |
+| `Ctrl+C` | Kopyala ve gezinmeye devam et | Seçili grup veya önizleme açıksa geçerli öğe. |
+| `Ctrl+Enter` | Önceki uygulamaya yapıştır | Önceki düzenlenebilir hedef gerekir; güvenli veya değişmiş hedefler reddedilir. Metin/görsel düzenlerken önce kaydedip düzenlemeyi bitirir. |
+| `P / Ctrl+P` | Sabitle / favori durumunu değiştir | Görsel, metin ve linkler için tek işlem; çoklu seçimi destekler. Ctrl+P sabit eşdeğerdir. |
+| `F / Ctrl+Shift+F` | Yalnız sabitlenenleri aç/kapat | Etkin askı veya kütüphanenin kayıtlı/sabitlenen kapsamı; önizlemede çalışır. Ctrl+Shift+F sabit eşdeğerdir. |
+| `Shift+P` | Klasöre ekleyerek sabitle | Toplu seçici: yazarak ara; ↑/↓ seç; Enter onayla; Esc çık. Seçicide Ctrl+N klasör oluşturur. |
+| `Alt+P` | Adlandır ve sabitle | Çoklu seçimde Enter geçerli adı kaydedip sıradakine geçer; Esc kalan öğeleri değiştirmeden çıkar. |
+| `Ctrl+Shift+T` | Etiket ekle | Seçili gruba uygulanır; her öğenin mevcut etiketlerini korur. |
+| `S` | Askıdan kaldır | Yalnız askılar/askı önizlemeleri. Sıradaki kalan komşu seçilir; açık önizleme kapanmaz. Saklanan kayıtlar kütüphanede kalır. |
+| `Backspace` | Askı kaldırmasını geri al | Askılar/önizlemeler: son kaldırma; bu oturumda en fazla 32 grup. Kütüphanede Çöp Kutusu onayını açar. |
+| `Delete` | Onayla Çöp Kutusu’na taşı | Askı veya kütüphanede gezinirken. Görsel düzenleyicide seçili işareti siler. |
+| `Ctrl+Shift+E` | Seçili kopyaları dışa aktar | Hedef klasörü seç; harici orijinaller yerinde kalır. |
+
+### Windows · Askı görünürlüğü
+
+| Varsayılan | İşlem | Nerede / ayrıntı |
+| --- | --- | --- |
+| `Shift+I / Shift+T / Shift+L` | Görseller / Metinler / Linkler askısını aç/kapat | Askılar ve askıdan açılan önizlemeler. Son satırı kapatmak askıları gizler. |
+| `Ctrl+Shift+B` | Tüm askılar / etkin askı | Yalnız askılarda; kütüphane tür filtreleri ayrıdır. |
+
+### Windows · Önizleme, metin ve görsel düzenleme
+
+| Varsayılan | İşlem | Nerede / ayrıntı |
+| --- | --- | --- |
+| `Space` | Önizlemeyi aç / kapat | Gezinirken. Metin alanında boşluk yazar; görsel düzenlerken gezinmek için basılı tutulur. |
+| `Esc` | Geçerli katmanı kapat | Düzenleme dışında: önizlemeyi, sonra aramayı kapatır, sonra uygulamayı gizler. Pencereler ve düzenleyiciler aşağıdaki kuralları kullanır. |
+| `Ctrl+O` | Seçili linki tarayıcıda aç | Askıda, kütüphanede veya önizlemede seçili link; Ctrl+Enter yapıştırma içindir. |
+| `Ctrl+Shift+C` | Görselde tanınan yazıyı kopyala | Seçili görsel veya görsel önizlemesi; yerel İngilizce/Türkçe OCR. Gezinme açık kalır. |
+| `E` | Metni düzenle | Seçili metnin düzenlenebilir önizlemesini açar. Enter satır ekler; Ctrl+Enter veya Esc kaydedip bitirir. |
+| `M` | Görsel işaretlemeyi aç / bitir | Seçili görsel veya görsel önizlemesi. Görsel düzenleyici zaten açıksa kaydedip bitirir. |
+| `C` | Görsel kırpmayı aç | Seçili görsel, görsel önizlemesi veya işaretleme; özgün pikseller korunur. |
+| `Enter / Esc (kırpma)` | Kırpmayı uygula / iptal et | Enter kaydedip düzenleyiciden çıkar. Esc önceki kırpma alanını geri getirir, Seç aracına geçer ve düzenleyiciyi açık tutar. |
+| `Ctrl+Enter / Esc (işaretleme)` | İşaretlemeyi kaydet ve bitir | Kırpma aracı dışındayken ikisi de kaydedip bitirir. Düzenlerken tek Enter kopyalamaz. Kaydetme başarısızsa taslak açık kalır. |
+| `Ctrl+S` | İşaretlemeden çıkmadan kaydet | Yalnız görsel düzenleyicide; düzenleme açık kalır. |
+| `Ctrl+Z / Ctrl+Shift+Z` | Görsel düzenlemesini geri al / yinele | Mevcut görsel düzenleme oturumu. Yerel metin alanları kendi geri alma geçmişini kullanır. |
+| `Backspace / Delete (işaretleme)` | Seçili işareti sil | Görsel öğesini kaldırmaz; kırpma seçimi ayrıdır. |
+| `Tekerlek / çift tıklama` | Görseli yakınlaştır / sıfırla | Tekerlek ilk sığdırmanın %100–400’ü arasında yakınlaştırır; düzenleme dışında çift tıklama sıfırlar. |
+| `Sürükle / Shift+tekerlek / Space+sürükle` | Görselde gezin | Yakınlaştırınca sürükle; Shift+tekerlek kaydırır. Görsel düzenlerken Space basılı tutup sürükle. |
+
+### Windows · İşaretleme araçları
+
+| Varsayılan | İşlem | Nerede / ayrıntı |
+| --- | --- | --- |
+| `V` | İşareti seç / taşı / boyutlandır | Yalnız görsel düzenleyicide. Mevcut metin işaretine çift tıklayarak metnini düzenle. |
+| `B / H` | Kalem / saydam işaretleyici | Yalnız görsel düzenleyicide; renk ve kalınlık üst çubuktadır. |
+| `R / O` | Dikdörtgen / elips | Görsel düzenleyici; kare / daire için çizerken Shift basılı tut. |
+| `A / D` | Ok / çizgi | Görsel düzenleyici; açıları 45° adımlara sınırlamak için çizerken Shift basılı tut. |
+| `T` | Metin işareti | Yalnız görsel düzenleyicide; işaretin metni için pencere açar. |
+
+### Windows · Pencereler ve kısayol kaydı
+
+| Varsayılan | İşlem | Nerede / ayrıntı |
+| --- | --- | --- |
+| `↑ / ↓ / Enter / Esc` | Seç, onayla veya iptal et | Eylemler ve klasör seçicileri. Çok satırlı notta Enter satır ekler; Ctrl+Enter onaylar. |
+| `Ctrl+N (klasör seçicisi)` | Klasör oluştur | Oluşturunca seçiciye geri döner. |
+| `Tab / Shift+Tab (pencereler)` | Odağı taşı | Odak pencerenin denetimleri içinde kalır; burada askı değiştirmez. |
+| `Esc / Backspace / Delete (kayıt)` | Kaydı iptal et / kısayolu kapat | Esc kaydı iptal eder. Backspace veya Delete Kapalı değerini kaydeder; uygulamak için Kaydet’i seç. Bu kayıt tuşları sabittir. |
+
+Desteklenen genel işlemler askılar, arama ve ekran yakalamadır. Kütüphane ve son görseli kopyalama için ayrı genel kısayol yoktur. Toplama varsayılanları, platform farkları, derleme komutları ve gerçek Windows kabul testi kanıtı için Windows yerel kullanım rehberine bak.
+
 ## Yerel arşiv. Açıkça seçilen bağlantılar.
 
 - **Mac’inde saklanır.** Geçmiş, klasör, etiket, not, küçük görsel ve arama indeksleri yerelde tutulur. ClipBoardLine bulut senkronizasyonu sunmaz. Yerel geçmiş bir parola kasası değildir; kopyaladığın ve sakladığın içerikleri sen seçersin.
@@ -163,6 +261,8 @@ Güncellemeleri Sparkle sağlar. Cihazda arama Apple Vision ve özgün MobileCLI
 
 
 ## Platform desteği ve mevcut farklar
+
+İlk Windows sürümü [1.7.0 build 62](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.0-build62), [x64 kurulumu](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.0-build62/ClipBoardLine-Setup-1.7.0-x64.exe) olarak kullanılabilir. [Gerçek Windows CI](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39260700144) toplam 71 kabul kontrolünü geçti: kaynaktan 23, paketlenmiş uygulamada 24, kurulmuş uygulamada 24. Gerçek metin/görsel yapıştırma, çoklu görsel kopyalama, ekran yakalama, kırpma ve yerel OCR dahildir. Aşağıdaki platform farkları devam eder.
 
 Windows kaynak uygulaması dahildir; kaynak, paketlenmiş ve kurulmuş Windows uygulamalarının yerel kabul testleri ayrı izlenir. JavaScript testinin geçmesi, yerel yapıştırma veya kurulum davranışının kanıtı değildir. Bir derlemeyi doğrulanmış saymadan Windows CI sonucunu ve sürüm dosyalarını kontrol et. macOS ve Windows veri depoları ayrıdır; cihazlar arası senkronizasyon veya otomatik platform geçişi sunulmaz.
 
