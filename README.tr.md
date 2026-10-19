@@ -4,7 +4,7 @@
 
 Görseller, metinler ve linkler elinin altında. Son kopyalarını üç askıda tut, önemli olanları yerel kütüphaneye kaydet ve tümünde klavyeyle hızla gezin.
 
-[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/clipboardline-1.7.0-build62/ClipboardLine-1.7.0-build62.zip) · [Windows x64 için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop)
+[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/clipboardline-1.7.1-build65/ClipboardLine-1.7.1-build65.zip) · [Windows x64 için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop)
 
 > macOS sürümü Swift, AppKit, SwiftUI, Vision ve Core ML kullanır; Apple silicon ve Intel’de macOS 14 veya üstünü destekler. Ayrı Electron sürümü Windows x64 için kullanılabilir; farklar ve gerçek Windows doğrulama kanıtı aşağıdaki platform tablosundadır.
 
@@ -291,11 +291,13 @@ Güncellemeleri Sparkle sağlar. Cihazda arama Apple Vision ve özgün MobileCLI
 
 **Tek herkese açık depo.** Kaynak kodu ile Mac/Windows sürümleri artık `orkunisitmak/clipboardline-desktop` adresinde. Her platform kendi imzalı akışını korur; Latest seçilen her sürüm hem güncel `appcast.xml` hem de `windows-update.json` dosyasını taşır. Eski Mac `clipboardline-app` güncelleme adresleri doğrulanmış uyumluluk yönlendirmeleriyle çalışır; mevcut Mac kurulumları yeniden kurulmadan güncellenmeye devam eder. İki imzalı akış ve önceki üç Mac ZIP’i eski adreslerden oturum açılmadan doğrulandı; dosya içerikleri ve arşiv özetleri birebir aynı.
 
-Windows [1.7.1 build 63](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.1-build63) yayımlandı: [x64 kurulumunu indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe).
+Windows [1.7.2 build 64](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.2-build64) yayımlandı: [x64 kurulumunu indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe).
 
 [`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd) kaynak revizyonunun [39296605977 numaralı Windows CI çalışmasında](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) **65 Node testi, 146 gerçek Windows kabul kontrolü** (48 kaynak, 49 paketlenmiş, 49 kurulmuş) ve **7 izole yükseltme kontrolü** geçti.
 
-**Build 62 → 63 için tek seferlik yükseltme notu:** kurulum biter ama ClipBoardLine yeniden açılmazsa bir kez kendin aç. Özgün 1.7.0 build 62 istemcisinde yeniden açma düzeltmesi yoktur. Başarılı yükseltme testi, eski sürümü simüle eden düzeltilmiş istemciyi kullanır; eski kurulu istemcinin parametrelerini geriye dönük değiştirmez.
+**Birleşme sonrası uygulama içi güncellemeler doğrulandı:** macOS 1.7.0 → 1.7.1 ve Windows 1.7.1 → 1.7.2 uygulamadan kurulup otomatik açıldı; geçmiş ve ayarlar korundu. [Gerçek Windows güncelleme koşusu](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39309767453), değiştirilmemiş yayımlanmış uygulamaları, akışı ve anahtarı kullandı. Güncel güncellemeler GitHub tokenı istemez. Build64 için [aynı kaynaktan yerel kontroller](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39307655801) de geçti: 48 kaynak, 49 paket, 49 kurulu uygulama ve yedi aday yükseltme kontrolü; uygulama kodu build63 ile aynı.
+
+**Build 62 → 63 için tek seferlik yükseltme notu:** kurulum biter ama ClipBoardLine yeniden açılmazsa bir kez kendin aç. Özgün 1.7.0 build 62 istemcisinde yeniden açma düzeltmesi yoktur. Değiştirilmemiş gerçek build62 istemcisi indirme ve kurulumu verileri koruyarak tamamladı; güncel build63 → 64 geçişinde otomatik yeniden açılma da geçti.
 
 Sürüm; metin/görsel yapıştırma, odağı geri döndürme, ekran yakalama, OCR ve klavye akışları dahil gerçek Windows kaynak, paketlenmiş ve kurulmuş oturumlarında sınandı. Hangi pano biçimlerini kabul edeceğine hedef uygulama karar verir. macOS ve Windows veri depoları ayrıdır; cihazlar arası senkronizasyon veya otomatik platform geçişi sunulmaz.
 

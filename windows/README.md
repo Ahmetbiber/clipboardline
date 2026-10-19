@@ -10,11 +10,13 @@ checks. A passing model or renderer test on another operating system does not
 certify native Windows paste, capture, global keys or installation. Check the
 actual Windows CI result and release assets for the build you use.
 
-Windows [1.7.1 build 63](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.1-build63) is released: [download the x64 installer](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe).
+Windows [1.7.2 build 64](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.2-build64) is released: [download the x64 installer](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe).
 
 For source revision [`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd), [Windows CI run 39296605977](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) passed **65 Node tests, 146 native acceptance checks** (48 source, 49 packaged, 49 installed) and **7 isolated upgrade checks**.
 
-**One-time build 62 → 63 upgrade note:** if the installer finishes without reopening ClipBoardLine, open it manually once. The original 1.7.0 build 62 client predates the relaunch fix. The successful upgrade test uses the corrected client with a simulated old version; it does not retrofit the old installed client’s flags.
+**Native updates verified after consolidation:** macOS 1.7.0 → 1.7.1 and Windows 1.7.1 → 1.7.2 installed from the application and reopened automatically, retaining history and settings. The [real Windows update run](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39309767453) used unchanged production binaries, feed and key. Current updates need no GitHub token. Build64’s [exact-source native checks](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39307655801) also passed (48 source, 49 packaged, 49 installed and seven candidate upgrade checks); application code is unchanged from build63.
+
+**One-time build 62 → 63 upgrade note:** if the installer finishes without reopening ClipBoardLine, open it manually once. The original 1.7.0 build 62 client predates the relaunch fix. The real unchanged build62 client completed download and installation, with data preserved; current build63 → 64 also passed automatic reopening.
 
 **One public repository.** `orkunisitmak/clipboardline-desktop` now contains the source and Mac/Windows releases. Each platform keeps its own signed feed; every release designated Latest carries both current `appcast.xml` and `windows-update.json`. Old Mac `clipboardline-app` update addresses continue through verified compatibility redirects, so existing Mac installations keep updating without reinstalling. Both signed feeds and all three previous Mac ZIPs were verified through the old addresses without authentication, with identical bytes and archive hashes.
 
@@ -102,11 +104,13 @@ See [component licenses and notices](THIRD_PARTY_NOTICES.md), the project
 
 ## Türkçe
 
-Windows [1.7.1 build 63](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.1-build63) yayımlandı: [x64 kurulumunu indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe).
+Birleşme sonrası gerçek Windows 1.7.1 → 1.7.2 güncellemesi, uygulama içinden kurulup otomatik açıldı; metin/görsel, klasör/etiket ve ayarlar korundu. [Yayımlanmış uygulamalarla canlı koşu](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39309767453) ve [aynı kaynaktan yerel kontroller](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39307655801) geçti.
+
+Windows [1.7.2 build 64](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.2-build64) yayımlandı: [x64 kurulumunu indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe).
 
 [`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd) kaynak revizyonunun [39296605977 numaralı Windows CI çalışmasında](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) **65 Node testi, 146 gerçek Windows kabul kontrolü** (48 kaynak, 49 paketlenmiş, 49 kurulmuş) ve **7 izole yükseltme kontrolü** geçti.
 
-**Build 62 → 63 için tek seferlik yükseltme notu:** kurulum biter ama ClipBoardLine yeniden açılmazsa bir kez kendin aç. Özgün 1.7.0 build 62 istemcisinde yeniden açma düzeltmesi yoktur. Başarılı yükseltme testi, eski sürümü simüle eden düzeltilmiş istemciyi kullanır; eski kurulu istemcinin parametrelerini geriye dönük değiştirmez.
+**Build 62 → 63 için tek seferlik yükseltme notu:** kurulum biter ama ClipBoardLine yeniden açılmazsa bir kez kendin aç. Özgün 1.7.0 build 62 istemcisinde yeniden açma düzeltmesi yoktur. Değiştirilmemiş gerçek build62 istemcisi indirme ve kurulumu verileri koruyarak tamamladı; güncel build63 → 64 geçişinde otomatik yeniden açılma da geçti.
 
 Bu klasör, ayrı Electron/Windows uygulamasını içerir. Kaynak, paketlenmiş ve
 kurulmuş uygulamanın yerel kabul testleri ayrıdır; başka sistemde geçen JavaScript

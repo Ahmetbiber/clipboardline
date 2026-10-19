@@ -4,7 +4,7 @@
 
 Images, text and links, close at hand. Keep recent copies on three shelves, save what matters in a local Library, and move through it all with your keyboard.
 
-[Türkçe README](README.tr.md) · [Download for Mac](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/clipboardline-1.7.0-build62/ClipboardLine-1.7.0-build62.zip) · [Download for Windows x64](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe) · [Explore source](https://github.com/orkunisitmak/clipboardline-desktop)
+[Türkçe README](README.tr.md) · [Download for Mac](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/clipboardline-1.7.1-build65/ClipboardLine-1.7.1-build65.zip) · [Download for Windows x64](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe) · [Explore source](https://github.com/orkunisitmak/clipboardline-desktop)
 
 > The macOS edition uses Swift, AppKit, SwiftUI, Vision and Core ML on macOS 14 or later, for Apple silicon and Intel. The separate Electron edition is available for Windows x64; see the platform matrix for differences and native validation evidence.
 
@@ -291,11 +291,13 @@ Sparkle provides the updater. Apple Vision and the original MobileCLIP-S2 models
 
 **One public repository.** `orkunisitmak/clipboardline-desktop` now contains the source and Mac/Windows releases. Each platform keeps its own signed feed; every release designated Latest carries both current `appcast.xml` and `windows-update.json`. Old Mac `clipboardline-app` update addresses continue through verified compatibility redirects, so existing Mac installations keep updating without reinstalling. Both signed feeds and all three previous Mac ZIPs were verified through the old addresses without authentication, with identical bytes and archive hashes.
 
-Windows [1.7.1 build 63](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.1-build63) is released: [download the x64 installer](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe).
+Windows [1.7.2 build 64](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.2-build64) is released: [download the x64 installer](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe).
 
 For source revision [`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd), [Windows CI run 39296605977](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) passed **65 Node tests, 146 native acceptance checks** (48 source, 49 packaged, 49 installed) and **7 isolated upgrade checks**.
 
-**One-time build 62 → 63 upgrade note:** if the installer finishes without reopening ClipBoardLine, open it manually once. The original 1.7.0 build 62 client predates the relaunch fix. The successful upgrade test uses the corrected client with a simulated old version; it does not retrofit the old installed client’s flags.
+**Native updates verified after consolidation:** macOS 1.7.0 → 1.7.1 and Windows 1.7.1 → 1.7.2 installed from the application and reopened automatically, retaining history and settings. The [real Windows update run](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39309767453) used unchanged production binaries, feed and key. Current updates need no GitHub token. Build64’s [exact-source native checks](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39307655801) also passed (48 source, 49 packaged, 49 installed and seven candidate upgrade checks); application code is unchanged from build63.
+
+**One-time build 62 → 63 upgrade note:** if the installer finishes without reopening ClipBoardLine, open it manually once. The original 1.7.0 build 62 client predates the relaunch fix. The real unchanged build62 client completed download and installation, with data preserved; current build63 → 64 also passed automatic reopening.
 
 The release was checked in actual Windows source, packaged and installed sessions, including text/image paste, focus return, capture, OCR and keyboard workflows. Destination apps still decide which clipboard formats they accept. macOS and Windows data stores are separate; cross-device sync and automatic migration between them are not provided.
 
