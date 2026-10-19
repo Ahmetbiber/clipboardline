@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {execFileSync}=require('node:child_process');
+const {windowsEnvironment}=require('./windows-environment.cjs');
 
 const KINDS = ['image', 'text', 'link'];
 const DEFAULTS = Object.freeze({
@@ -72,7 +73,7 @@ class Store {
     if(process.platform==='win32'){
       const script=__dirname.includes('app.asar')?path.join(process.resourcesPath,'native','protect-directory.ps1'):path.join(__dirname,'..','native','protect-directory.ps1');
       const powershell=path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
-      try{execFileSync(powershell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,'-Directory',this.directory],{windowsHide:true,timeout:15000,stdio:['ignore','pipe','pipe']});}
+      try{execFileSync(powershell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,'-Directory',this.directory],{windowsHide:true,timeout:15000,stdio:['ignore','pipe','pipe'],env:windowsEnvironment()});}
       catch(error){const detail=String(error.stderr||error.message||'').replaceAll(this.directory,'[application data]').replace(/[\r\n]+/g,' ').slice(0,900);fail('The private application data permissions could not be secured. Existing files were preserved. '+detail);}
     }
     this.mediaDirectory = path.join(this.directory, 'media'); fs.mkdirSync(this.mediaDirectory, {recursive: true, mode: 0o700});

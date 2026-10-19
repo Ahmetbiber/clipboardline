@@ -4,6 +4,7 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');const path=require('node:path');const os=require('node:os');const {spawn}=require('node:child_process');
 const {_electron:electron}=require('playwright');
+const {windowsEnvironment}=require('../lib/windows-environment.cjs');
 if(process.platform!=='win32')throw new Error('Run native acceptance on the actual Windows runner.');
 const output=path.resolve(process.env.CLIPBOARDLINE_VALIDATION||'validation');fs.mkdirSync(output,{recursive:true});
 const data=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-runtime-'));
@@ -69,7 +70,7 @@ async function main(){
   // cannot pass by sending synthetic keys back to the Electron test window.
   await page.evaluate(()=>window.clipboardLine.command('hide'));
   const fixtureOutput=path.join(data,'native-target.json');const ps=path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
-  fixture=spawn(ps,['-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',path.resolve('tests/native-fixture.ps1'),'-Output',fixtureOutput],{windowsHide:false,stdio:'ignore'});
+  fixture=spawn(ps,['-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',path.resolve('tests/native-fixture.ps1'),'-Output',fixtureOutput],{windowsHide:false,stdio:'ignore',env:windowsEnvironment()});
   const fixtureState=()=>JSON.parse(fs.readFileSync(fixtureOutput,'utf8'));
   await until(fixtureState,s=>s.ready);
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
