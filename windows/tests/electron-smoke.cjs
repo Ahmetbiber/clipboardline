@@ -16,6 +16,22 @@ const report={platform:process.platform,arch:process.arch,node:process.version,s
 let application,fixture,otherFixture,activePage;
 const check=(name,details={})=>{report.checks.push({name,passed:true,...details});console.log('PASS '+name);};
 async function until(reader,predicate,timeout=15000){const end=Date.now()+timeout;let value;while(Date.now()<end){try{value=await reader();if(predicate(value))return value;}catch{}await new Promise(resolve=>setTimeout(resolve,100));}throw new Error('Timed out waiting for native test state: '+JSON.stringify(value));}
+async function waitForCropBox(page,viewport,raster={width:900,height:220}){
+  let previous='';
+  const ready=await until(async()=>{
+    // Resolve the canvas and measure it in one renderer task. A clean-preview
+    // resize can replace the DOM node between a locator check and box lookup.
+    const value=await page.evaluate(({viewport,raster})=>{
+      const canvas=document.getElementById('markup-canvas');if(!canvas)return{ready:false,reason:'canvas missing'};
+      const rect=canvas.getBoundingClientRect(),style=getComputedStyle(canvas),box={x:rect.x,y:rect.y,width:rect.width,height:rect.height};
+      const currentViewport={width:innerWidth,height:innerHeight},currentRaster={width:canvas.width,height:canvas.height};
+      const hittable=document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2)===canvas;
+      return{box,viewport:currentViewport,raster:currentRaster,display:style.display,visibility:style.visibility,hittable,ready:canvas.isConnected&&currentViewport.width===viewport.width&&currentViewport.height===viewport.height&&currentRaster.width===raster.width&&currentRaster.height===raster.height&&rect.width>100&&rect.height>30&&rect.left>=0&&rect.top>=0&&rect.right<=innerWidth&&rect.bottom<=innerHeight&&style.display!=='none'&&style.visibility==='visible'&&hittable};
+    },{viewport,raster});
+    const signature=JSON.stringify({box:value.box,viewport:value.viewport,raster:value.raster});const stable=value.ready&&previous===signature;previous=value.ready?signature:'';return{...value,stable};
+  },value=>value.stable);
+  return ready.box;
+}
 async function main(){
   const args=['--test-mode','--test-data='+data];
   application=await electron.launch({...(process.env.CLIPBOARDLINE_EXECUTABLE?{executablePath:path.resolve(process.env.CLIPBOARDLINE_EXECUTABLE)}:{args:[path.resolve('.'),...args]}),...(process.env.CLIPBOARDLINE_EXECUTABLE?{args}:{}),timeout:60000});
@@ -71,7 +87,7 @@ async function main(){
   // Resize rebuilds the clean preview. Wait for the replacement canvas to be
   // redrawn from the original before measuring or sending a crop gesture.
   await page.waitForFunction(()=>{const canvas=document.getElementById('markup-canvas');return canvas?.width===900&&canvas.height===220;});check('narrow preview keeps navigation and close controls visible and hit-testable');
-  const box=await canvas.boundingBox();assert.ok(box&&box.width>100&&box.height>30,JSON.stringify({canvas:box,viewport:await page.evaluate(()=>({width:innerWidth,height:innerHeight})),ancestors:await canvas.evaluate(element=>{const values=[];for(let node=element;node&&values.length<6;node=node.parentElement){const r=node.getBoundingClientRect(),s=getComputedStyle(node);values.push({node:node.id||node.className,width:r.width,height:r.height,display:s.display,flex:s.flex,heightStyle:s.height,minHeight:s.minHeight,maxHeight:s.maxHeight});}return values;})}));
+  const box=await waitForCropBox(page,previewBounds);assert.ok(box.width>100&&box.height>30,JSON.stringify(box));
   await page.mouse.move(box.x+box.width*.60,box.y+box.height*.20);await page.mouse.down();await page.mouse.move(box.x+box.width*.90,box.y+box.height*.80,{steps:6});await page.mouse.up();
   const exportable=await canvas.evaluate(element=>{try{return{png:element.toDataURL('image/png').startsWith('data:image/png;base64,')};}catch(error){return{error:error.name+': '+error.message};}});assert.equal(exportable.png,true,JSON.stringify(exportable));
   await page.screenshot({path:path.join(output,'synthetic-crop.png')});
@@ -81,7 +97,17 @@ async function main(){
   const raster=await application.evaluate(async({net,nativeImage},{current,original})=>{const read=async url=>nativeImage.createFromBuffer(Buffer.from(await(await net.fetch(url)).arrayBuffer())).getSize();return{current:await read(current),original:await read(original)};},{current:cropped.mediaUrl,original:cropped.originalMediaUrl});
   assert.deepEqual(raster.current,{width:cropped.crop.width,height:cropped.crop.height});assert.deepEqual(raster.original,{width:900,height:220});
   await page.keyboard.press('Escape');await page.locator('#preview-dialog').waitFor({state:'hidden'});check('real crop canvas drag saves original-coordinate bounds and cropped raster');
-  await application.evaluate(()=>{const h=global.__clipboardLineTest;h.store.insert('link','https://example.com/reference');h.command('show');});
+  await page.locator(`[data-shelf="image"] [data-item-id="${imageItem.id}"]`).click();await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});await page.keyboard.press('c');await canvas.waitFor({state:'visible'});await page.waitForFunction(()=>{const value=document.getElementById('markup-canvas');return value?.width===900&&value.height===220;});
+  const tabCropBox=await waitForCropBox(page,previewBounds);assert.ok(tabCropBox.width>100&&tabCropBox.height>30,JSON.stringify(tabCropBox));
+  await page.mouse.move(tabCropBox.x+tabCropBox.width*.15,tabCropBox.y+tabCropBox.height*.25);await page.mouse.down();await page.mouse.move(tabCropBox.x+tabCropBox.width*.45,tabCropBox.y+tabCropBox.height*.75,{steps:6});await page.mouse.up();
+  await page.keyboard.press('Tab');await until(()=>page.locator('#preview-dialog').getAttribute('aria-label'),label=>label==='Named synthetic key');
+  assert.equal(await page.locator('#markup-canvas').count(),0);assert.equal(await page.locator('.preview-toolbar [data-action="image-tool"]').count(),0);
+  const visibleText=await page.locator('#preview-dialog .preview-text').textContent();assert.equal(visibleText,textItem.text);
+  const tabCropped=(await page.evaluate(()=>window.clipboardLine.state())).items.find(value=>value.id===imageItem.id);for(const [key,expected]of Object.entries({x:135,y:55,width:270,height:110}))assert.ok(Math.abs(tabCropped.crop[key]-expected)<=2,JSON.stringify(tabCropped.crop));
+  const tabRaster=await application.evaluate(async({net,nativeImage},url)=>nativeImage.createFromBuffer(Buffer.from(await(await net.fetch(url)).arrayBuffer())).getSize(),tabCropped.mediaUrl);assert.deepEqual(tabRaster,{width:tabCropped.crop.width,height:tabCropped.crop.height});assert.equal(tabCropped.annotations.length,cropped.annotations.length);
+  await page.screenshot({path:path.join(output,'dirty-crop-tab-text.png')});await page.keyboard.press('Enter');await until(()=>application.evaluate(()=>global.__clipboardLineTest.getWindow().isVisible()),visible=>visible===false);
+  await page.locator('#preview-dialog').waitFor({state:'hidden'});assert.equal(await page.locator('#preview-dialog').count(),0);assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),visibleText);check('dirty crop Tab preserves the image edit, switches to clean text preview and Enter copies that visible text then dismisses');
+  await application.evaluate(async()=>{const h=global.__clipboardLineTest;h.store.insert('link','https://example.com/reference');await h.command('show');});
   await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click();
   await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});
   await page.keyboard.press('ArrowDown');await until(()=>page.locator('#preview-dialog').getAttribute('aria-label'),label=>label.includes('example.com/reference'));

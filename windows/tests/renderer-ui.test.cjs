@@ -84,6 +84,44 @@ test('canvas export rejection retains dirty crop and explicit Enter retry saves 
 
 test('canvas export failure blocks native Settings until explicit Save succeeds',async()=>{const f=fixture();await f.ready();await f.key('Space');await f.key('KeyC');await f.pointer('pointerdown',60,30);await f.pointer('pointermove',500,150);await f.pointer('pointerup',500,150);f.failExportOnce();await f.api.command('settings');await f.ready();assert.match(f.overlay,/id="markup-canvas"/);assert.doesNotMatch(f.main,/class="settings-main"/);await f.click('save-image');assert.equal(f.overlay,'');assert.match(f.main,/class="settings-main"/);assert.deepEqual(f.state.items.find(item=>item.id===f.image).crop,{x:60,y:30,width:440,height:120});});
 
+test('Tab saves dirty image crop before switching the open preview; Enter copies the visible text',async()=>{
+ const f=fixture();await f.ready();await f.key('Space');await f.key('KeyC');
+ await f.pointer('pointerdown',60,30);await f.pointer('pointermove',500,150);await f.pointer('pointerup',500,150);
+ await f.key('Tab');
+ assert.deepEqual(f.state.items.find(item=>item.id===f.image).crop,{x:60,y:30,width:440,height:120});
+ assert.equal(f.commands.filter(command=>command.action==='saveImage').length,1);
+ assert.match(f.overlay,/aria-label="Text one"/);
+ assert.doesNotMatch(f.overlay,/editing-toolbar|id="markup-canvas"/);
+ await f.key('Enter');
+ assert.equal(f.commands.at(-1).action,'copy');
+ assert.deepEqual(f.commands.at(-1).payload.ids,[f.text1]);
+ assert.equal(f.state.windowVisible,false);assert.equal(f.overlay,'');
+ assert.equal(f.commands.filter(command=>command.action==='saveImage').length,1);
+});
+
+test('failed crop export aborts Tab shelf switching and keeps the draft available for retry',async()=>{
+ const f=fixture();await f.ready();await f.key('Space');await f.key('KeyC');
+ await f.pointer('pointerdown',60,30);await f.pointer('pointermove',500,150);await f.pointer('pointerup',500,150);
+ f.failExportOnce();await f.key('Tab');
+ assert.match(f.overlay,/aria-label="Synthetic image"/);
+ assert.match(f.overlay,/editing-toolbar/);assert.match(f.overlay,/id="markup-canvas"/);
+ assert.match(f.main,/card kind-image focused selected/);
+ assert.equal(f.commands.filter(command=>['saveImage','copy'].includes(command.action)).length,0);
+ assert.equal(f.state.items.find(item=>item.id===f.image).crop,undefined);
+ await f.key('Tab');
+ assert.deepEqual(f.state.items.find(item=>item.id===f.image).crop,{x:60,y:30,width:440,height:120});
+ assert.match(f.overlay,/aria-label="Text one"/);
+ assert.doesNotMatch(f.overlay,/editing-toolbar|id="markup-canvas"/);
+});
+
+test('Settings hides browsing selection and keyboard hints while Library retains its footer',async()=>{
+ const f=fixture();await f.ready();await f.key('KeyP');await f.api.command('library');await f.ready();
+ assert.match(f.main,/class="statusbar"/);assert.match(f.main,/1 selected/);
+ await f.api.command('settings');await f.ready();
+ assert.match(f.main,/class="settings-main"/);
+ assert.doesNotMatch(f.main,/class="statusbar"|class="key-legend"|1 selected/);
+});
+
 
 test('Settings browsing keys do not pin, copy or paste the last shelf selection',async()=>{const f=fixture();await f.ready();await f.api.command('settings');await f.ready();await f.key('KeyP');await f.key('Enter');await f.key('Enter',{ctrl:true});assert.equal(f.state.items.find(item=>item.id===f.image).pinned,false);assert.equal(f.commands.filter(command=>['pin','copy','paste'].includes(command.action)).length,0);await f.key('KeyK',{ctrl:true});assert.match(f.overlay,/Search actions/);});
 
