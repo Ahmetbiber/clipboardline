@@ -4,7 +4,7 @@
 
 Görseller, metinler ve linkler elinin altında. Son kopyalarını üç askıda tut, önemli olanları yerel kütüphaneye kaydet ve tümünde klavyeyle hızla gezin.
 
-[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-app/releases/latest) · [Windows x64 için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop)
+[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/clipboardline-1.7.0-build62/ClipboardLine-1.7.0-build62.zip) · [Windows x64 için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop)
 
 > macOS sürümü Swift, AppKit, SwiftUI, Vision ve Core ML kullanır; Apple silicon ve Intel’de macOS 14 veya üstünü destekler. Ayrı Electron sürümü Windows x64 için kullanılabilir; farklar ve gerçek Windows doğrulama kanıtı aşağıdaki platform tablosundadır.
 
@@ -257,7 +257,7 @@ Açıkken güncelleme kontrolü açılışta zamanı geldiyse ve uygulama çalı
 
 ## Kaynak kodundan derleme ve test
 
-Herkese açık kaynak kopyası, resmî dağıtım/güncelleme deposundan ayrıdır. Aşağıdaki komutlar için macOS SDK’sı bulunan Xcode ve Python 3 gerekir. İsteğe bağlı model hazırlama, sabitlenmiş MobileCLIP-S2 dosyalarını indirip yerelde derler; uygulamadaki arama çevrimdışı çalışır. Paketleme için deponun geliştirme rehberini izle. Resmî imzalama anahtarları, kimlik bilgileri ve kullanıcı geçmişi kaynak kopyasında bulunmaz.
+Mac ve Windows sürümlerini bu herkese açık kaynaktan derleyebilirsin. Birleştirilmiş sürüm düzeninde kaynak kodu, indirmeler ve platform güncelleme akışları aynı depoda tutulur. Aşağıdaki komutlar için macOS SDK’sı bulunan Xcode ve Python 3 gerekir. İsteğe bağlı model hazırlama, sabitlenmiş MobileCLIP-S2 dosyalarını indirip yerelde derler; uygulamadaki arama çevrimdışı çalışır. Paketleme için deponun geliştirme rehberini izle. Resmî imzalama anahtarları, kimlik bilgileri ve kullanıcı geçmişi kaynak kopyasında bulunmaz.
 
 ```sh
 git clone https://github.com/orkunisitmak/clipboardline-desktop.git
@@ -289,6 +289,8 @@ Güncellemeleri Sparkle sağlar. Cihazda arama Apple Vision ve özgün MobileCLI
 
 ## Platform desteği ve mevcut farklar
 
+**Tek herkese açık depo.** Kaynak kodu ile Mac/Windows sürümleri artık `orkunisitmak/clipboardline-desktop` adresinde. Her platform kendi imzalı akışını korur; Latest seçilen her sürüm hem güncel `appcast.xml` hem de `windows-update.json` dosyasını taşır. Eski Mac `clipboardline-app` güncelleme adresleri doğrulanmış uyumluluk yönlendirmeleriyle çalışır; mevcut Mac kurulumları yeniden kurulmadan güncellenmeye devam eder. İki imzalı akış ve önceki üç Mac ZIP’i eski adreslerden oturum açılmadan doğrulandı; dosya içerikleri ve arşiv özetleri birebir aynı.
+
 Windows [1.7.1 build 63](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.1-build63) yayımlandı: [x64 kurulumunu indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe).
 
 [`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd) kaynak revizyonunun [39296605977 numaralı Windows CI çalışmasında](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) **65 Node testi, 146 gerçek Windows kabul kontrolü** (48 kaynak, 49 paketlenmiş, 49 kurulmuş) ve **7 izole yükseltme kontrolü** geçti.
@@ -311,7 +313,7 @@ Sürüm; metin/görsel yapıştırma, odağı geri döndürme, ekran yakalama, O
 | Link ayrıntıları | İsteğe bağlı genel site/YouTube başlık ve küçük görselleri. | Açıkça etkinleştirilir, varsayılan kapalıdır. Açıldıktan sonra yakalanan/aktarılan genel linklerin başlık/küçük görseli alınabilir. |
 | Ekran kaydı ve Quick Look | macOS Quick Look ve ekran kaydı Trim entegrasyonu. | Bu uygulamada Quick Look, ekran kaydı önizlemesi veya Trim eşdeğeri yoktur. |
 | Diller | Upstream diller korunur; yeni kütüphane metinleri ağırlıkla İngilizce/Türkçe. | İngilizce arayüz ve Türkçe temel etiketler; bazı ayrıntı/durum metinleri İngilizce kalır. OCR İngilizce/Türkçe destekler. |
-| Güncellemeler ve işletim sistemi güveni | Sparkle imzalı herkese açık akış ve arşivler. Proje imzalı Mac derlemesi Apple noter onaylı değildir. | Ayrı imzalı Windows kanalı; ayarlanabilir açılış/saatlik kontrol ve hatada beş dakika sonra yeniden deneme. Güncelle ve yeniden aç için tıklama gerekir. Kurulumun Authenticode yayıncı sertifikası yoktur. |
+| Güncellemeler ve işletim sistemi güveni | Sparkle imzalı herkese açık akış ve arşivler. Proje imzalı Mac derlemesi Apple noter onaylı değildir. | Ortak herkese açık depodaki Windows imzalı akışı; ayarlanabilir açılış/saatlik kontrol ve hatada beş dakika sonra yeniden deneme. Güncelle ve yeniden aç için tıklama gerekir. Kurulumun Authenticode yayıncı sertifikası yoktur. |
 
 İlk açılışta işletim sisteminin normal onayı gerekebilir. Mac derlemesi Apple Developer ID/noter onayı yerine kalıcı proje sertifikası kullanır; Windows kurulumu Authenticode imzalı değildir. Güncelleme imzaları ve özetleri proje kanalını doğrular; Apple veya Microsoft yayıncı sertifikası anlamına gelmez. Belgelenmiş sürüm dosyalarını ve normal sistem onayını kullan; sistem korumalarını kapatma.
 

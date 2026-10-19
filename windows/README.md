@@ -16,6 +16,8 @@ For source revision [`e734c7e`](https://github.com/orkunisitmak/clipboardline-de
 
 **One-time build 62 → 63 upgrade note:** if the installer finishes without reopening ClipBoardLine, open it manually once. The original 1.7.0 build 62 client predates the relaunch fix. The successful upgrade test uses the corrected client with a simulated old version; it does not retrofit the old installed client’s flags.
 
+**One public repository.** `orkunisitmak/clipboardline-desktop` now contains the source and Mac/Windows releases. Each platform keeps its own signed feed; every release designated Latest carries both current `appcast.xml` and `windows-update.json`. Old Mac `clipboardline-app` update addresses continue through verified compatibility redirects, so existing Mac installations keep updating without reinstalling. Both signed feeds and all three previous Mac ZIPs were verified through the old addresses without authentication, with identical bytes and archive hashes.
+
 ## Start with collection off
 
 Clipboard text, image and link capture all default to **off**. Open **Settings →
@@ -61,7 +63,8 @@ single composite without your action.
 - Quick Look, screen-recording preview and Trim are macOS-specific.
 - The English interface has Turkish core labels; some detailed/status text remains
   English. This is not the full macOS translation set.
-- The Windows update feed is separate from the Mac Sparkle feed. Public signed
+- The shared public repository carries separate signed Mac and Windows feeds.
+  Every Latest release must include both current feed files. Public signed
   metadata and SHA-256 protect update integrity; the Windows installer currently
   has no Authenticode publisher certificate. Normal Windows first-run approval
   may be required. Do not disable system protections to install it.
@@ -109,6 +112,8 @@ Bu klasör, ayrı Electron/Windows uygulamasını içerir. Kaynak, paketlenmiş 
 kurulmuş uygulamanın yerel kabul testleri ayrıdır; başka sistemde geçen JavaScript
 testi, Windows'ta gerçek yapıştırma veya kurulumun geçtiği anlamına gelmez.
 Kullandığınız derlemenin Windows CI sonucuna ve sürüm dosyalarına bakın.
+
+**Tek herkese açık depo.** Kaynak kodu ile Mac/Windows sürümleri artık `orkunisitmak/clipboardline-desktop` adresinde. Her platform kendi imzalı akışını korur; Latest seçilen her sürüm hem güncel `appcast.xml` hem de `windows-update.json` dosyasını taşır. Eski Mac `clipboardline-app` güncelleme adresleri doğrulanmış uyumluluk yönlendirmeleriyle çalışır; mevcut Mac kurulumları yeniden kurulmadan güncellenmeye devam eder. İki imzalı akış ve önceki üç Mac ZIP’i eski adreslerden oturum açılmadan doğrulandı; dosya içerikleri ve arşiv özetleri birebir aynı.
 
 Pano görseli/metni/linki toplama ve link başlığı/thumbnail alma varsayılan olarak
 **kapalıdır**. Ayarlar → Kaynaklar'dan istediklerinizi açın. Metin ve link

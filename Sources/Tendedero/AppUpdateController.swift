@@ -158,7 +158,7 @@ final class AppUpdateController: ObservableObject {
     var availableVersion: String? { nativeAvailableVersion ?? available?.manifest.version }
     var availableBuild: Int? { nativeAvailableBuild ?? available?.manifest.build }
     var releaseNotesURL: URL? {
-        usesPublicUpdates ? URL(string: "https://github.com/orkunisitmak/clipboardline-app/releases") : available?.releaseURL
+        usesPublicUpdates ? URL(string: "https://github.com/\(PublicUpdateChannel.repository)/releases") : available?.releaseURL
     }
 
     /// Keep the authenticated envelope, not just decoded mutable version fields.

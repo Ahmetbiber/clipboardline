@@ -7,8 +7,8 @@ import XCTest
 final class PublicUpdateChannelTests: HistoryTestCase {
     private var info: [String: Any] {
         ["CFBundleIdentifier": "local.clipboardline.review",
-         "ClipboardLinePublicUpdateRepository": "orkunisitmak/clipboardline-app",
-         "SUFeedURL": "https://github.com/orkunisitmak/clipboardline-app/releases/latest/download/appcast.xml",
+         "ClipboardLinePublicUpdateRepository": "orkunisitmak/clipboardline-desktop",
+         "SUFeedURL": "https://github.com/orkunisitmak/clipboardline-desktop/releases/latest/download/appcast.xml",
          "SUPublicEDKey": "s9DO901wav4VK/hfnLROxJYk4+oNFYvxdOK974E3PgI=",
          "SURequireSignedFeed": true, "SUVerifyUpdateBeforeExtraction": true,
          "SUSignedFeedFailureExpirationInterval": 0,
@@ -30,6 +30,18 @@ final class PublicUpdateChannelTests: HistoryTestCase {
             candidate[key] = invalid
             XCTAssertNil(PublicUpdateChannel(info: candidate), key)
         }
+    }
+
+    func testLegacySignedBundleKeepsItsExactFeedWithoutAcceptingMixedChannels() {
+        var legacy = info
+        legacy["ClipboardLinePublicUpdateRepository"] = PublicUpdateChannel.legacyRepository
+        legacy["SUFeedURL"] = PublicUpdateChannel.legacyFeed
+        XCTAssertEqual(PublicUpdateChannel(info: legacy)?.feedURL.absoluteString, PublicUpdateChannel.legacyFeed)
+        legacy["ClipboardLinePublicUpdateRepository"] = PublicUpdateChannel.repository
+        XCTAssertNil(PublicUpdateChannel(info: legacy))
+        legacy["SUFeedURL"] = PublicUpdateChannel.feed
+        legacy["ClipboardLinePublicUpdateRepository"] = PublicUpdateChannel.legacyRepository
+        XCTAssertNil(PublicUpdateChannel(info: legacy))
     }
 
     func testMissingOrRelaxedVerificationAndAutomaticInstallationAreRejected() {

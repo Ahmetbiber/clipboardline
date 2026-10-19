@@ -4,7 +4,7 @@
 
 Images, text and links, close at hand. Keep recent copies on three shelves, save what matters in a local Library, and move through it all with your keyboard.
 
-[Türkçe README](README.tr.md) · [Download for Mac](https://github.com/orkunisitmak/clipboardline-app/releases/latest) · [Download for Windows x64](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe) · [Explore source](https://github.com/orkunisitmak/clipboardline-desktop)
+[Türkçe README](README.tr.md) · [Download for Mac](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/clipboardline-1.7.0-build62/ClipboardLine-1.7.0-build62.zip) · [Download for Windows x64](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe) · [Explore source](https://github.com/orkunisitmak/clipboardline-desktop)
 
 > The macOS edition uses Swift, AppKit, SwiftUI, Vision and Core ML on macOS 14 or later, for Apple silicon and Intel. The separate Electron edition is available for Windows x64; see the platform matrix for differences and native validation evidence.
 
@@ -257,7 +257,7 @@ When enabled, update checks are scheduled after launch when due and hourly while
 
 ## Build and test from source
 
-The public source snapshot is separate from the official binary/update repository. Xcode with a macOS SDK and Python 3 are needed for the commands below. Optional model preparation downloads pinned MobileCLIP-S2 assets and compiles them locally; runtime search works offline. Use the repository’s development guide for packaging. Official release signing keys, credentials and user history are not included.
+Build the Mac and Windows editions from this public source. The consolidated release layout keeps source, downloads and platform update feeds in the same repository. Xcode with a macOS SDK and Python 3 are needed for the commands below. Optional model preparation downloads pinned MobileCLIP-S2 assets and compiles them locally; runtime search works offline. Use the repository’s development guide for packaging. Official release signing keys, credentials and user history are not included.
 
 ```sh
 git clone https://github.com/orkunisitmak/clipboardline-desktop.git
@@ -289,6 +289,8 @@ Sparkle provides the updater. Apple Vision and the original MobileCLIP-S2 models
 
 ## Platform support and current gaps
 
+**One public repository.** `orkunisitmak/clipboardline-desktop` now contains the source and Mac/Windows releases. Each platform keeps its own signed feed; every release designated Latest carries both current `appcast.xml` and `windows-update.json`. Old Mac `clipboardline-app` update addresses continue through verified compatibility redirects, so existing Mac installations keep updating without reinstalling. Both signed feeds and all three previous Mac ZIPs were verified through the old addresses without authentication, with identical bytes and archive hashes.
+
 Windows [1.7.1 build 63](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.1-build63) is released: [download the x64 installer](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe).
 
 For source revision [`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd), [Windows CI run 39296605977](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) passed **65 Node tests, 146 native acceptance checks** (48 source, 49 packaged, 49 installed) and **7 isolated upgrade checks**.
@@ -311,7 +313,7 @@ The release was checked in actual Windows source, packaged and installed session
 | Link metadata | Optional public website/YouTube titles and thumbnails. | Explicit opt-in, default off. New captured/imported public links may fetch titles/thumbnails after enabling. |
 | Recordings and Quick Look | macOS Quick Look and recording Trim integration. | No Quick Look, recording preview or Trim equivalent in this implementation. |
 | Languages | Upstream languages retained; new Library text primarily English/Turkish. | English UI with Turkish core labels; some detailed/status strings remain English. OCR supports English/Turkish. |
-| Updates and OS trust | Sparkle signed public feed and archives. Project-signed Mac build is not Apple-notarized. | Separate signed Windows channel; configurable launch/hourly checks and five-minute failure retry. Update and reopen requires a click. The installer has no Authenticode publisher certificate. |
+| Updates and OS trust | Sparkle signed public feed and archives. Project-signed Mac build is not Apple-notarized. | Windows signed feed in the shared public repository; configurable launch/hourly checks and five-minute failure retry. Update and reopen requires a click. The installer has no Authenticode publisher certificate. |
 
 Normal operating-system approval may be required on first open. The Mac build uses a persistent project certificate rather than Apple Developer ID/notarization; the Windows installer is not Authenticode-signed. Update signatures and hashes establish the project update channel, not Apple or Microsoft publisher certification. Use the documented release assets and normal OS approval; do not disable system protections.
 
