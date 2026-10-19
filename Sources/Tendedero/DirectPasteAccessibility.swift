@@ -59,7 +59,10 @@ import ApplicationServices
         // eligible by walking up to an ordinary contenteditable container.
         guard !leafFacts.blocked else { return field(leaf, leafFacts) }
         var ancestors = [(AnyObject, Capabilities)]()
-        for name in [kAXHighestEditableAncestorAttribute, kAXEditableAncestorAttribute] {
+        // Query the public AX attribute names as strings so source builds with
+        // older SDKs whose headers omit these web-editor constants. Unsupported
+        // attributes return nil through the same ordinary AX query.
+        for name in ["AXHighestEditableAncestor", "AXEditableAncestor"] {
             guard let ancestor = environment.attribute(leaf, name), environment.isElement(ancestor) else { continue }
             let facts = capabilities(ancestor)
             guard !facts.blocked else { return field(ancestor, facts) }

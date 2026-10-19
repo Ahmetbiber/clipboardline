@@ -70,8 +70,11 @@ struct PublicLinkDestination: Equatable, Sendable {
         let labels = host.split(separator: ".", omittingEmptySubsequences: false)
         guard labels.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 63 && !$0.hasPrefix("-") && !$0.hasSuffix("-") }),
               labels.last?.contains(where: { $0.isLetter }) == true else { return nil }
-        let secretNames: Set<String> = ["token", "access_token", "refresh_token", "id_token", "auth", "authorization", "password", "secret", "client_secret", "key", "api_key", "apikey", "signature", "sig", "code", "session", "credential", "jwt", "bearer", "x_amz_credential", "x_amz_signature", "x_amz_security_token", "x_goog_signature"]
-        guard !(c.queryItems ?? []).contains(where: { secretNames.contains($0.name.lowercased().replacingOccurrences(of: "-", with: "_")) }) else { return nil }
+        let secretNames: Set<String> = ["token", "accesstoken", "refreshtoken", "idtoken", "auth", "authorization", "authentication", "authtoken", "password", "secret", "clientsecret", "key", "apikey", "accesskeyid", "signature", "sig", "code", "session", "sessionid", "credential", "credentials", "jwt", "bearer", "state", "policy", "keypairid", "verifier"]
+        guard !(c.queryItems ?? []).contains(where: {
+            let name = $0.name.lowercased().replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "")
+            return secretNames.contains(name) || name.hasPrefix("xamz") || name.hasPrefix("xgoog") || name.hasPrefix("oauth")
+        }) else { return nil }
         c.scheme = "https"; c.host = host; c.port = nil; c.fragment = nil
         if c.percentEncodedPath.isEmpty { c.percentEncodedPath = "/" }
         let target = c.percentEncodedPath + (c.percentEncodedQuery.map { "?" + $0 } ?? "")

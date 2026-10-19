@@ -48,13 +48,13 @@ import XCTest
         let leaf = PasteAccessibilityFixture.Element(role: kAXStaticTextRole)
         let editable = PasteAccessibilityFixture.Element(role: kAXTextAreaRole)
         let highest = PasteAccessibilityFixture.Element(role: kAXGroupRole)
-        leaf.attributes[kAXEditableAncestorAttribute] = editable
-        leaf.attributes[kAXHighestEditableAncestorAttribute] = highest
+        leaf.attributes["AXEditableAncestor"] = editable
+        leaf.attributes["AXHighestEditableAncestor"] = highest
         fixture.focused = leaf
         let field = try XCTUnwrap(fixture.resolve())
         XCTAssertTrue(field.identity === highest); XCTAssertTrue(field.editable)
         let nextLeaf = PasteAccessibilityFixture.Element(role: kAXStaticTextRole)
-        nextLeaf.attributes[kAXEditableAncestorAttribute] = highest
+        nextLeaf.attributes["AXEditableAncestor"] = highest
         fixture.focused = nextLeaf
         XCTAssertTrue(try XCTUnwrap(fixture.resolve()).identity === highest)
     }
@@ -71,7 +71,7 @@ import XCTest
         for blocked in ["disabled", "secure", "AXEditable", kAXIsEditableAttribute] {
             let fixture = PasteAccessibilityFixture(), leaf = PasteAccessibilityFixture.Element(role: kAXTextFieldRole)
             let ancestor = PasteAccessibilityFixture.Element(role: kAXTextAreaRole)
-            leaf.attributes[kAXEditableAncestorAttribute] = ancestor
+            leaf.attributes["AXEditableAncestor"] = ancestor
             switch blocked {
             case "disabled": leaf.set(kAXEnabledAttribute, false)
             case "secure": leaf.attributes[kAXSubroleAttribute] = kAXSecureTextFieldSubrole as NSString
@@ -93,7 +93,7 @@ import XCTest
             case "secure": ancestor.attributes[kAXSubroleAttribute] = kAXSecureTextFieldSubrole as NSString
             default: ancestor.set("AXEditable", true); ancestor.set(kAXIsEditableAttribute, false)
             }
-            leaf.attributes[kAXHighestEditableAncestorAttribute] = ancestor; fixture.focused = leaf
+            leaf.attributes["AXHighestEditableAncestor"] = ancestor; fixture.focused = leaf
             XCTAssertFalse(try XCTUnwrap(fixture.resolve()).editable)
         }
     }
@@ -102,7 +102,7 @@ import XCTest
         let fixture = PasteAccessibilityFixture()
         for role in [kAXButtonRole, kAXStaticTextRole, "AXWebArea", kAXGroupRole] {
             let element = PasteAccessibilityFixture.Element(role: role)
-            element.attributes[kAXEditableAncestorAttribute] = "Not an element" as NSString
+            element.attributes["AXEditableAncestor"] = "Not an element" as NSString
             fixture.focused = element
             XCTAssertFalse(try XCTUnwrap(fixture.resolve()).editable)
         }

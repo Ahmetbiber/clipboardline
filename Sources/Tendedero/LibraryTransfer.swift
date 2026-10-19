@@ -3,7 +3,11 @@ import AppKit
 @MainActor enum LibraryTransfer {
     /// Every representation is prepared before the destination is touched.
     static func pasteboardItems(_ records: [LibraryRecord]) throws -> [NSPasteboardItem] {
-        guard records.reduce(0, { $0 + ($1.text?.utf8.count ?? $1.originalURL?.utf8.count ?? 0) }) <= 32 * 1024 * 1024 else { throw ClipboardTransfer.Failure.tooLarge }
+        var textBytes = 0
+        for record in records {
+            textBytes += (record.text ?? record.originalURL ?? "").utf8.count
+            guard textBytes <= 32 * 1024 * 1024 else { throw ClipboardTransfer.Failure.tooLarge }
+        }
         if !records.isEmpty, records.allSatisfy({ $0.kind == .text }) { return ClipboardTransfer.textItems(records.compactMap(\.text)) }
         if !records.isEmpty, records.allSatisfy({ $0.kind == .link }) { return ClipboardTransfer.linkItems(records.compactMap(\.originalURL)) }
         // Mixed selections carry each item's native representation. A target

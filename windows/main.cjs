@@ -12,16 +12,18 @@ const {Updates} = require('./lib/updates.cjs');
 const testMode = process.argv.includes('--test-mode');
 const testFolder = process.argv.find(value=>value.startsWith('--test-data='))?.slice('--test-data='.length);
 if(testMode && testFolder) app.setPath('userData',path.resolve(testFolder));
-app.setName('ClipBoardLine');
+const development=!app.isPackaged&&!testMode;
+if(development)app.setPath('userData',path.join(app.getPath('appData'),'ClipBoardLine Dev'));
+app.setName(development?'ClipBoardLine Dev':'ClipBoardLine');
 protocol.registerSchemesAsPrivileged([{scheme:'appmedia',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);
 let window,store,tray,updates,monitor,clipboardTimer,retentionTimer,updateTimer,previous=null,view='shelves',message='',viewEvent=null;
-let lastFingerprint='',ownFingerprint='',capturing=false,showing=false,closing=false,lastChecked=0,watchers=[];
+let lastFingerprint='',ownFingerprint='',capturing=false,pendingClipboard=false,showing=false,closing=false,lastChecked=0,watchers=[];
 const entry = pathToFileURL(path.join(__dirname,'index.html')).href;
 const copyMarker = crypto.randomBytes(16);
 const pending = new Set();
 const ocrJobs=new Map(),ocrQueue=[];let indexing=false;
 
-function state(result) { return {...store.publicState(),version:app.getVersion(),build:62,platform:process.platform,view,windowVisible:window?.isVisible()||false,message,viewEvent,update:{...updates.state},...(result===undefined?{}:{result})}; }
+function state(result) { return {...store.publicState(),version:app.getVersion(),build:62,platform:process.platform,development,view,windowVisible:window?.isVisible()||false,message,viewEvent,update:{...updates.state},...(result===undefined?{}:{result})}; }
 function broadcast() { if(window&&!window.isDestroyed())window.webContents.send('clipboardline:changed',state()); }
 function notify(text) { message=text;broadcast(); }
 function trusted(event) {
@@ -62,7 +64,7 @@ async function clipboardContent() {
   const url=plainURL(value);return{kind:url?'link':'text',value:url||value,owned,fingerprint:(url?'link:':'text:')+crypto.createHash('sha256').update(value).digest('hex')};
 }
 async function readClipboard() {
-  if(capturing||!store||closing||!['captureText','captureImages','captureLinks'].some(key=>store.data.settings[key]))return;capturing=true;
+  if(capturing){pendingClipboard=true;return;}if(!store||closing||!['captureText','captureImages','captureLinks'].some(key=>store.data.settings[key]))return;capturing=true;
   try{
     const content=await clipboardContent();if(!content)return;
     if(content.fingerprint===lastFingerprint)return;lastFingerprint=content.fingerprint;
@@ -73,7 +75,7 @@ async function readClipboard() {
     if(item.kind==='link')void enrich(item.id);
     if(item.kind==='image')queueOCR(item.id);
     if(item.kind==='image'&&store.data.settings.openAfterScreenshot&&!window.isVisible())await show('shelves',{selectId:item.id,kind:'image'});
-  }catch(error){notify('Clipboard capture: '+error.message);}finally{capturing=false;}
+  }catch(error){notify('Clipboard capture: '+error.message);}finally{capturing=false;if(pendingClipboard){pendingClipboard=false;queueMicrotask(()=>void readClipboard());}}
 }
 async function enrich(id) {
   if(!store.data.settings.fetchLinkMetadata||pending.has(id))return;pending.add(id);
@@ -188,11 +190,12 @@ async function command(action,payload={}) {
     store.modify('setSettings',{patch});configureShortcuts();
     if(['captureText','captureImages','captureLinks'].some(key=>Object.hasOwn(patch,key)))lastFingerprint='';
     if(Object.hasOwn(patch,'launchAtLogin')&&!testMode)app.setLoginItemSettings({openAtLogin:patch.launchAtLogin});
-    if(Object.hasOwn(patch,'autoCheckUpdates')&&patch.autoCheckUpdates)void updates.check();
+    if(Object.hasOwn(patch,'autoCheckUpdates')&&patch.autoCheckUpdates&&!development)void updates.check();
   }else if(action==='watchFolder'||action==='chooseWatchFolder'){const response=await dialog.showOpenDialog(window,{properties:['openDirectory']});if(response.filePaths[0]){store.modify('setSettings',{patch:{watchFolders:[...store.data.settings.watchFolders,response.filePaths[0]]}});configureWatchers();}}
   else if(action==='unwatchFolder'){const index=payload.index;if(!Number.isInteger(index)||index<0||index>=store.data.settings.watchFolders.length)throw new Error('Invalid watched folder');store.modify('setSettings',{patch:{watchFolders:store.data.settings.watchFolders.filter((_v,i)=>i!==index)}});configureWatchers();}
-  else if(action==='checkUpdates')await updates.check();
+  else if(action==='checkUpdates'){if(development)updates.set({status:'development',message:'Development builds use a separate library. Install an official release to use its signed update channel.'});else await updates.check();}
   else if(action==='installUpdate'){
+    if(development)throw new Error('Development builds cannot install official updates.');
     if(process.platform!=='win32')throw new Error('Windows installer can run only on Windows.');
     const destination=await updates.download();
     const bytes=fs.readFileSync(destination),manifest=updates.manifest;
@@ -234,8 +237,8 @@ else app.whenReady().then(async()=>{
     monitor=native.monitor(()=>void readClipboard(),error=>{monitor?.kill();monitor=null;if(!closing)notify(error.message+' Falling back to bounded clipboard polling.');});
     clipboardTimer=setInterval(()=>{if(!monitor)void readClipboard();},1000);
     retentionTimer=setInterval(()=>{store.expire();broadcast();},3600000);
-    updateTimer=setInterval(()=>{if(store.data.settings.autoCheckUpdates&&Date.now()-lastChecked>3600000){lastChecked=Date.now();void updates.check();}},60000);
-    setTimeout(()=>{if(store.data.settings.autoCheckUpdates){lastChecked=Date.now();void updates.check();}},30000).unref();
+    updateTimer=setInterval(()=>{if(!development&&store.data.settings.autoCheckUpdates&&Date.now()-lastChecked>3600000){lastChecked=Date.now();void updates.check();}},60000);
+    setTimeout(()=>{if(!development&&store.data.settings.autoCheckUpdates){lastChecked=Date.now();void updates.check();}},30000).unref();
   }
   await show('shelves');
   // Test hooks are main-process only and require an explicit isolated data path.

@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const {execFileSync}=require('node:child_process');
 
 const KINDS = ['image', 'text', 'link'];
 const DEFAULTS = Object.freeze({
@@ -67,6 +68,13 @@ class Store {
   constructor(directory, {clock = Date.now} = {}) {
     this.directory = path.resolve(directory); this.clock = clock; this.undoStack = [];
     fs.mkdirSync(this.directory, {recursive: true, mode: 0o700});
+    if(fs.lstatSync(this.directory).isSymbolicLink())fail('Application data must not be a symlink.');
+    if(process.platform==='win32'){
+      const script=__dirname.includes('app.asar')?path.join(process.resourcesPath,'native','protect-directory.ps1'):path.join(__dirname,'..','native','protect-directory.ps1');
+      const powershell=path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
+      try{execFileSync(powershell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,'-Directory',this.directory],{windowsHide:true,timeout:15000,stdio:['ignore','pipe','pipe']});}
+      catch{fail('The private application data permissions could not be secured. Existing files were preserved.');}
+    }
     this.mediaDirectory = path.join(this.directory, 'media'); fs.mkdirSync(this.mediaDirectory, {recursive: true, mode: 0o700});
     this.file = path.join(this.directory, 'library.json');
     this.data = {schema: 1, items: [], folders: [], settings: clone(DEFAULTS)};

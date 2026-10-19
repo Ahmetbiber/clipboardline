@@ -48,7 +48,20 @@ async function main(){
   const edited=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=400;c.height=100;const g=c.getContext('2d');g.fillStyle='orange';g.fillRect(0,0,400,100);g.fillStyle='red';g.fillRect(20,20,100,50);return c.toDataURL('image/png');});
   const editState=await page.evaluate(({id,dataUrl})=>window.clipboardLine.command('saveImage',{id,dataUrl,crop:{x:10,y:10,width:400,height:100},annotations:[{type:'rectangle',x:20,y:20,width:100,height:50,color:'#ff0000'}]}),{id:imageItem.id,dataUrl:edited});assert.ok(!editState.result?.error);assert.equal(editState.items.find(i=>i.id===imageItem.id).annotations.length,1);check('edited crop/markup output and original persist separately');
   await application.evaluate(()=>{const h=global.__clipboardLineTest;h.store.insert('link','https://example.com/reference');h.command('show');});
-  await page.evaluate(()=>window.clipboardLine.command('library'));await page.waitForTimeout(250);await page.screenshot({path:path.join(output,'library.png')});
+  await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click();
+  await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});
+  await page.keyboard.press('ArrowDown');await until(()=>page.locator('#preview-dialog').getAttribute('aria-label'),label=>label.includes('example.com/reference'));
+  await page.keyboard.press('ArrowUp');await until(()=>page.locator('#preview-dialog').getAttribute('aria-label'),label=>label==='Named synthetic key');
+  await page.keyboard.press('p');await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.items.find(i=>i.id===textItem.id).pinned===false);
+  await page.keyboard.press('p');await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.items.find(i=>i.id===textItem.id).pinned===true);
+  await page.keyboard.press('s');await until(()=>page.locator('#preview-dialog').getAttribute('aria-label'),label=>label!=='Named synthetic key');
+  await page.keyboard.press('Backspace');await until(()=>page.locator('#preview-dialog').getAttribute('aria-label'),label=>label==='Named synthetic key');
+  check('real Space/arrows/P/S/Backspace keyboard navigation preserves preview and undo');
+  await page.keyboard.press('Enter');await until(()=>application.evaluate(()=>global.__clipboardLineTest.getWindow().isVisible()),visible=>visible===false);
+  assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),textItem.text);check('real Enter key copies preview and dismisses the host window');
+  await application.evaluate(()=>global.__clipboardLineTest.command('show'));
+  await page.keyboard.press('l');await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.view==='library');
+  assert.equal(await application.evaluate(()=>global.__clipboardLineTest.getWindow().isFullScreen()),false);await page.screenshot({path:path.join(output,'library.png')});
   await page.evaluate(()=>window.clipboardLine.command('show'));await page.waitForTimeout(250);await page.screenshot({path:path.join(output,'shelves.png')});check('three kinds render in shelves and normal library window');
   // An actual separate WinForms process owns the destination, so focus/paste
   // cannot pass by sending synthetic keys back to the Electron test window.
@@ -59,10 +72,10 @@ async function main(){
   await until(fixtureState,s=>s.ready);
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const target=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(target?.editable&&!target?.secure,JSON.stringify(target));
-  let paste=await page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id);assert.ok(!paste.result?.error,paste.result?.error);
+  await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');
   await until(fixtureState,s=>s.text.includes('Windows clipboard text acceptance'));check('CtrlEnter text paste restores prior external editable field');
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
-  paste=await page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),imageItem.id);assert.ok(!paste.result?.error,paste.result?.error);
+  await page.locator(`[data-shelf="image"] [data-item-id="${imageItem.id}"]`).click();await page.keyboard.press('Control+Enter');
   await until(fixtureState,s=>s.hasImage);check('CtrlEnter image paste works in separate native rich-text editor');
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const secondImage=await application.evaluate(({nativeImage},value)=>{const h=global.__clipboardLineTest;return h.store.insert('image',nativeImage.createFromDataURL(value).crop({x:0,y:0,width:150,height:100}).toPNG()).id;},edited);
@@ -75,6 +88,15 @@ async function main(){
   const screenCapture=await page.evaluate(()=>window.clipboardLine.command('capture'));assert.ok(screenCapture.result?.id,screenCapture.result?.error);check('actual Windows desktop capture produces a managed image');
   await page.evaluate(()=>window.clipboardLine.command('settings'));await page.waitForTimeout(250);await page.screenshot({path:path.join(output,'settings.png')});
   const persisted=JSON.parse(fs.readFileSync(path.join(data,'library.json'),'utf8'));assert.ok(persisted.items.some(i=>i.id===textItem.id&&i.pinned&&i.tags.includes('work')));check('real persisted library retains named pinned organization');
+  if(fixture){fixture.kill();fixture=null;}
+  await application.close();application=null;
+  application=await electron.launch({...(process.env.CLIPBOARDLINE_EXECUTABLE?{executablePath:path.resolve(process.env.CLIPBOARDLINE_EXECUTABLE),args:[]}:{args:[path.resolve('main.cjs')]}),timeout:60000});
+  const productionPage=await application.firstWindow();await productionPage.waitForFunction(()=>!!window.clipboardLine);
+  const production=await until(()=>productionPage.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===true);
+  assert.equal(production.settings.captureText,false);assert.equal(production.settings.captureImages,false);assert.equal(production.settings.captureLinks,false);assert.equal(production.settings.fetchLinkMetadata,false);
+  assert.equal(await application.evaluate(()=>typeof global.__clipboardLineTest),'undefined');
+  assert.equal(await productionPage.evaluate(async()=>{try{await fetch('https://example.com');return false;}catch{return true;}}),true);
+  await productionPage.screenshot({path:path.join(output,'production-startup.png')});check('normal production startup creates tray/services, defaults to opt-in and blocks renderer network');
   report.completedAt=new Date().toISOString();report.passed=true;
 }
 main().catch(error=>{report.passed=false;report.error=error.stack;console.error(error.stack);process.exitCode=1;}).finally(async()=>{if(fixture)fixture.kill();if(application)await application.close().catch(()=>{});fs.writeFileSync(path.join(output,'windows-runtime.json'),JSON.stringify(report,null,2));fs.rmSync(data,{recursive:true,force:true,maxRetries:4});});
