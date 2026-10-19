@@ -249,13 +249,12 @@ UI test uygulaması sentetik içerik ve ayrı tercihler kullanır. Asıl uygulam
 
 ClipBoardLine, Alejandro Buján’ın Tendedero uygulamasının upstream 1.5.0 tabanlı değiştirilmiş bir fork’udur. Gerçek MIT lisanslı kaynak atası Tendedero’dur; telif ve katkı bildirimleri korunur. ClipBoardLine ayrı isim ve görseller kullanır; özgün yazarın onayı veya desteği iddia edilmez.
 
-Tangerine kullanım akışı açısından ilham kaynağıdır; kendi Nashi projemiz daha kolay yerel güncelleme deneyimine yön vermiştir. Bu bir ilham atfıdır; Tangerine’in kaynak atası olduğu veya ClipBoardLine’ı onayladığı iddiası değildir.
+Tendedero’dan ilham alan ClipBoardLine; yerel kütüphane, ortak OCR araması, sabitleme ve adlandırma, klasörler ve etiketler, düzenlenebilir görsel işaretleme ve kırpma, klavyeyle gezinme ve herkese açık imzalı güncellemelerle bu pano akışını geliştirir.
 
 Güncellemeleri Sparkle sağlar. Cihazda arama Apple Vision ve özgün MobileCLIP-S2 modellerini kullanır; ilgili bildirimler ve model lisansları dağıtımda korunmalıdır. Uyarlanan Tendedero katkıları arasında Anubhav-Rai’ın pano yakalama katkısı, dil/kopyalama bildirimi, menü sayacı ve görsel arama köprüsü bulunur.
 
 - [Tendedero — Alejandro Buján](https://github.com/alejandrobujan/tendedero)
 - [MIT License](LICENSE)
-- [Tangerine](https://tangerineformac.com/)
 - [Sparkle](https://sparkle-project.org/)
 - [Apple MobileCLIP](https://github.com/apple-aiml-research/ml-mobileclip)
 

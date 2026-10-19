@@ -249,13 +249,12 @@ The UI harness uses synthetic fixtures and separate preferences. It does not ins
 
 ClipBoardLine is a modified fork of Tendedero by Alejandro Buján, based on upstream 1.5.0. Tendedero is the actual MIT-licensed source upstream; its copyright and contributor acknowledgements remain. ClipBoardLine uses its own name and artwork and is not endorsed by the original author.
 
-Tangerine is credited as workflow inspiration, and our Nashi project informed the simpler native update experience. This is inspiration credit, not a claim that Tangerine is the source upstream or endorses ClipBoardLine.
+Inspired by Tendedero, ClipBoardLine extends its clipboard workflow with a local Library, shared OCR search, pinning and naming, folders and tags, editable image markup and crop, keyboard navigation and public signed updates.
 
 Sparkle provides the updater. Apple Vision and the original MobileCLIP-S2 models provide on-device search; their respective notices and model licenses must accompany distribution. Adapted Tendedero contributions include clipboard capture by Anubhav-Rai, language/copy feedback, the menu count and the image-search bridge.
 
 - [Tendedero — Alejandro Buján](https://github.com/alejandrobujan/tendedero)
 - [MIT License](LICENSE)
-- [Tangerine](https://tangerineformac.com/)
 - [Sparkle](https://sparkle-project.org/)
 - [Apple MobileCLIP](https://github.com/apple-aiml-research/ml-mobileclip)
 
