@@ -4,7 +4,7 @@
 
 Images, text and links, close at hand. Keep recent copies on three shelves, save what matters in a local Library, and move through it all with your keyboard.
 
-[Türkçe README](README.tr.md) · [Download for Mac](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/clipboardline-1.7.2-build66/ClipboardLine-1.7.2-build66.zip) · [Download for Windows x64](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe) · [Explore source](https://github.com/orkunisitmak/clipboardline-desktop)
+[Türkçe README](README.tr.md) · [Download for Mac](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/clipboardline-1.7.2-build66/ClipboardLine-1.7.2-build66.zip) · [Download for Windows x64](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe) · [Explore source](https://github.com/orkunisitmak/clipboardline-desktop) · [Screenshots and demos](https://orkunisitmak.github.io/clipboardline-desktop/#demo)
 
 > The macOS edition uses Swift, AppKit, SwiftUI, Vision and Core ML on macOS 14 or later, for Apple silicon and Intel. The separate Electron edition is available for Windows x64; see the platform matrix for differences and native validation evidence.
 

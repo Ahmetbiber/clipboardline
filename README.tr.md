@@ -4,7 +4,7 @@
 
 Görseller, metinler ve linkler elinin altında. Son kopyalarını üç askıda tut, önemli olanları yerel kütüphaneye kaydet ve tümünde klavyeyle hızla gezin.
 
-[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/clipboardline-1.7.2-build66/ClipboardLine-1.7.2-build66.zip) · [Windows x64 için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop)
+[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/clipboardline-1.7.2-build66/ClipboardLine-1.7.2-build66.zip) · [Windows x64 için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop) · [Ekran görüntüleri ve demolar](https://orkunisitmak.github.io/clipboardline-desktop/tr/#demo)
 
 > macOS sürümü Swift, AppKit, SwiftUI, Vision ve Core ML kullanır; Apple silicon ve Intel’de macOS 14 veya üstünü destekler. Ayrı Electron sürümü Windows x64 için kullanılabilir; farklar ve gerçek Windows doğrulama kanıtı aşağıdaki platform tablosundadır.
 
