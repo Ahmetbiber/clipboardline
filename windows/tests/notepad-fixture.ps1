@@ -40,7 +40,7 @@ $configuration=[System.IO.File]::ReadAllText($Config)|ConvertFrom-Json
 # writes or a second paste path. Microsoft API contracts:
 # https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.textpattern.getselection
 # https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/find-and-highlight-text-using-ui-automation
-$script:status=@{status='starting';lastSerial='';commandError='';discovery=@();discoveryErrors=@();windows=@();notepadProcesses=@()}
+$script:status=@{status='starting';lastSerial='';commandError='';discovery=@();discoveryErrors=@();windows=@();notepadProcesses=@();traversal=@{}}
 $script:root=$null;$script:editor=$null;$script:textPattern=$null;$script:valuePattern=$null;$script:suffix='';$script:handle=[IntPtr]::Zero;$script:owner=0;$script:runtime='';$script:ownerStarted=$null
 function Write-State {
   $temporary=$configuration.output+'.tmp'
@@ -118,26 +118,31 @@ try {
         $title=[NotepadAcceptanceNative]::Title($handle);$hasToken=$title.IndexOf([string]$configuration.token,[StringComparison]::OrdinalIgnoreCase) -ge 0
         if ($script:status.windows.Count -lt 12) { $script:status.windows+=@{processId=$process.Id;handle=$handle.ToInt64().ToString();class=[NotepadAcceptanceNative]::Class($handle);titleLength=$title.Length;titleHasToken=$hasToken} }
         if (-not $hasToken) { continue }
+        [void][NotepadAcceptanceNative]::ShowWindow($handle,9)
+        $foregroundRequested=[NotepadAcceptanceNative]::SetForegroundWindow($handle)
         $window=[System.Windows.Automation.AutomationElement]::FromHandle($handle)
+        Start-Sleep -Milliseconds 80
         # The unique active filename scopes every content read to our fixture.
         # Modern Notepad may expose a custom/Pane control with the standard
         # text patterns. The exact UUID caption scopes this provider search.
-        $editors=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
+        $editors=$window.FindAll([System.Windows.Automation.TreeScope]::Subtree,[System.Windows.Automation.Condition]::TrueCondition)
+        $script:status.traversal=@{count=$editors.Count;foregroundRequested=$foregroundRequested;foreground=[NotepadAcceptanceNative]::GetForegroundWindow().ToInt64().ToString();rootClass=$window.Current.ClassName;rootType=$window.Current.ControlType.ProgrammaticName}
         foreach ($candidate in $editors) {
-          if ($candidate.Current.IsOffscreen -or -not $candidate.Current.IsEnabled -or $candidate.Current.IsPassword) { continue }
           $text=$null;[void]$candidate.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern,[ref]$text)
           $value=$null;[void]$candidate.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$value)
+          if ($script:status.discovery.Count -lt 24) { $script:status.discovery+=@{control=[string]$candidate.Current.ControlType.ProgrammaticName;class=[string]$candidate.Current.ClassName;offscreen=$candidate.Current.IsOffscreen;enabled=$candidate.Current.IsEnabled;password=$candidate.Current.IsPassword;textPattern=$null -ne $text;valuePattern=$null -ne $value} }
+          if ($candidate.Current.IsOffscreen -or -not $candidate.Current.IsEnabled -or $candidate.Current.IsPassword) { continue }
           if ($null -eq $text -and $null -eq $value) { continue }
           if ($null -ne $value -and $value.Current.IsReadOnly) { continue }
           $raw=if ($null -ne $value) {[string]$value.Current.Value} else {[string]$text.DocumentRange.GetText(-1)}
-          if ($script:status.discovery.Count -lt 12) { $script:status.discovery+=@{control=[string]$candidate.Current.ControlType.ProgrammaticName;class=[string]$candidate.Current.ClassName;textPattern=$null -ne $text;valuePattern=$null -ne $value;length=$raw.Length;seedLength=([string]$configuration.seed).Length;seedMatch=$raw.TrimEnd([char[]]"`r`n") -ceq [string]$configuration.seed} }
+          $script:status.traversal.lastTextMatch=@{length=$raw.Length;seedLength=([string]$configuration.seed).Length;seedMatch=$raw.TrimEnd([char[]]"`r`n") -ceq [string]$configuration.seed}
           $suffix=$null
           foreach ($terminator in @('',"`r","`r`n","`n")) { if ($raw -ceq ([string]$configuration.seed+$terminator)) {$suffix=$terminator;break} }
           if ($null -eq $suffix) { continue }
           $script:root=$window;$script:editor=$candidate;$script:textPattern=$text;$script:valuePattern=$value;$script:suffix=$suffix
           $script:handle=$handle;$script:owner=$process.Id;$script:ownerStarted=$process.StartTime.ToUniversalTime().Ticks;$script:runtime=[string]::Join('.',$candidate.GetRuntimeId())
           $version='';try {$version=[string]$process.MainModule.FileVersionInfo.FileVersion} catch {}
-          $script:status=@{status='ready';lastSerial='';commandError='';handle=$script:handle.ToInt64().ToString();processId=$script:owner;runtime=$script:runtime;version=$version;processHandoff=$process.Id -ne $launcher.Id;providerTerminator=$suffix.Replace("`r",'CR').Replace("`n",'LF');selectionMethod=if ($null -ne $text) {'UIA TextPattern'} else {'Native CtrlA'};discovery=$script:status.discovery;discoveryErrors=$script:status.discoveryErrors;windows=$script:status.windows;notepadProcesses=$script:status.notepadProcesses}
+          $script:status=@{status='ready';lastSerial='';commandError='';handle=$script:handle.ToInt64().ToString();processId=$script:owner;runtime=$script:runtime;version=$version;processHandoff=$process.Id -ne $launcher.Id;providerTerminator=$suffix.Replace("`r",'CR').Replace("`n",'LF');selectionMethod=if ($null -ne $text) {'UIA TextPattern'} else {'Native CtrlA'};discovery=$script:status.discovery;discoveryErrors=$script:status.discoveryErrors;windows=$script:status.windows;notepadProcesses=$script:status.notepadProcesses;traversal=$script:status.traversal}
           break
         }
       } catch { if ($hasToken -and $script:status.discoveryErrors.Count -lt 6) { $script:status.discoveryErrors+=@{kind=$_.Exception.GetType().FullName;message=$_.Exception.Message.Substring(0,[Math]::Min(256,$_.Exception.Message.Length))} } }

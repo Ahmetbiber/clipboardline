@@ -4,7 +4,9 @@ const path = require('node:path');
 const {windowsEnvironment}=require('./windows-environment.cjs');
 const script = __dirname.includes('app.asar') ? path.join(process.resourcesPath,'native','windows-bridge.ps1') : path.join(__dirname, '..', 'native', 'windows-bridge.ps1');
 const powershell = path.join(process.env.SystemRoot || 'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
-function invocation(mode) { return ['-NoLogo','-NoProfile','-STA','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,'-Mode',mode]; }
+// UIA runs on a non-window-owning MTA thread. WinForms clipboard ownership is
+// the one mode that requires STA; it does not traverse UI Automation elements.
+function invocation(mode) { return ['-NoLogo','-NoProfile',mode==='CopyImages'?'-STA':'-MTA','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,'-Mode',mode]; }
 function run(mode, target) {
   if (process.platform !== 'win32') return mode === 'Capture' ? Promise.resolve(null) : Promise.reject(new Error('External application focus is supported on Windows.'));
   return new Promise((resolve,reject) => {

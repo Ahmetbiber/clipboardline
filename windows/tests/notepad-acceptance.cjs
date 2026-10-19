@@ -21,7 +21,9 @@ module.exports=async function notepadAcceptance({page,application,textItem,check
   const config=path.join(directory,'config.json');
   fs.writeFileSync(config,JSON.stringify({document,token,seed,output,commands}),{mode:0o600});
   const ps=path.win32.join(process.env.SystemRoot||process.env.SYSTEMROOT||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
-  const helper=spawn(ps,['-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',path.join(__dirname,'notepad-fixture.ps1'),'-Config',config],{stdio:['ignore','ignore','pipe'],windowsHide:false,env:windowsEnvironment()});
+  // UIA tree traversal belongs on a non-window-owning MTA client thread.
+  // https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-threading
+  const helper=spawn(ps,['-NoProfile','-MTA','-ExecutionPolicy','Bypass','-File',path.join(__dirname,'notepad-fixture.ps1'),'-Config',config],{stdio:['ignore','ignore','pipe'],windowsHide:false,env:windowsEnvironment()});
   let helperError='',spawnError,exited=false;helper.stderr.on('data',bytes=>{helperError=(helperError+String(bytes)).slice(-3000);});helper.on('error',error=>{spawnError=error;});helper.on('exit',()=>{exited=true;});
   const state=()=>{
     if(spawnError)throw spawnError;
@@ -43,7 +45,7 @@ module.exports=async function notepadAcceptance({page,application,textItem,check
     if(ready.status==='unavailable'){
       result={application:'Notepad',status:'unavailable',reason:ready.reason};results.push(result);console.log('UNAVAILABLE Notepad: '+ready.reason);return result;
     }
-    assert.equal(ready.status,'ready',JSON.stringify({reason:ready.reason,discovery:ready.discovery,discoveryErrors:ready.discoveryErrors,windows:ready.windows,processes:ready.notepadProcesses}));
+    assert.equal(ready.status,'ready',JSON.stringify({reason:ready.reason,traversal:ready.traversal,discovery:ready.discovery,discoveryErrors:ready.discoveryErrors,windows:ready.windows,processes:ready.notepadProcesses}));
     const focused=await command('focus');assert.equal(focused.text,seed);if(focused.selectionMethod==='UIA TextPattern')assert.equal(focused.selectedText,seed);else assert.equal(focused.selectionMethod,'Native CtrlA');assert.equal(focused.foreground,true);assert.equal(focused.editorFocused,true);
     await application.evaluate(()=>global.__clipboardLineTest.command('show'));
     const target=await application.evaluate(()=>global.__clipboardLineTest.getTarget());
