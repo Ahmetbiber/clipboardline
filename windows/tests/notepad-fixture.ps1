@@ -99,6 +99,10 @@ function Observe-Document {
   $script:status.selectedText=$selected
 }
 try {
+  # Use the same Microsoft Win32 provider registration as the real app bridge;
+  # a generic HWND Pane is not evidence that an Edit control is writable.
+  $proxies=[System.Reflection.Assembly]::Load('UIAutomationClientsideProviders, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
+  [System.Windows.Automation.ClientSettings]::RegisterClientSideProviderAssembly($proxies.GetName())
   $candidates=@((Join-Path $env:SystemRoot 'System32\notepad.exe'),(Join-Path $env:SystemRoot 'notepad.exe'))
   $executable=$candidates|Where-Object {[System.IO.File]::Exists($_)}|Select-Object -First 1
   if (-not $executable) {

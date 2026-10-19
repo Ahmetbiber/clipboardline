@@ -54,6 +54,13 @@ function FocusInfo {
 }
 function HeldShortcutKeys { @(0x11,0x12,0x10,0x0D,0x5B,0x5C) | Where-Object { [ClipBoardLineNative]::GetAsyncKeyState($_) -lt 0 } }
 try {
+  if ($Mode -notin @('CopyImages','Monitor')) {
+    # PowerShell's dynamic caller can prevent UIA's one-time default proxy load.
+    # Register Microsoft's strongly named Win32 providers before reading UIA.
+    # https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/register-a-client-side-provider-assembly
+    $proxies=[System.Reflection.Assembly]::Load('UIAutomationClientsideProviders, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
+    [System.Windows.Automation.ClientSettings]::RegisterClientSideProviderAssembly($proxies.GetName())
+  }
   if ($Mode -eq 'CopyImages') {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
