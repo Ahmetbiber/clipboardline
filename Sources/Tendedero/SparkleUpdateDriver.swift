@@ -7,6 +7,16 @@ import Sparkle
 /// This driver has no credential API: the signed official feed is anonymous.
 @MainActor
 final class SparkleUpdateDriver: NSObject, ObservableObject, SPUUpdaterDelegate, @preconcurrency SPUStandardUserDriverDelegate {
+    struct State: Equatable {
+        let status: String
+        let error: String?
+        let availableVersion: String?
+        let availableBuild: Int?
+        let busy: Bool
+        let lastSuccessfulCheck: Date?
+        let automaticChecksEnabled: Bool
+    }
+
     @Published private(set) var status = L("Check for updates…")
     @Published private(set) var error: String?
     @Published private(set) var availableVersion: String?
@@ -14,6 +24,25 @@ final class SparkleUpdateDriver: NSObject, ObservableObject, SPUUpdaterDelegate,
     @Published private(set) var busy = false
     @Published private(set) var lastSuccessfulCheck: Date?
     @Published private(set) var automaticChecksEnabled: Bool
+
+    var state: State {
+        State(status: status, error: error, availableVersion: availableVersion,
+              availableBuild: availableBuild, busy: busy, lastSuccessfulCheck: lastSuccessfulCheck,
+              automaticChecksEnabled: automaticChecksEnabled)
+    }
+
+    /// Published values arrive before their stored properties change. Forward
+    /// those values directly, including while Sparkle runs a native modal loop.
+    var states: AnyPublisher<State, Never> {
+        Publishers.CombineLatest4($status, $error, $availableVersion, $availableBuild)
+            .combineLatest(Publishers.CombineLatest3($busy, $lastSuccessfulCheck, $automaticChecksEnabled))
+            .map { details, checks in
+                State(status: details.0, error: details.1, availableVersion: details.2,
+                      availableBuild: details.3, busy: checks.0, lastSuccessfulCheck: checks.1,
+                      automaticChecksEnabled: checks.2)
+            }
+            .eraseToAnyPublisher()
+    }
 
     var canQuit: () -> Bool = { true }
     var onAvailable: ((String, Int) -> Void)?

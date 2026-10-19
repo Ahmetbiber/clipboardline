@@ -196,10 +196,7 @@ final class AppUpdateController: ObservableObject {
                 nativeUpdater.onAvailable = { [weak self] version, build in
                     self?.onPublicUpdateAvailable?(version, build)
                 }
-                nativeObservation = nativeUpdater.objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in
-                    self?.refreshNativeState()
-                }
-                refreshNativeState()
+                observeNativeState(nativeUpdater.states)
             }
         }
         #endif
@@ -209,14 +206,25 @@ final class AppUpdateController: ObservableObject {
     var isConfigured: Bool { usesPublicUpdates || configuration != nil }
 
     #if canImport(Sparkle)
+    /// Keep Settings, menu actions and notifications on the same emitted state.
+    /// Do not defer a will-change read to the default run-loop mode: Sparkle's
+    /// native alerts may keep that mode inactive while the check has finished.
+    func observeNativeState(_ states: AnyPublisher<SparkleUpdateDriver.State, Never>) {
+        nativeObservation = states.sink { [weak self] state in self?.applyNativeState(state) }
+    }
+
     private func refreshNativeState() {
         guard let nativeUpdater else { return }
-        status = nativeUpdater.status; error = nativeUpdater.error
-        busy = nativeUpdater.busy; progress = nil
-        nativeAvailableVersion = nativeUpdater.availableVersion
-        nativeAvailableBuild = nativeUpdater.availableBuild
-        automaticChecksEnabled = nativeUpdater.automaticChecksEnabled
-        lastSuccessfulCheck = nativeUpdater.lastSuccessfulCheck
+        applyNativeState(nativeUpdater.state)
+    }
+
+    private func applyNativeState(_ state: SparkleUpdateDriver.State) {
+        status = state.status; error = state.error
+        busy = state.busy; progress = nil
+        nativeAvailableVersion = state.availableVersion
+        nativeAvailableBuild = state.availableBuild
+        automaticChecksEnabled = state.automaticChecksEnabled
+        lastSuccessfulCheck = state.lastSuccessfulCheck
         needsAuthorization = false
     }
     #endif

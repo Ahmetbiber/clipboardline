@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Sparkle)
+import Combine
+#endif
 #if !STANDALONE_TESTS
 import XCTest
 @testable import Tendedero
@@ -83,6 +86,71 @@ final class PublicUpdateChannelTests: HistoryTestCase {
     }
 
 #if canImport(Sparkle)
+    @MainActor
+    func testNativeDriverValuesReachControllerBeforeTheNextRunLoopTurn() {
+        let suite = "synthetic-native-state-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let previousCheck = Date(timeIntervalSince1970: 1_750_000_000)
+        defaults.set(previousCheck, forKey: AutomaticUpdateSchedule.lastSuccessfulCheckKey)
+        let credentials = UpdateCredentialStore(load: { nil }, save: { _ in }, remove: {})
+        let controller = AppUpdateController(enabled: false, credentials: credentials, defaults: defaults)
+        let driver = SparkleUpdateDriver(defaults: defaults, info: info)!
+        controller.observeNativeState(driver.states)
+        XCTAssertEqual(controller.lastSuccessfulCheck, previousCheck)
+        XCTAssertTrue(controller.automaticChecksEnabled)
+
+        // Sparkle callbacks run inside its own alert/run-loop modes. The
+        // controller must receive the new published payload immediately,
+        // without scheduling a later read of the driver's stored properties.
+        driver.setAutomaticChecksEnabled(false)
+        XCTAssertFalse(controller.automaticChecksEnabled)
+        driver.canQuit = { false }
+        XCTAssertTrue(driver.postponeRelaunchIfNeeded {})
+        XCTAssertEqual(controller.error, driver.error)
+        XCTAssertNotNil(controller.error)
+        XCTAssertFalse(controller.busy)
+        XCTAssertNil(defaults.object(forKey: AutomaticUpdateSchedule.lastAttemptKey), "No updater or credential operation starts")
+    }
+
+    @MainActor
+    func testNativeCheckResultsReplaceBusyStatusAndCheckDateWithoutDeferredReads() {
+        let suite = "synthetic-native-check-result-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let credentials = UpdateCredentialStore(load: { nil }, save: { _ in }, remove: {})
+        let controller = AppUpdateController(enabled: false, credentials: credentials, defaults: defaults)
+        let previousCheck = Date(timeIntervalSince1970: 1_750_000_000)
+        let freshCheck = previousCheck.addingTimeInterval(120)
+        let states = CurrentValueSubject<SparkleUpdateDriver.State, Never>(.init(
+            status: "Checking for updates…", error: nil, availableVersion: nil,
+            availableBuild: nil, busy: true, lastSuccessfulCheck: previousCheck,
+            automaticChecksEnabled: true))
+        controller.observeNativeState(states.eraseToAnyPublisher())
+        XCTAssertTrue(controller.busy)
+
+        states.send(.init(status: "You are up to date.", error: nil, availableVersion: nil,
+            availableBuild: nil, busy: false, lastSuccessfulCheck: freshCheck,
+            automaticChecksEnabled: true))
+        XCTAssertEqual(controller.status, "You are up to date.")
+        XCTAssertEqual(controller.lastSuccessfulCheck, freshCheck)
+        XCTAssertFalse(controller.busy)
+
+        states.send(.init(status: "Version 1.7.1 is ready to install.", error: nil,
+            availableVersion: "1.7.1", availableBuild: 65, busy: false,
+            lastSuccessfulCheck: freshCheck, automaticChecksEnabled: true))
+        XCTAssertEqual(controller.availableVersion, "1.7.1")
+        XCTAssertEqual(controller.availableBuild, 65)
+        states.send(.init(status: "Update check could not be completed.", error: "Synthetic network failure",
+            availableVersion: nil, availableBuild: nil, busy: false,
+            lastSuccessfulCheck: freshCheck, automaticChecksEnabled: false))
+        XCTAssertEqual(controller.error, "Synthetic network failure")
+        XCTAssertNil(controller.availableVersion)
+        XCTAssertNil(controller.availableBuild)
+        XCTAssertEqual(controller.lastSuccessfulCheck, freshCheck)
+        XCTAssertFalse(controller.automaticChecksEnabled)
+    }
+
     @MainActor
     func testDriverInitializationAndEditVetoDoNotStartAnUpdateOrInvokeInstallation() {
         let suite = "synthetic-public-update-driver-\(UUID().uuidString)"
