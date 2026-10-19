@@ -2,10 +2,18 @@ param([ValidateSet('Capture','Restore','PreparePaste','Paste','Monitor','CopyIma
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-Add-Type -TypeDefinition @'
+Add-Type -ReferencedAssemblies ([System.Windows.Automation.ClientSettings].Assembly.Location) -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class ClipBoardLineNative {
+  private static bool automationInitialized;
+  [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+  public static void InitializeAutomation() {
+    if(automationInitialized)return;
+    var providers=System.Reflection.Assembly.Load("UIAutomationClientsideProviders, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35");
+    System.Windows.Automation.ClientSettings.RegisterClientSideProviderAssembly(providers.GetName());
+    automationInitialized=true;
+  }
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
@@ -58,8 +66,9 @@ try {
     # PowerShell's dynamic caller can prevent UIA's one-time default proxy load.
     # Register Microsoft's strongly named Win32 providers before reading UIA.
     # https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/register-a-client-side-provider-assembly
-    $proxies=[System.Reflection.Assembly]::Load('UIAutomationClientsideProviders, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
-    [System.Windows.Automation.ClientSettings]::RegisterClientSideProviderAssembly($proxies.GetName())
+    # UIA walks the first caller's ReflectedType; a PowerShell DynamicMethod
+    # has none. A non-inlined compiled frame keeps that framework walk valid.
+    [ClipBoardLineNative]::InitializeAutomation()
   }
   if ($Mode -eq 'CopyImages') {
     Add-Type -AssemblyName System.Windows.Forms

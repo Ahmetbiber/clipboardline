@@ -2,12 +2,20 @@ param([Parameter(Mandatory=$true)][string]$Config)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-Add-Type -TypeDefinition @'
+Add-Type -ReferencedAssemblies ([System.Windows.Automation.ClientSettings].Assembly.Location) -TypeDefinition @'
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 public static class NotepadAcceptanceNative {
+  private static bool automationInitialized;
+  [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+  public static void InitializeAutomation() {
+    if(automationInitialized)return;
+    var providers=System.Reflection.Assembly.Load("UIAutomationClientsideProviders, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35");
+    System.Windows.Automation.ClientSettings.RegisterClientSideProviderAssembly(providers.GetName());
+    automationInitialized=true;
+  }
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window,int command);
@@ -101,8 +109,7 @@ function Observe-Document {
 try {
   # Use the same Microsoft Win32 provider registration as the real app bridge;
   # a generic HWND Pane is not evidence that an Edit control is writable.
-  $proxies=[System.Reflection.Assembly]::Load('UIAutomationClientsideProviders, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
-  [System.Windows.Automation.ClientSettings]::RegisterClientSideProviderAssembly($proxies.GetName())
+  [NotepadAcceptanceNative]::InitializeAutomation()
   $candidates=@((Join-Path $env:SystemRoot 'System32\notepad.exe'),(Join-Path $env:SystemRoot 'notepad.exe'))
   $executable=$candidates|Where-Object {[System.IO.File]::Exists($_)}|Select-Object -First 1
   if (-not $executable) {
