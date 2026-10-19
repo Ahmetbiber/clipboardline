@@ -1,5 +1,5 @@
 'use strict';
-const {app,BrowserWindow,ipcMain,clipboard,ClipboardItem,nativeImage,protocol,net,Tray,Menu,globalShortcut,screen,desktopCapturer,dialog,shell} = require('electron');
+const {app,BrowserWindow,ipcMain,clipboard,ClipboardItem,nativeImage,protocol,net,Tray,Menu,Notification,powerMonitor,globalShortcut,screen,desktopCapturer,dialog,shell} = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -10,7 +10,8 @@ const {privateClipboard}=require('./lib/clipboard-policy.cjs');
 const {mediaOrigin}=require('./lib/media-policy.cjs');
 const native = require('./lib/native.cjs');
 const {metadataFetch,linkMetadata} = require('./lib/network.cjs');
-const {Updates} = require('./lib/updates.cjs');
+const {Updates,AutomaticUpdateScheduler} = require('./lib/updates.cjs');
+const BUILD_NUMBER=Number(require('./package.json').clipboardLineBuild)||63;
 const testMode = process.argv.includes('--test-mode');
 const testFolder = process.argv.find(value=>value.startsWith('--test-data='))?.slice('--test-data='.length);
 if(testMode && testFolder) app.setPath('userData',path.resolve(testFolder));
@@ -18,20 +19,34 @@ const development=!app.isPackaged&&!testMode;
 if(development){const directory=path.join(app.getPath('appData'),'ClipBoardLine Dev');fs.mkdirSync(directory,{recursive:true,mode:0o700});app.setPath('userData',directory);}
 app.setName(development?'ClipBoardLine Dev':'ClipBoardLine');
 protocol.registerSchemesAsPrivileged([{scheme:'appmedia',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}}]);
-let window,store,tray,updates,monitor,clipboardTimer,retentionTimer,updateTimer,previous=null,view='shelves',message='',viewEvent=null;
-let lastFingerprint='',ownFingerprint='',capturing=false,pendingClipboard=false,showing=false,closing=false,lastChecked=0,watchers=[];
+let window,store,tray,updates,updateScheduler,monitor,clipboardTimer,retentionTimer,updateTimer,updateLaunchTimer,previous=null,view='shelves',message='',viewEvent=null;
+let lastFingerprint='',ownFingerprint='',capturing=false,pendingClipboard=false,showing=false,closing=false,watchers=[],normalBounds=null,normalMaximized=false,applyingBounds=false;
 const entry = pathToFileURL(path.join(__dirname,'index.html')).href;
 const copyMarker = crypto.randomBytes(16);
 const pending = new Set();
 const ocrJobs=new Map(),ocrQueue=[];let indexing=false;
 const mediaDiagnostics=[];
 
-function state(result) { return {...store.publicState(),version:app.getVersion(),build:62,platform:process.platform,development,view,windowVisible:window?.isVisible()||false,message:message||store.privacyWarning||'',viewEvent,update:{...updates.state},...(result===undefined?{}:{result})}; }
+function state(result) { return {...store.publicState(),version:app.getVersion(),build:BUILD_NUMBER,platform:process.platform,development,view,windowMode:view==='shelves'?'overlay':'normal',windowMaximized:window?.isMaximized()||false,windowVisible:window?.isVisible()||false,message:message||store.privacyWarning||'',viewEvent,update:{...updates.state},...(result===undefined?{}:{result})}; }
 function broadcast() { if(window&&!window.isDestroyed())window.webContents.send('clipboardline:changed',state()); }
 function notify(text) { message=text;broadcast(); }
+function openUpdates(){return show('settings',{settingsTab:'updates'});}
+function refreshTray(){
+  if(!tray)return;const available=updates?.manifest;
+  tray.setToolTip(available?`ClipBoardLine ${available.version} is available`:'ClipBoardLine');
+  tray.setContextMenu(Menu.buildFromTemplate([{label:'Open shelves',click:()=>show('shelves')},{label:'Library',click:()=>show('library')},{label:'Capture screen',click:()=>capture()},{label:'Settings',click:()=>show('settings')},
+    ...(available?[{label:`Update available: ${available.version}…`,click:openUpdates}]:[]),{label:'Check for updates…',click:async()=>{await openUpdates();await updates.check();}},{type:'separator'},{label:'Quit',click:()=>app.quit()}]));
+}
+function updateAvailable(manifest){
+  refreshTray();if(testMode||!store.data.settings.autoCheckUpdates||!Notification.isSupported())return;
+  const notice=new Notification({title:'ClipBoardLine update available',body:`ClipBoardLine ${manifest.version} is ready. Click to review and install.`,silent:true});notice.on('click',()=>void openUpdates());notice.show();
+}
+async function launchInstaller(file,args){const child=spawn(file,args,{detached:true,stdio:'ignore',windowsHide:true});await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});child.unref();}
 function trusted(event) {
   if(!window || event.sender !== window.webContents || !event.senderFrame || event.senderFrame !== window.webContents.mainFrame || event.senderFrame.url !== entry) throw new Error('Untrusted application frame');
 }
+function rememberNormalBounds(){if(window&&view!=='shelves'&&!applyingBounds&&!window.isMinimized()){normalBounds=window.getNormalBounds();normalMaximized=window.isMaximized();}}
+function fitNormalBounds(area){const width=Math.min(area.width,normalBounds?.width||1180),height=Math.min(area.height,normalBounds?.height||800);return{width,height,x:Math.min(area.x+area.width-width,Math.max(area.x,normalBounds?.x??Math.round(area.x+(area.width-width)/2))),y:Math.min(area.y+area.height-height,Math.max(area.y,normalBounds?.y??Math.round(area.y+(area.height-height)/2)))};}
 async function show(next='shelves',event=null) {
   if(showing)return; showing=true;
   try {
@@ -39,15 +54,19 @@ async function show(next='shelves',event=null) {
       const target=await native.capture().catch(()=>null);
       if(target && target.processId!==process.pid)previous=target;
     }
-    view=next;viewEvent=event?{...event,serial:crypto.randomUUID()}:null;message='';
+    rememberNormalBounds();view=next;viewEvent=event?{...event,serial:crypto.randomUUID()}:null;message='';
     const display=screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-    if(next==='shelves') {const rows=Math.max(1,store.data.settings.visibleKinds.length);window.setBounds({x:display.workArea.x+24,y:display.workArea.y+24,width:Math.max(640,display.workArea.width-48),height:Math.min(display.workArea.height-48,180+rows*190)});}
-    else {const width=Math.min(1280,display.workArea.width-64),height=Math.min(900,display.workArea.height-64);window.setBounds({x:Math.round(display.workArea.x+(display.workArea.width-width)/2),y:Math.round(display.workArea.y+(display.workArea.height-height)/2),width,height});}
+    applyingBounds=true;
+    try{if(window.isMinimized())window.restore();if(window.isMaximized())window.unmaximize();
+      window.setMinimumSize(next==='shelves'?1:640,next==='shelves'?1:360);window.setResizable(next!=='shelves');window.setMaximizable(next!=='shelves');window.setSkipTaskbar(next==='shelves');
+      window.setBackgroundColor(next==='shelves'?'#00000000':'#18191d');window.setHasShadow(next!=='shelves');
+      window.setBounds(next==='shelves'?display.workArea:fitNormalBounds(display.workArea));if(next!=='shelves'&&normalMaximized)window.maximize();
+    }finally{applyingBounds=false;}
     window.setAlwaysOnTop(next==='shelves');window.show();window.focus();broadcast();
   }finally{showing=false;}
 }
 async function hide(restore=true) {
-  const target=previous;previous=null;window.hide();viewEvent=null;broadcast();
+  rememberNormalBounds();const target=previous;previous=null;window.hide();viewEvent=null;broadcast();
   if(restore&&target)await native.restore(target).catch(()=>{});
 }
 async function clipboardContent() {
@@ -103,11 +122,11 @@ async function writeClipboard(selected) {
 async function copy(payload,paste=false) {
   const selected=store.selected(ids(payload.ids));const target=previous;
   if(paste&&(!target||!target.editable||target.secure))throw new Error('Select an editable field in another application, then reopen the shelves.');
+  if(paste){await hide(false);try{await native.preparePaste(target);await writeClipboard(selected);await native.paste({...target,prepared:true});if(store.data.settings.sounds)shell.beep();return;}catch(error){await show(view);throw error;}}
   await writeClipboard(selected);
   if(store.data.settings.sounds)shell.beep();
   if(payload.keepOpen&&!paste){notify('Copied');return;}
-  await hide(!paste);
-  if(paste){try{await native.paste(target);}catch(error){await show(view);throw error;}}
+  await hide();
 }
 async function importFile(file) {
   const stat=fs.statSync(file);if(!stat.isFile()||stat.size>64*1024*1024)throw new Error('File exceeds import limit');
@@ -161,6 +180,9 @@ async function command(action,payload={}) {
   else if(action==='show'||action==='search')await show('shelves',action==='search'?{search:true}:null);
   else if(action==='hide')await hide();
   else if(action==='library'||action==='settings')await show(action);
+  else if(action==='windowClose')await hide();
+  else if(action==='windowMinimize'){if(view!=='shelves'){rememberNormalBounds();window.minimize();}}
+  else if(action==='windowMaximize'){if(view!=='shelves'){if(window.isMaximized())window.unmaximize();else window.maximize();rememberNormalBounds();}}
   else if(action==='copy'||action==='paste')await copy(payload,action==='paste');
   else if(action==='openLink'){const item=store.item(payload.id);const url=plainURL(item.url);if(item.kind!=='link'||!url)throw new Error('Link unavailable');await shell.openExternal(url);}
   else if(action==='capture')result=await capture();
@@ -189,17 +211,14 @@ async function command(action,payload={}) {
     store.modify('setSettings',{patch});configureShortcuts();
     if(['captureText','captureImages','captureLinks'].some(key=>Object.hasOwn(patch,key)))lastFingerprint='';
     if(Object.hasOwn(patch,'launchAtLogin')&&!testMode)app.setLoginItemSettings({openAtLogin:patch.launchAtLogin});
-    if(Object.hasOwn(patch,'autoCheckUpdates')&&patch.autoCheckUpdates&&!development)void updates.check();
+    if(Object.hasOwn(patch,'autoCheckUpdates')&&patch.autoCheckUpdates&&!development)void updateScheduler.tick({force:true});
   }else if(action==='watchFolder'||action==='chooseWatchFolder'){const response=await dialog.showOpenDialog(window,{properties:['openDirectory']});if(response.filePaths[0]){store.modify('setSettings',{patch:{watchFolders:[...store.data.settings.watchFolders,response.filePaths[0]]}});configureWatchers();}}
   else if(action==='unwatchFolder'){const index=payload.index;if(!Number.isInteger(index)||index<0||index>=store.data.settings.watchFolders.length)throw new Error('Invalid watched folder');store.modify('setSettings',{patch:{watchFolders:store.data.settings.watchFolders.filter((_v,i)=>i!==index)}});configureWatchers();}
-  else if(action==='checkUpdates'){if(development)updates.set({status:'development',message:'Development builds use a separate library. Install an official release to use its signed update channel.'});else await updates.check();}
+  else if(action==='checkUpdates'||action==='refreshUpdates'){if(development)updates.set({status:'development',message:'Development builds use a separate library. Install an official release to use its signed update channel.'});else await updates.check({force:action==='checkUpdates'});}
   else if(action==='installUpdate'){
     if(development)throw new Error('Development builds cannot install official updates.');
     if(process.platform!=='win32')throw new Error('Windows installer can run only on Windows.');
-    const destination=await updates.download();
-    const bytes=fs.readFileSync(destination),manifest=updates.manifest;
-    if(!manifest||bytes.length!==manifest.size||crypto.createHash('sha256').update(bytes).digest('hex')!==manifest.sha256||fs.lstatSync(destination).isSymbolicLink())throw new Error('Installer changed after verification');
-    const child=spawn(destination,['/S'],{detached:true,stdio:'ignore',windowsHide:true});await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});child.unref();app.quit();
+    await updates.install(launchInstaller);app.quit();
   }else if(action==='quit')app.quit();
   else throw new Error('Unknown command');
   broadcast();return state(result);
@@ -208,7 +227,8 @@ async function command(action,payload={}) {
 function appIcon(){const bitmap=Buffer.alloc(16*16*4);for(let y=2;y<14;y++)for(let x=3;x<13;x++){const at=(y*16+x)*4;bitmap[at]=245;bitmap[at+1]=137;bitmap[at+2]=61;bitmap[at+3]=255;if(x>5&&x<10&&y<5){bitmap[at]=255;bitmap[at+1]=255;bitmap[at+2]=255;}}return nativeImage.createFromBitmap(bitmap,{width:16,height:16});}
 if(!app.requestSingleInstanceLock())app.quit();
 else app.whenReady().then(async()=>{
-  store=new Store(app.getPath('userData'));updates=new Updates(path.join(store.directory,'updates'),{changed:broadcast});
+  store=new Store(app.getPath('userData'));updates=new Updates(path.join(store.directory,'updates'),{build:BUILD_NUMBER,version:app.getVersion(),changed:()=>{broadcast();refreshTray();},available:updateAvailable});
+  updateScheduler=new AutomaticUpdateScheduler(updates,{enabled:()=>!development&&!testMode&&store.data.settings.autoCheckUpdates});
   protocol.handle('appmedia',async request=>{
     try{
       if(testMode&&mediaDiagnostics.length<100)mediaDiagnostics.push({method:request.method,origin:request.headers.get('Origin'),initiator:request.initiatorOrigin??null});
@@ -225,7 +245,7 @@ else app.whenReady().then(async()=>{
       const response=await net.fetch(pathToFileURL(file).href);return new Response(response.body,{headers:{'Content-Type':'image/png','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Access-Control-Allow-Origin':corsOrigin,'Vary':'Origin'}});
     }catch{return new Response('Not found',{status:404});}
   });
-  window=new BrowserWindow({width:1200,height:760,minWidth:640,minHeight:360,show:false,frame:false,backgroundColor:'#18191d',alwaysOnTop:true,icon:appIcon(),
+  window=new BrowserWindow({width:1200,height:760,minWidth:1,minHeight:1,show:false,frame:false,transparent:true,backgroundColor:'#00000000',hasShadow:false,skipTaskbar:true,alwaysOnTop:true,icon:appIcon(),
     webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,devTools:testMode}});
   window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   window.webContents.on('will-navigate',(event,url)=>{if(url!==entry)event.preventDefault();});
@@ -233,23 +253,26 @@ else app.whenReady().then(async()=>{
   window.webContents.on('will-attach-webview',event=>event.preventDefault());
   window.webContents.session.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));
   window.on('close',event=>{if(!closing){event.preventDefault();void hide();}});
+  window.on('resize',()=>{rememberNormalBounds();broadcast();});window.on('move',rememberNormalBounds);window.on('maximize',()=>{rememberNormalBounds();broadcast();});window.on('unmaximize',()=>{rememberNormalBounds();broadcast();});
   ipcMain.handle('clipboardline:state',event=>{trusted(event);return state();});
   ipcMain.handle('clipboardline:command',async(event,action,payload)=>{trusted(event);try{return await command(action,payload);}catch(error){notify(error.message);return state({error:error.message});}});
   await window.loadURL(entry);
   if(!testMode){
     const icon=appIcon();
-    tray=new Tray(icon);tray.setToolTip('ClipBoardLine');tray.setContextMenu(Menu.buildFromTemplate([{label:'Open shelves',click:()=>show('shelves')},{label:'Library',click:()=>show('library')},{label:'Capture screen',click:()=>capture()},{label:'Settings',click:()=>show('settings')},{type:'separator'},{label:'Quit',click:()=>app.quit()}]));tray.on('click',()=>window.isVisible()?hide():show('shelves'));
+    if(process.platform==='win32')app.setAppUserModelId('com.clipboardline.desktop.windows');
+    tray=new Tray(icon);refreshTray();tray.on('click',()=>window.isVisible()?hide():show('shelves'));updates.announce();
     configureShortcuts();configureWatchers();
     monitor=native.monitor(()=>void readClipboard(),error=>{monitor?.kill();monitor=null;if(!closing)notify(error.message+' Falling back to bounded clipboard polling.');});
     clipboardTimer=setInterval(()=>{if(!monitor)void readClipboard();},1000);
     retentionTimer=setInterval(()=>{store.expire();broadcast();},3600000);
-    updateTimer=setInterval(()=>{if(!development&&store.data.settings.autoCheckUpdates&&Date.now()-lastChecked>3600000){lastChecked=Date.now();void updates.check();}},60000);
-    setTimeout(()=>{if(!development&&store.data.settings.autoCheckUpdates){lastChecked=Date.now();void updates.check();}},30000).unref();
+    updateTimer=setInterval(()=>void updateScheduler.tick(),60000);
+    updateLaunchTimer=setTimeout(()=>void updateScheduler.tick(),10000);updateLaunchTimer.unref();
+    powerMonitor.on('resume',()=>void updateScheduler.tick());
   }
   await show('shelves');
   // Test hooks are main-process only and require an explicit isolated data path.
-  if(testMode&&testFolder)global.__clipboardLineTest={store,command,state,readClipboard,writeClipboard,clipboardContent,privateClipboard,getWindow:()=>window,getTarget:()=>previous,setTarget:value=>{previous=value;},getMediaDiagnostics:()=>mediaDiagnostics.map(value=>({...value})),capture,native};
+  if(testMode&&testFolder)global.__clipboardLineTest={store,command,state,readClipboard,writeClipboard,clipboardContent,privateClipboard,getWindow:()=>window,getTarget:()=>previous,setTarget:value=>{previous=value;},getMediaDiagnostics:()=>mediaDiagnostics.map(value=>({...value})),enableShortcuts:configureShortcuts,getUpdates:()=>updates,setUpdates:value=>{updates=value;updates.changed=()=>{broadcast();refreshTray();};updates.available=updateAvailable;updateScheduler=new AutomaticUpdateScheduler(updates,{enabled:()=>store.data.settings.autoCheckUpdates});},getUpdateScheduler:()=>updateScheduler,capture,native};
 }).catch(error=>{dialog.showErrorBox('ClipBoardLine could not start',error.message);app.exit(1);});
 app.on('second-instance',()=>{if(window)void show('shelves');});
 app.on('activate',()=>{if(window)void show('shelves');});
-app.on('before-quit',()=>{closing=true;clearInterval(clipboardTimer);clearInterval(retentionTimer);clearInterval(updateTimer);monitor?.kill();watchers.forEach(w=>w.close());globalShortcut.unregisterAll();});
+app.on('before-quit',()=>{closing=true;clearInterval(clipboardTimer);clearInterval(retentionTimer);clearInterval(updateTimer);clearTimeout(updateLaunchTimer);monitor?.kill();watchers.forEach(w=>w.close());globalShortcut.unregisterAll();});

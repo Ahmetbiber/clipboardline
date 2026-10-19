@@ -1,4 +1,4 @@
-param([ValidateSet('Capture','Restore','Paste','Monitor','CopyImages')][string]$Mode)
+param([ValidateSet('Capture','Restore','PreparePaste','Paste','Monitor','CopyImages')][string]$Mode)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -39,9 +39,15 @@ function FocusInfo {
     $secure = $current.IsPassword
     $runtime = [string]::Join('.', $element.GetRuntimeId())
     $value = $null
-    if ($current.IsEnabled -and -not $secure) {
+    if ($current.IsEnabled -and -not $secure -and $current.ProcessId -eq $owner -and $runtime) {
       if ($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$value)) { $editable = -not $value.Current.IsReadOnly }
-      elseif ($current.ControlType -eq [System.Windows.Automation.ControlType]::Edit -or $current.ControlType -eq [System.Windows.Automation.ControlType]::Document) { $editable = $true }
+      else {
+        $textPattern = $null
+        if ($element.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$textPattern)) {
+          $readOnly = $textPattern.DocumentRange.GetAttributeValue([System.Windows.Automation.TextPattern]::IsReadOnlyAttribute)
+          if ($readOnly -is [bool]) { $editable = -not $readOnly }
+        }
+      }
     }
   }
   return @{handle=$window.ToInt64().ToString();processId=$owner;runtime=$runtime;editable=$editable;secure=$secure}
@@ -80,18 +86,37 @@ try {
     [uint32]$owner = 0
     [void][ClipBoardLineNative]::GetWindowThreadProcessId($window,[ref]$owner)
     if (-not [ClipBoardLineNative]::IsWindow($window) -or $owner -ne $expected.processId) { throw 'The previous application has closed.' }
-    [void][ClipBoardLineNative]::ShowWindow($window,9)
-    [void][ClipBoardLineNative]::SetForegroundWindow($window)
+    [uint32]$frontOwner = 0
+    [void][ClipBoardLineNative]::GetWindowThreadProcessId([ClipBoardLineNative]::GetForegroundWindow(),[ref]$frontOwner)
+    if ($frontOwner -ne $expected.processId -and $frontOwner -ne $expected.sourceProcessId) { throw 'Another application became active. Reopen the shelves from the intended field.' }
+    if ($Mode -eq 'Paste' -and $expected.prepared) {
+      if ([ClipBoardLineNative]::GetForegroundWindow() -ne $window) { throw 'Focus changed before paste. No keys were sent.' }
+    } else {
+      [void][ClipBoardLineNative]::ShowWindow($window,9)
+      [void][ClipBoardLineNative]::SetForegroundWindow($window)
+    }
     $deadline = [DateTime]::UtcNow.AddSeconds(2)
+    $stable = 0
     do {
       Start-Sleep -Milliseconds 30
-      $held = @([ClipBoardLineNative]::GetAsyncKeyState(0x11),[ClipBoardLineNative]::GetAsyncKeyState(0x12),[ClipBoardLineNative]::GetAsyncKeyState(0x10)) | Where-Object { $_ -lt 0 }
-    } while ($held.Count -gt 0 -and [DateTime]::UtcNow -lt $deadline)
-    if ([ClipBoardLineNative]::GetForegroundWindow() -ne $window) { throw 'Windows did not return focus to the previous application.' }
+      $held = @(0x11,0x12,0x10,0x0D,0x5B,0x5C) | Where-Object { [ClipBoardLineNative]::GetAsyncKeyState($_) -lt 0 }
+      if ([ClipBoardLineNative]::GetForegroundWindow() -ne $window) {
+        [uint32]$currentOwner = 0
+        [void][ClipBoardLineNative]::GetWindowThreadProcessId([ClipBoardLineNative]::GetForegroundWindow(),[ref]$currentOwner)
+        if ($currentOwner -ne $expected.sourceProcessId) { throw 'Focus changed before paste. No keys were sent.' }
+        $stable = 0
+      } elseif ($Mode -eq 'Restore') { if ($held.Count -eq 0) { break } }
+      else {
+        $actual = FocusInfo
+        if ($actual.secure -or ($actual.editable -and $actual.runtime -ne $expected.runtime)) { throw 'Focus changed. Select an editable field and reopen the shelves.' }
+        if ($held.Count -eq 0 -and $expected.editable -and -not $expected.secure -and $actual.editable -and $actual.runtime -eq $expected.runtime) { $stable++ } else { $stable=0 }
+      }
+    } while ($stable -lt 2 -and [DateTime]::UtcNow -lt $deadline)
+    if ([ClipBoardLineNative]::GetForegroundWindow() -ne $window -or $held.Count -gt 0) { throw 'Windows did not restore the intended field after the shortcut was released.' }
+    if ($Mode -ne 'Restore' -and $stable -lt 2) { throw 'Focus changed. Select an editable field and reopen the shelves.' }
     if ($Mode -eq 'Paste') {
-      $actual = FocusInfo
-      if ($held.Count -gt 0 -or -not $expected.editable -or $expected.secure -or -not $actual.editable -or $actual.secure -or
-          $actual.runtime -ne $expected.runtime) { throw 'Focus changed. Select an editable field and reopen the shelves.' }
+      $final=FocusInfo
+      if (-not $final.editable -or $final.secure -or $final.processId -ne $expected.processId -or $final.runtime -ne $expected.runtime) { throw 'Focus changed immediately before paste. No keys were sent.' }
       if (-not [ClipBoardLineNative]::Paste()) { throw 'Windows blocked keyboard input. Elevated applications may require manual paste.' }
     }
     @{ok=$true} | ConvertTo-Json -Compress

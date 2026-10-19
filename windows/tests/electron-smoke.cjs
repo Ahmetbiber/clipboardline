@@ -2,14 +2,16 @@
 // This test intentionally fails outside Windows. A Mac cross-package is not
 // accepted as proof that the real Windows application and clipboard work.
 const assert=require('node:assert/strict');
-const fs=require('node:fs');const path=require('node:path');const os=require('node:os');const {spawn}=require('node:child_process');
+const fs=require('node:fs');const path=require('node:path');const os=require('node:os');const crypto=require('node:crypto');const {spawn}=require('node:child_process');
 const {_electron:electron}=require('playwright');
 const {windowsEnvironment}=require('../lib/windows-environment.cjs');
+const expectedVersion=require('../package.json').version;
+const keyboardLibrary=require('./keyboard-library-acceptance.cjs');
 if(process.platform!=='win32')throw new Error('Run native acceptance on the actual Windows runner.');
 const output=path.resolve(process.env.CLIPBOARDLINE_VALIDATION||'validation');fs.mkdirSync(output,{recursive:true});
 const data=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-runtime-'));
 const report={platform:process.platform,arch:process.arch,node:process.version,sourceRevision:process.env.GITHUB_SHA||'',packaged:!!process.env.CLIPBOARDLINE_EXECUTABLE,checks:[],startedAt:new Date().toISOString()};
-let application,fixture,activePage;
+let application,fixture,otherFixture,activePage;
 const check=(name,details={})=>{report.checks.push({name,passed:true,...details});console.log('PASS '+name);};
 async function until(reader,predicate,timeout=15000){const end=Date.now()+timeout;let value;while(Date.now()<end){try{value=await reader();if(predicate(value))return value;}catch{}await new Promise(resolve=>setTimeout(resolve,100));}throw new Error('Timed out waiting for native test state: '+JSON.stringify(value));}
 async function main(){
@@ -22,7 +24,7 @@ async function main(){
   const preferences=await page.evaluate(()=>window.clipboardLine.diagnostics());
   assert.equal(preferences.contextIsolated,true);assert.equal(preferences.sandboxed,true);
   assert.equal(await page.evaluate(()=>typeof require),'undefined');assert.equal(await page.evaluate(()=>typeof process),'undefined');check('sandbox and isolated, typed preload only');
-  const before=await page.evaluate(()=>window.clipboardLine.state());assert.equal(before.version,'1.7.0');
+  const before=await page.evaluate(()=>window.clipboardLine.state());assert.equal(before.version,expectedVersion);
   const licenses=await application.evaluate(({app})=>{if(!app.isPackaged)return null;const fs=process.getBuiltinModule('node:fs'),path=process.getBuiltinModule('node:path');return{mit:fs.readFileSync(path.join(process.resourcesPath,'LICENSE.txt'),'utf8').includes('Alejandro Buján'),notices:fs.existsSync(path.join(process.resourcesPath,'THIRD_PARTY_NOTICES.md')),apache:fs.readFileSync(path.join(process.resourcesPath,'licenses','LICENSE-Tesseract-core-and-data.txt'),'utf8').includes('Apache License'),chromium:fs.existsSync(path.join(process.resourcesPath,'..','LICENSES.chromium.html'))};});
   if(licenses){assert.ok(licenses.mit&&licenses.notices&&licenses.apache&&licenses.chromium,JSON.stringify(licenses));check('installed MIT/Apache/Electron/Chromium licensing notices are present');}
   assert.equal(before.settings.captureText,false);assert.equal(before.settings.captureImages,false);assert.equal(before.settings.captureLinks,false);assert.equal(before.settings.fetchLinkMetadata,false);
@@ -57,6 +59,9 @@ async function main(){
   await page.locator(`[data-shelf="image"] [data-item-id="${imageItem.id}"]`).click();await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});await page.keyboard.press('c');
   const canvas=page.locator('#markup-canvas');await canvas.waitFor({state:'visible'});
   await page.waitForFunction(()=>{const canvas=document.getElementById('markup-canvas');return canvas?.width===900&&canvas.height===220;});
+  const previewBounds=await application.evaluate(()=>global.__clipboardLineTest.getWindow().getBounds());await application.evaluate(()=>global.__clipboardLineTest.getWindow().setBounds({x:0,y:0,width:760,height:680}));await page.waitForFunction(()=>innerWidth===760);
+  const previewControls=await page.evaluate(()=>['previous','next','close-preview'].map(action=>{const element=document.querySelector('.preview-toolbar [data-action="'+action+'"]'),rect=element.getBoundingClientRect(),hit=document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2);return{action,left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,visible:rect.left>=0&&rect.right<=innerWidth&&rect.top>=0&&rect.bottom<=innerHeight&&hit?.closest('[data-action]')===element};}));assert.ok(previewControls.every(control=>control.visible),JSON.stringify(previewControls));
+  await application.evaluate((_electron,bounds)=>global.__clipboardLineTest.getWindow().setBounds(bounds),previewBounds);await page.waitForFunction(width=>innerWidth===width,previewBounds.width);check('narrow preview keeps navigation and close controls visible and hit-testable');
   const box=await canvas.boundingBox();assert.ok(box&&box.width>100&&box.height>30);
   await page.mouse.move(box.x+box.width*.60,box.y+box.height*.20);await page.mouse.down();await page.mouse.move(box.x+box.width*.90,box.y+box.height*.80,{steps:6});await page.mouse.up();
   const exportable=await canvas.evaluate(element=>{try{return{png:element.toDataURL('image/png').startsWith('data:image/png;base64,')};}catch(error){return{error:error.name+': '+error.message};}});assert.equal(exportable.png,true,JSON.stringify(exportable));
@@ -83,12 +88,14 @@ async function main(){
   await page.keyboard.press('l');await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.view==='library');
   assert.equal(await application.evaluate(()=>global.__clipboardLineTest.getWindow().isFullScreen()),false);await page.screenshot({path:path.join(output,'library.png')});
   await page.evaluate(()=>window.clipboardLine.command('show'));await page.waitForTimeout(250);await page.screenshot({path:path.join(output,'shelves.png')});check('three kinds render in shelves and normal library window');
+  await keyboardLibrary({page,application,textItem,folder,check,until});
   // An actual separate WinForms process owns the destination, so focus/paste
   // cannot pass by sending synthetic keys back to the Electron test window.
   await page.evaluate(()=>window.clipboardLine.command('hide'));
   const fixtureOutput=path.join(data,'native-target.json');const ps=path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
   fixture=spawn(ps,['-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',path.resolve('tests/native-fixture.ps1'),'-Output',fixtureOutput],{windowsHide:false,stdio:'ignore',env:windowsEnvironment()});
   const fixtureState=()=>JSON.parse(fs.readFileSync(fixtureOutput,'utf8'));
+  const fixtureCommand=async payload=>{const serial=crypto.randomUUID(),file=fixtureOutput+'.commands';fs.writeFileSync(file+'.tmp',JSON.stringify({...payload,serial}));fs.renameSync(file+'.tmp',file);const result=await until(fixtureState,value=>value.lastSerial===serial);assert.equal(result.commandError,'',result.commandError);return result;};
   await until(fixtureState,s=>s.ready);
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const target=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(target?.editable&&!target?.secure,JSON.stringify(target));
@@ -97,6 +104,48 @@ async function main(){
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   await page.locator(`[data-shelf="image"] [data-item-id="${imageItem.id}"]`).click();await page.keyboard.press('Control+Enter');
   await until(fixtureState,s=>s.hasImage);check('CtrlEnter image paste works in separate native rich-text editor');
+  await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'plain',seed:'Original plain fixture value',selectAll:true});
+  await application.evaluate(()=>global.__clipboardLineTest.command('library'));
+  await page.locator(`[data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');
+  await until(fixtureState,value=>value.plainText===textItem.text);assert.equal((await page.evaluate(()=>window.clipboardLine.state())).windowVisible,false);
+  check('Library CtrlEnter replaces selected text in a second native plain editor');
+  await fixtureCommand({action:'focus',target:'plain',seed:'Preview selected replacement',selectAll:true});await application.evaluate(()=>global.__clipboardLineTest.command('show'));
+  await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});await page.keyboard.press('Control+Enter');
+  await until(fixtureState,value=>value.plainText===textItem.text);assert.equal((await page.evaluate(()=>window.clipboardLine.state())).windowVisible,false);
+  check('preview CtrlEnter returns to and replaces the exact plain-text selection');
+  const unchanged=value=>({rich:value.text,plain:value.plainText,readonly:value.readOnlyText,passwordLength:value.passwordLength});
+  for(const control of ['readonly','password']){
+    await fixtureCommand({action:'focus',target:control});await application.evaluate(()=>global.__clipboardLineTest.command('show'));
+    const guarded=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(control==='password'?guarded.secure:!guarded.editable,JSON.stringify(guarded));
+    const beforeTarget=unchanged(fixtureState());await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before rejected target'));
+    await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>!!value.message);
+    assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before rejected target');assert.deepEqual(unchanged(fixtureState()),beforeTarget);
+    assert.equal((await page.evaluate(()=>window.clipboardLine.state())).windowVisible,true);await page.evaluate(()=>window.clipboardLine.command('hide'));
+  }
+  check('readonly and password destinations reject paste without changing clipboard or field contents');
+  await fixtureCommand({action:'focus',target:'rich'});await application.evaluate(()=>global.__clipboardLineTest.command('show'));
+  const staleTarget=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(staleTarget.editable);
+  await fixtureCommand({action:'focus',target:'plain'});await application.evaluate(()=>global.__clipboardLineTest.getWindow().focus());
+  const beforeChanged=unchanged(fixtureState());await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before changed field'));
+  await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>!!value.message);
+  assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before changed field');assert.deepEqual(unchanged(fixtureState()),beforeChanged);
+  check('changing the captured native field cancels paste before overwriting the clipboard');
+  await application.evaluate(()=>global.__clipboardLineTest.setTarget(null));await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before missing target'));
+  const noTarget=await page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id);assert.ok(noTarget.result?.error);assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before missing target');
+  check('missing paste target is explicit and leaves clipboard and app focus unchanged');
+  await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'plain'});await application.evaluate(()=>global.__clipboardLineTest.enableShortcuts());
+  await fixtureCommand({action:'keys',keys:'^%{SPACE}'});await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===true);
+  await fixtureCommand({action:'keys',keys:'^%{SPACE}'});await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===false);
+  await fixtureCommand({action:'keys',keys:'^%s'});await page.locator('#search-input').waitFor({state:'visible'});await until(()=>page.locator('#search-input').evaluate(element=>element===document.activeElement),Boolean);
+  await page.keyboard.press('Escape');check('real OS global toggle and search shortcuts activate the shelves and search field');
+  await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'plain'});await application.evaluate(()=>global.__clipboardLineTest.command('show'));
+  const protectedTarget=await application.evaluate(()=>global.__clipboardLineTest.getTarget()),otherOutput=path.join(data,'unrelated-target.json');
+  otherFixture=spawn(ps,['-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',path.resolve('tests/native-fixture.ps1'),'-Output',otherOutput],{windowsHide:false,stdio:'ignore',env:windowsEnvironment()});
+  const otherState=()=>JSON.parse(fs.readFileSync(otherOutput,'utf8'));await until(otherState,value=>value.ready&&value.foreground===value.handle);
+  const unrelated=await application.evaluate(async(_electron,target)=>{try{await global.__clipboardLineTest.native.preparePaste(target);return{ok:true};}catch(error){return{error:error.message};}},protectedTarget);
+  assert.match(unrelated.error||'',/Another application/);assert.equal(otherState().foreground,otherState().handle);assert.equal(otherState().text,'');
+  const otherExited=new Promise(resolve=>otherFixture.once('exit',resolve));otherFixture.kill();await otherExited;otherFixture=null;
+  check('unrelated foreground application cancels native paste without stealing its focus');
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const secondImage=await application.evaluate(({nativeImage},value)=>{const h=global.__clipboardLineTest;return h.store.insert('image',nativeImage.createFromDataURL(value).crop({x:0,y:0,width:150,height:100}).toPNG()).id;},edited);
   // The original and this PNG are different managed originals, so the FileDrop
@@ -106,6 +155,11 @@ async function main(){
   await application.evaluate(()=>global.__clipboardLineTest.readClipboard());assert.equal((await page.evaluate(()=>window.clipboardLine.state())).items.length,batch.items.length);
   check('multi-image copy supplies native Windows FileDrop batch without recapture');
   const copied=await page.evaluate(id=>window.clipboardLine.command('copy',{ids:[id]}),textItem.id);assert.ok(!copied.result?.error);assert.equal(await application.evaluate(()=>global.__clipboardLineTest.getWindow().isVisible()),false);check('plain Enter copy dismisses shelves/preview host and restores previous application');
+  await fixtureCommand({action:'focus',target:'plain'});await application.evaluate(()=>global.__clipboardLineTest.command('show'));
+  const closedTarget=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(closedTarget.editable);
+  const exited=new Promise(resolve=>fixture.once('exit',resolve));fixture.kill();await exited;fixture=null;await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before closed target'));
+  const closed=await page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id);assert.ok(closed.result?.error);assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before closed target');
+  check('closed destination process fails safely before clipboard replacement or keyboard input');
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const screenCapture=await page.evaluate(()=>window.clipboardLine.command('capture'));assert.ok(screenCapture.result?.id,screenCapture.result?.error);check('actual Windows desktop capture produces a managed image');
   await page.locator('#preview-dialog').waitFor({state:'visible'});await page.locator('#markup-canvas').waitFor({state:'visible'});
@@ -132,4 +186,4 @@ main().catch(async error=>{report.passed=false;report.error=error.stack;console.
   if(application)report.mediaRequests=await application.evaluate(()=>global.__clipboardLineTest?.getMediaDiagnostics?.()||[]).catch(()=>[]);
   if(activePage&&!activePage.isClosed())report.failureUI=await activePage.evaluate(()=>({toast:document.getElementById('toast')?.textContent||'',preview:!!document.getElementById('preview-dialog'),canvas:!!document.getElementById('markup-canvas')})).catch(()=>null);
   console.error('Native failure diagnostics: '+JSON.stringify({mediaRequests:report.mediaRequests,rendererErrors:report.rendererErrors,rendererConsole:report.rendererConsole,failureUI:report.failureUI}));
-}).finally(async()=>{if(fixture)fixture.kill();if(application)await application.close().catch(()=>{});fs.writeFileSync(path.join(output,'windows-runtime.json'),JSON.stringify(report,null,2));fs.rmSync(data,{recursive:true,force:true,maxRetries:4});});
+}).finally(async()=>{if(fixture)fixture.kill();if(otherFixture)otherFixture.kill();if(application)await application.close().catch(()=>{});fs.writeFileSync(path.join(output,'windows-runtime.json'),JSON.stringify(report,null,2));fs.rmSync(data,{recursive:true,force:true,maxRetries:4});});

@@ -1,6 +1,6 @@
 {
   "name": "clipboardline-desktop",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Keyboard-first local clipboard shelves and saved library for Windows",
   "author": "ClipBoardLine contributors",
   "license": "MIT",
@@ -22,15 +22,77 @@
     "electron-builder": "26.15.3",
     "playwright": "1.64.1"
   },
-  "overrides": {"global-agent": "4.1.3"},
+  "overrides": {
+    "global-agent": "4.1.3"
+  },
   "build": {
     "appId": "com.clipboardline.desktop.windows",
     "productName": "ClipBoardLine",
     "asar": true,
-    "directories": {"output": "dist"},
-    "files": ["main.cjs", "preload.cjs", "lib/**/*.cjs", "native/*.ps1", "index.html", "renderer.js", "styles.css", "assets/**/*", "package.json"],
-    "extraResources": [{"from": "node_modules/@tesseract.js-data", "to": "ocr-data", "filter": ["**/4.0.0_best_int/*.traineddata.gz"]}, {"from":"native","to":"native","filter":["*.ps1"]}, {"from":"../LICENSE","to":"LICENSE.txt"}, {"from":"../THIRD_PARTY_NOTICES.md","to":"THIRD_PARTY_NOTICES.md"}, {"from":"THIRD_PARTY_NOTICES.md","to":"WINDOWS_THIRD_PARTY_NOTICES.md"}, {"from":"assets/licenses","to":"licenses"}],
-    "win": {"target": [{"target": "nsis", "arch": ["x64"]}], "artifactName": "ClipBoardLine-Setup-${version}-${arch}.${ext}"},
-    "nsis": {"oneClick": true, "perMachine": false, "allowElevation": false, "deleteAppDataOnUninstall": false, "runAfterFinish": false}
-  }
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "lib/**/*.cjs",
+      "native/*.ps1",
+      "index.html",
+      "renderer.js",
+      "styles.css",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/@tesseract.js-data",
+        "to": "ocr-data",
+        "filter": [
+          "**/4.0.0_best_int/*.traineddata.gz"
+        ]
+      },
+      {
+        "from": "native",
+        "to": "native",
+        "filter": [
+          "*.ps1"
+        ]
+      },
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE.txt"
+      },
+      {
+        "from": "../THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "WINDOWS_THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "assets/licenses",
+        "to": "licenses"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "ClipBoardLine-Setup-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": false
+    }
+  },
+  "clipboardLineBuild": 63
 }

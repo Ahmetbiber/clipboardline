@@ -12,7 +12,7 @@ function run(mode, target) {
       let value; try { value=JSON.parse(stdout.trim()); } catch { reject(new Error('Windows focus helper did not respond.')); return; }
       if (error || value.ok === false) reject(new Error(value.error || 'Windows focus operation failed.')); else resolve(value);
     });
-    child.stdin.end(target?JSON.stringify(target):'');
+    child.stdin.end(target?JSON.stringify({...target,sourceProcessId:process.pid}):'');
   });
 }
 function monitor(changed, failed) {
@@ -25,4 +25,4 @@ function monitor(changed, failed) {
   });
   child.on('error',failed); child.on('exit',code => { if(code) failed(new Error('Native clipboard monitor stopped.')); }); return child;
 }
-module.exports = {capture:()=>run('Capture'), restore:target=>run('Restore',target), paste:target=>run('Paste',target),copyImages:payload=>run('CopyImages',payload),monitor};
+module.exports = {capture:()=>run('Capture'), restore:target=>run('Restore',target),preparePaste:target=>run('PreparePaste',target),paste:target=>run('Paste',target),copyImages:payload=>run('CopyImages',payload),monitor};
