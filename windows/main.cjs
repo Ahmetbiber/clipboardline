@@ -23,6 +23,7 @@ const entry = pathToFileURL(path.join(__dirname,'index.html')).href;
 const copyMarker = crypto.randomBytes(16);
 const pending = new Set();
 const ocrJobs=new Map(),ocrQueue=[];let indexing=false;
+const mediaDiagnostics=[];
 
 function state(result) { return {...store.publicState(),version:app.getVersion(),build:62,platform:process.platform,development,view,windowVisible:window?.isVisible()||false,message:message||store.privacyWarning||'',viewEvent,update:{...updates.state},...(result===undefined?{}:{result})}; }
 function broadcast() { if(window&&!window.isDestroyed())window.webContents.send('clipboardline:changed',state()); }
@@ -209,6 +210,7 @@ else app.whenReady().then(async()=>{
   store=new Store(app.getPath('userData'));updates=new Updates(path.join(store.directory,'updates'),{changed:broadcast});
   protocol.handle('appmedia',async request=>{
     try{
+      if(testMode&&mediaDiagnostics.length<100)mediaDiagnostics.push({method:request.method,origin:request.headers.get('Origin'),initiator:request.initiatorOrigin??null});
       // CORS permits the local opaque-origin editor to export its canvas.
       // Sender/frame controls remain the application authorization boundary;
       // origin checks here also reject remote-site media reads.
@@ -246,7 +248,7 @@ else app.whenReady().then(async()=>{
   }
   await show('shelves');
   // Test hooks are main-process only and require an explicit isolated data path.
-  if(testMode&&testFolder)global.__clipboardLineTest={store,command,state,readClipboard,writeClipboard,clipboardContent,privateClipboard,getWindow:()=>window,getTarget:()=>previous,setTarget:value=>{previous=value;},capture,native};
+  if(testMode&&testFolder)global.__clipboardLineTest={store,command,state,readClipboard,writeClipboard,clipboardContent,privateClipboard,getWindow:()=>window,getTarget:()=>previous,setTarget:value=>{previous=value;},getMediaDiagnostics:()=>mediaDiagnostics.map(value=>({...value})),capture,native};
 }).catch(error=>{dialog.showErrorBox('ClipBoardLine could not start',error.message);app.exit(1);});
 app.on('second-instance',()=>{if(window)void show('shelves');});
 app.on('activate',()=>{if(window)void show('shelves');});

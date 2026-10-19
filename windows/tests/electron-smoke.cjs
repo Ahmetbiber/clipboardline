@@ -9,14 +9,15 @@ if(process.platform!=='win32')throw new Error('Run native acceptance on the actu
 const output=path.resolve(process.env.CLIPBOARDLINE_VALIDATION||'validation');fs.mkdirSync(output,{recursive:true});
 const data=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-runtime-'));
 const report={platform:process.platform,arch:process.arch,node:process.version,sourceRevision:process.env.GITHUB_SHA||'',packaged:!!process.env.CLIPBOARDLINE_EXECUTABLE,checks:[],startedAt:new Date().toISOString()};
-let application,fixture;
+let application,fixture,activePage;
 const check=(name,details={})=>{report.checks.push({name,passed:true,...details});console.log('PASS '+name);};
 async function until(reader,predicate,timeout=15000){const end=Date.now()+timeout;let value;while(Date.now()<end){try{value=await reader();if(predicate(value))return value;}catch{}await new Promise(resolve=>setTimeout(resolve,100));}throw new Error('Timed out waiting for native test state: '+JSON.stringify(value));}
 async function main(){
   const args=['--test-mode','--test-data='+data];
   application=await electron.launch({...(process.env.CLIPBOARDLINE_EXECUTABLE?{executablePath:path.resolve(process.env.CLIPBOARDLINE_EXECUTABLE)}:{args:[path.resolve('.'),...args]}),...(process.env.CLIPBOARDLINE_EXECUTABLE?{args}:{}),timeout:60000});
-  const page=await application.firstWindow();await page.waitForFunction(()=>!!window.clipboardLine);
+  const page=await application.firstWindow();activePage=page;await page.waitForFunction(()=>!!window.clipboardLine);
   report.rendererErrors=[];page.on('pageerror',error=>{if(report.rendererErrors.length<20)report.rendererErrors.push(String(error.stack||error.message).slice(0,2000));});
+  report.rendererConsole=[];page.on('console',entry=>{if(entry.type()==='error'&&report.rendererConsole.length<20)report.rendererConsole.push(entry.text().slice(0,2000));});
   await until(()=>application.evaluate(()=>!!global.__clipboardLineTest),Boolean);
   const preferences=await page.evaluate(()=>window.clipboardLine.diagnostics());
   assert.equal(preferences.contextIsolated,true);assert.equal(preferences.sandboxed,true);
@@ -117,7 +118,7 @@ async function main(){
   if(fixture){fixture.kill();fixture=null;}
   await application.close();application=null;
   application=await electron.launch({...(process.env.CLIPBOARDLINE_EXECUTABLE?{executablePath:path.resolve(process.env.CLIPBOARDLINE_EXECUTABLE),args:[]}:{args:[path.resolve('.')]}),timeout:60000});
-  const productionPage=await application.firstWindow();await productionPage.waitForFunction(()=>!!window.clipboardLine);
+  const productionPage=await application.firstWindow();activePage=productionPage;await productionPage.waitForFunction(()=>!!window.clipboardLine);
   const production=await until(()=>productionPage.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===true);
   assert.equal(production.settings.captureText,false);assert.equal(production.settings.captureImages,false);assert.equal(production.settings.captureLinks,false);assert.equal(production.settings.fetchLinkMetadata,false);
   assert.equal(await application.evaluate(()=>typeof global.__clipboardLineTest),'undefined');
@@ -126,4 +127,8 @@ async function main(){
   assert.equal(report.rendererErrors.length,0,JSON.stringify(report.rendererErrors));
   report.completedAt=new Date().toISOString();report.passed=true;
 }
-main().catch(error=>{report.passed=false;report.error=error.stack;console.error(error.stack);process.exitCode=1;}).finally(async()=>{if(fixture)fixture.kill();if(application)await application.close().catch(()=>{});fs.writeFileSync(path.join(output,'windows-runtime.json'),JSON.stringify(report,null,2));fs.rmSync(data,{recursive:true,force:true,maxRetries:4});});
+main().catch(async error=>{report.passed=false;report.error=error.stack;console.error(error.stack);process.exitCode=1;
+  if(application)report.mediaRequests=await application.evaluate(()=>global.__clipboardLineTest?.getMediaDiagnostics?.()||[]).catch(()=>[]);
+  if(activePage&&!activePage.isClosed())report.failureUI=await activePage.evaluate(()=>({toast:document.getElementById('toast')?.textContent||'',preview:!!document.getElementById('preview-dialog'),canvas:!!document.getElementById('markup-canvas')})).catch(()=>null);
+  console.error('Native failure diagnostics: '+JSON.stringify({mediaRequests:report.mediaRequests,rendererErrors:report.rendererErrors,rendererConsole:report.rendererConsole,failureUI:report.failureUI}));
+}).finally(async()=>{if(fixture)fixture.kill();if(application)await application.close().catch(()=>{});fs.writeFileSync(path.join(output,'windows-runtime.json'),JSON.stringify(report,null,2));fs.rmSync(data,{recursive:true,force:true,maxRetries:4});});
