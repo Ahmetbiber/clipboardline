@@ -113,11 +113,15 @@ async function main(){
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   await page.locator(`[data-shelf="image"] [data-item-id="${imageItem.id}"]`).click();await page.keyboard.press('Control+Enter');
   await until(fixtureState,s=>s.hasImage);check('CtrlEnter image paste works in separate native rich-text editor');
-  await fixtureCommand({action:'focus',target:'plain',seed:'Held shortcut fixture selection',selectAll:true});await application.evaluate(()=>global.__clipboardLineTest.command('show'));await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click({modifiers:['Control']});
+  await application.evaluate(()=>global.__clipboardLineTest.enableShortcuts());await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'plain',seed:'Held shortcut fixture selection',selectAll:true});
+  await fixtureCommand({action:'keys',keys:'^% '});await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===true);
+  const hostHandle=await application.evaluate(()=>global.__clipboardLineTest.getWindow().getNativeWindowHandle().readBigUInt64LE().toString());await until(fixtureState,value=>value.foreground===hostHandle);
+  const physicalHost=await application.evaluate(async()=>({focus:await global.__clipboardLineTest.native.capture(),processId:process.pid}));assert.equal(physicalHost.focus.processId,physicalHost.processId);assert.equal(physicalHost.focus.handle,hostHandle);
+  await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click({modifiers:['Control']});
   await application.evaluate(()=>{const native=global.__clipboardLineTest.native;global.__heldInputTrace=[];global.__heldOriginalNative={preparePaste:native.preparePaste,paste:native.paste};for(const mode of ['preparePaste','paste']){const original=native[mode];native[mode]=async target=>{const trace={mode,started:new Date().toISOString()};global.__heldInputTrace.push(trace);try{const result=await original(target);trace.result=result;return result;}catch(error){trace.error=error.message;throw error;}finally{trace.completed=new Date().toISOString();}};}});
   let repeated=[];
   try{
-    const held=await fixtureCommand({action:'hold-paste',duration:1800});assert.equal(held.shortcutHeld,true);await new Promise(resolve=>setTimeout(resolve,900));assert.equal(fixtureState().shortcutHeld,true);
+    const held=await fixtureCommand({action:'hold-paste',duration:1800,expectedForeground:hostHandle});assert.equal(held.shortcutHeld,true);await new Promise(resolve=>setTimeout(resolve,900));assert.equal(fixtureState().shortcutHeld,true);assert.equal(fixtureState().foreground,hostHandle);
     const protectedHost=await application.evaluate(()=>({visible:global.__clipboardLineTest.getWindow().isVisible(),focused:global.__clipboardLineTest.getWindow().isFocused()}));assert.deepEqual(protectedHost,{visible:true,focused:true});
     repeated=[page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id),page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id),page.evaluate(id=>window.clipboardLine.command('copy',{ids:[id],keepOpen:false}),textItem.id)];
     await page.waitForTimeout(80);assert.equal(fixtureState().shortcutHeld,true);assert.deepEqual(await application.evaluate(()=>({visible:global.__clipboardLineTest.getWindow().isVisible(),focused:global.__clipboardLineTest.getWindow().isFocused()})),{visible:true,focused:true});

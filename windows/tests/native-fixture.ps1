@@ -71,7 +71,7 @@ $timer.Add_Tick({
           $form.Activate();$form.ActiveControl=$control;[void]$control.Focus()
           if ($command.selectAll) { $control.SelectAll() }
         } elseif ($command.action -eq 'keys') { [System.Windows.Forms.SendKeys]::SendWait([string]$command.keys) }
-        elseif ($command.action -eq 'hold-paste') { if($command.duration -lt 100 -or $command.duration -gt 1800){throw 'Invalid fixture key duration.'};$script:keyDeadline=[DateTime]::UtcNow.AddMilliseconds($command.duration);[FixtureFocus]::PasteShortcut($false) }
+        elseif ($command.action -eq 'hold-paste') { if($command.duration -lt 100 -or $command.duration -gt 1800){throw 'Invalid fixture key duration.'};if(-not $command.expectedForeground -or [FixtureFocus]::GetForegroundWindow().ToInt64().ToString() -ne [string]$command.expectedForeground){throw 'The source host is not the actual Win32 foreground; no test keys were sent.'};$script:keyDeadline=[DateTime]::UtcNow.AddMilliseconds($command.duration);[FixtureFocus]::PasteShortcut($false) }
         elseif ($command.action -eq 'release-keys') { [FixtureFocus]::PasteShortcut($true);$script:keyDeadline=$null }
         else { throw 'Unknown fixture command.' }
       }
