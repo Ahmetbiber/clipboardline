@@ -6,7 +6,7 @@ Images, text and links, close at hand. Keep recent copies on three shelves, save
 
 [Türkçe README](README.tr.md) · [Download for Mac](https://github.com/orkunisitmak/clipboardline-app/releases/latest) · [Explore source](https://github.com/orkunisitmak/clipboardline-desktop)
 
-> The current application uses Swift, AppKit, SwiftUI, Vision and Core ML. It supports macOS 14 or later on Apple silicon and Intel. A Windows port is planned; no Windows release or feature parity is claimed here.
+> The current application uses Swift, AppKit, SwiftUI, Vision and Core ML. It supports macOS 14 or later on Apple silicon and Intel. A separate Windows implementation is included in this source repository; see the platform matrix below for gaps and native validation status.
 
 ## Your first five minutes
 
@@ -160,3 +160,42 @@ Sparkle provides the updater. Apple Vision and the original MobileCLIP-S2 models
 - [Tangerine](https://tangerineformac.com/)
 - [Sparkle](https://sparkle-project.org/)
 - [Apple MobileCLIP](https://github.com/apple-aiml-research/ml-mobileclip)
+
+
+## Platform support and current gaps
+
+The Windows source implementation is included; native acceptance is tracked separately for source, packaged and installed Windows builds. A passing JavaScript test is not proof of native paste or installer behavior. Check the Windows CI result and release assets before treating a build as validated. macOS and Windows data stores are separate; cross-device sync and automatic migration between them are not provided.
+
+| Capability | macOS | Windows |
+| --- | --- | --- |
+| Content shelves and Library | Native AppKit/SwiftUI; image/text/link shelves, grid/list, folders, tags and pins. | Electron implementation: three shelves, grid/list, folders, tags, pins, notes and inspector. |
+| Default global shortcuts | ⌃⌥T shelves; ⌃⌥S search. | Ctrl+Alt+Space shelves; Ctrl+Alt+S search; Ctrl+Alt+A screen capture. |
+| Local shortcut modifiers | Command (⌘) for app commands; Option (⌥) for naming/pages. | Control replaces Command; Alt replaces Option. Local and global bindings are configurable. |
+| Clipboard collection | Image/text opt-in; standalone link capture configurable. | Image/text/link collection all default off. Enable each explicitly in Sources. Text and link capture stays silent. |
+| Search and OCR | Apple Vision OCR; optional original MobileCLIP-S2 semantic image search. | Local Tesseract OCR with packaged English/Turkish data. Literal text/OCR search; no semantic image search. |
+| Preview editing | Borderless image/text/link previews; persistent vectors/crop; richer native inspector. | Image/text/link previews; editable canvas annotations and original-preserving crop. Undo history belongs to the current editor session. |
+| Copy and paste | ⌘Enter targets the original editable field using app Accessibility permission. | Ctrl+Enter restores the prior editable Windows field through the native bridge. Secure/changed targets are rejected. |
+| Image batches | Multiple image/file representations; destination app decides what to accept. | Native FileDrop list plus first-raster fallback. Destination support varies; items are not silently stitched together. |
+| Retention and recovery | Per-kind 1/3/7/15/30-day choices; retained items survive; Library Trash. | Separate per-kind history including Keep forever; saved items survive; recoverable Trash and session take-down undo. |
+| Link metadata | Optional public website/YouTube titles and thumbnails. | Explicit opt-in, default off. New captured/imported public links may fetch titles/thumbnails after enabling. |
+| Recordings and Quick Look | macOS Quick Look and recording Trim integration. | No Quick Look, recording preview or Trim equivalent in this implementation. |
+| Languages | Upstream languages retained; new Library text primarily English/Turkish. | English UI with Turkish core labels; some detailed/status strings remain English. OCR supports English/Turkish. |
+| Updates and OS trust | Sparkle signed public feed and archives. Project-signed Mac build is not Apple-notarized. | Separate signed Windows manifest/installer integrity channel; installer currently has no Authenticode publisher certificate. |
+
+Normal operating-system approval may be required on first open. The Mac build uses a persistent project certificate rather than Apple Developer ID/notarization; the Windows installer is not Authenticode-signed. Update signatures and hashes establish the project update channel, not Apple or Microsoft publisher certification. Use the documented release assets and normal OS approval; do not disable system protections.
+
+Windows runtime notices: Electron is MIT; Chromium and its bundled components retain their BSD-style and other individual licenses in LICENSES.chromium.html. Tesseract.js/Core use Apache-2.0. English/Turkish traineddata retains the upstream language-data Apache-2.0 terms separately from the MIT package-wrapper metadata. Complete bundled texts and notices are listed in windows/THIRD_PARTY_NOTICES.md.
+
+### Windows source development
+
+```sh
+cd windows
+npm ci
+npm test
+npm start
+# On the Windows x64 runner:
+npm run dist
+npm run test:electron
+```
+
+[Windows component notices](windows/THIRD_PARTY_NOTICES.md)

@@ -6,7 +6,7 @@ Görseller, metinler ve linkler elinin altında. Son kopyalarını üç askıda 
 
 [English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-app/releases/latest) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop)
 
-> Mevcut uygulama Swift, AppKit, SwiftUI, Vision ve Core ML kullanır. Apple silicon ve Intel’de macOS 14 veya üstünü destekler. Windows sürümü planlanıyor; burada yayımlanmış Windows sürümü veya özellik eşitliği iddiası yoktur.
+> Mevcut uygulama Swift, AppKit, SwiftUI, Vision ve Core ML kullanır. Apple silicon ve Intel’de macOS 14 veya üstünü destekler. Ayrı Windows uygulaması bu kaynak deposuna dahildir; farklar ve yerel doğrulama durumu aşağıdaki platform tablosundadır.
 
 ## İlk beş dakikan
 
@@ -160,3 +160,42 @@ Güncellemeleri Sparkle sağlar. Cihazda arama Apple Vision ve özgün MobileCLI
 - [Tangerine](https://tangerineformac.com/)
 - [Sparkle](https://sparkle-project.org/)
 - [Apple MobileCLIP](https://github.com/apple-aiml-research/ml-mobileclip)
+
+
+## Platform desteği ve mevcut farklar
+
+Windows kaynak uygulaması dahildir; kaynak, paketlenmiş ve kurulmuş Windows uygulamalarının yerel kabul testleri ayrı izlenir. JavaScript testinin geçmesi, yerel yapıştırma veya kurulum davranışının kanıtı değildir. Bir derlemeyi doğrulanmış saymadan Windows CI sonucunu ve sürüm dosyalarını kontrol et. macOS ve Windows veri depoları ayrıdır; cihazlar arası senkronizasyon veya otomatik platform geçişi sunulmaz.
+
+| Özellik | macOS | Windows |
+| --- | --- | --- |
+| İçerik askıları ve kütüphane | Yerel AppKit/SwiftUI; görsel/metin/link askıları, ızgara/liste, klasör, etiket ve sabitleme. | Electron uygulaması: üç askı, ızgara/liste, klasör, etiket, sabitleme, not ve ayrıntılar. |
+| Varsayılan genel kısayollar | ⌃⌥T askılar; ⌃⌥S arama. | Ctrl+Alt+Space askılar; Ctrl+Alt+S arama; Ctrl+Alt+A ekran yakalama. |
+| Yerel kısayol değiştiricileri | Uygulama komutlarında Command (⌘); adlandırma/sayfalarda Option (⌥). | Command yerine Control; Option yerine Alt. Yerel ve genel kısayollar değiştirilebilir. |
+| Pano toplama | Görsel/metin isteğe bağlı; tek URL toplama ayarlanabilir. | Görsel/metin/link toplama varsayılan kapalı. Her birini Kaynaklar’dan aç. Metin ve linkler sessiz eklenir. |
+| Arama ve OCR | Apple Vision OCR; isteğe bağlı özgün MobileCLIP-S2 görsel anlam araması. | Paketlenmiş İngilizce/Türkçe verili yerel Tesseract OCR. Metin/OCR sözcük araması; görsel anlam araması yoktur. |
+| Önizleme düzenleme | Çerçevesiz görsel/metin/link; kalıcı işaret ve kırpma; daha kapsamlı yerel ayrıntılar. | Görsel/metin/link önizlemesi; düzenlenebilir tuval işaretleri ve özgünü koruyan kırpma. Geri alma geçmişi mevcut düzenleme oturumunundur. |
+| Kopyalama ve yapıştırma | ⌘Enter, uygulamanın Erişilebilirlik izniyle önceki düzenlenebilir alanı hedefler. | Ctrl+Enter yerel köprüyle önceki düzenlenebilir Windows alanına döner. Güvenli/değişmiş hedefler reddedilir. |
+| Görsel grupları | Birden çok görsel/dosya biçimi; hangisini alacağına hedef uygulama karar verir. | Yerel FileDrop dosya listesi ve ilk görsel yedeği. Hedef desteği değişir; görseller sessizce birleştirilmez. |
+| Geçmiş ve kurtarma | Türe göre 1/3/7/15/30 gün; saklanan öğeler kalır; kütüphane Çöp Kutusu. | Süresiz tutma dahil türe göre ayrı süreler; saklanan öğeler kalır; kurtarılabilir Çöp Kutusu ve oturum içi kaldırma geri alma. |
+| Link ayrıntıları | İsteğe bağlı genel site/YouTube başlık ve küçük görselleri. | Açıkça etkinleştirilir, varsayılan kapalıdır. Açıldıktan sonra yakalanan/aktarılan genel linklerin başlık/küçük görseli alınabilir. |
+| Ekran kaydı ve Quick Look | macOS Quick Look ve ekran kaydı Trim entegrasyonu. | Bu uygulamada Quick Look, ekran kaydı önizlemesi veya Trim eşdeğeri yoktur. |
+| Diller | Upstream diller korunur; yeni kütüphane metinleri ağırlıkla İngilizce/Türkçe. | İngilizce arayüz ve Türkçe temel etiketler; bazı ayrıntı/durum metinleri İngilizce kalır. OCR İngilizce/Türkçe destekler. |
+| Güncellemeler ve işletim sistemi güveni | Sparkle imzalı herkese açık akış ve arşivler. Proje imzalı Mac derlemesi Apple noter onaylı değildir. | Ayrı imzalı Windows manifesti/kurulum bütünlüğü kanalı; kurulumun şu anda Authenticode yayıncı sertifikası yoktur. |
+
+İlk açılışta işletim sisteminin normal onayı gerekebilir. Mac derlemesi Apple Developer ID/noter onayı yerine kalıcı proje sertifikası kullanır; Windows kurulumu Authenticode imzalı değildir. Güncelleme imzaları ve özetleri proje kanalını doğrular; Apple veya Microsoft yayıncı sertifikası anlamına gelmez. Belgelenmiş sürüm dosyalarını ve normal sistem onayını kullan; sistem korumalarını kapatma.
+
+Windows çalışma zamanı bildirimleri: Electron MIT lisanslıdır; Chromium ve bileşenlerinin BSD türü ve diğer bireysel lisansları LICENSES.chromium.html içinde korunur. Tesseract.js/Core Apache-2.0 kullanır. İngilizce/Türkçe traineddata için, MIT paket metadata’sından ayrı upstream dil verisi Apache-2.0 koşulları korunur. Tam metinler ve bildirimler windows/THIRD_PARTY_NOTICES.md içinde listelenir.
+
+### Windows kaynak geliştirme
+
+```sh
+cd windows
+npm ci
+npm test
+npm start
+# On the Windows x64 runner:
+npm run dist
+npm run test:electron
+```
+
+[Windows bileşen lisansları](windows/THIRD_PARTY_NOTICES.md)

@@ -51,7 +51,8 @@ async function boundedFetch(input, {maximum = 512 * 1024, redirects = 3, resolve
 }
 function metadataGuard(url){
   if(url.protocol!=='https:')throw new Error('Automatic link metadata requires HTTPS.');
-  for(const key of url.searchParams.keys())if(/^(?:x-amz-|x-goog-|oauth[_-])?(?:token|access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|auth(?:orization)?|code|signature|sig|session(?:[_-]?id)?|state|password|secret|credentials?|key|key-pair-id|policy|verifier)$/i.test(key))throw new Error('Sensitive link parameters are not fetched automatically.');
+  const sensitive=new Set(['token','accesstoken','refreshtoken','idtoken','apikey','auth','authorization','authentication','authtoken','code','signature','sig','session','sessionid','state','password','secret','clientsecret','credential','credentials','accesskeyid','key','keypairid','policy','verifier','jwt','bearer']);
+  for(const key of url.searchParams.keys()){const normalized=key.toLowerCase().replace(/[^a-z0-9]/g,'');if(/^(xamz|xgoog|oauth)/.test(normalized)||sensitive.has(normalized))throw new Error('Sensitive link parameters are not fetched automatically.');}
 }
 function metadataFetch(input,options={}){return boundedFetch(input,{...options,guard:metadataGuard});}
 const entities = value => value.replace(/&(?:amp|quot|lt|gt|apos|#39|#34);/g, match => ({'&amp;':'&','&quot;':'"','&lt;':'<','&gt;':'>','&apos;':"'",'&#39;':"'",'&#34;':'"'}[match]));

@@ -7,7 +7,7 @@ const {_electron:electron}=require('playwright');
 if(process.platform!=='win32')throw new Error('Run native acceptance on the actual Windows runner.');
 const output=path.resolve(process.env.CLIPBOARDLINE_VALIDATION||'validation');fs.mkdirSync(output,{recursive:true});
 const data=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-runtime-'));
-const report={platform:process.platform,arch:process.arch,node:process.version,packaged:!!process.env.CLIPBOARDLINE_EXECUTABLE,checks:[],startedAt:new Date().toISOString()};
+const report={platform:process.platform,arch:process.arch,node:process.version,sourceRevision:process.env.GITHUB_SHA||'',packaged:!!process.env.CLIPBOARDLINE_EXECUTABLE,checks:[],startedAt:new Date().toISOString()};
 let application,fixture;
 const check=(name,details={})=>{report.checks.push({name,passed:true,...details});console.log('PASS '+name);};
 async function until(reader,predicate,timeout=15000){const end=Date.now()+timeout;let value;while(Date.now()<end){try{value=await reader();if(predicate(value))return value;}catch{}await new Promise(resolve=>setTimeout(resolve,100));}throw new Error('Timed out waiting for native test state: '+JSON.stringify(value));}
@@ -20,6 +20,8 @@ async function main(){
   assert.equal(preferences.contextIsolated,true);assert.equal(preferences.sandboxed,true);
   assert.equal(await page.evaluate(()=>typeof require),'undefined');assert.equal(await page.evaluate(()=>typeof process),'undefined');check('sandbox and isolated, typed preload only');
   const before=await page.evaluate(()=>window.clipboardLine.state());assert.equal(before.version,'1.7.0');
+  const licenses=await application.evaluate(({app})=>{if(!app.isPackaged)return null;const fs=require('node:fs'),path=require('node:path');return{mit:fs.readFileSync(path.join(process.resourcesPath,'LICENSE.txt'),'utf8').includes('Alejandro Buján'),notices:fs.existsSync(path.join(process.resourcesPath,'THIRD_PARTY_NOTICES.md')),apache:fs.readFileSync(path.join(process.resourcesPath,'licenses','LICENSE-Tesseract-core-and-data.txt'),'utf8').includes('Apache License'),chromium:fs.existsSync(path.join(process.resourcesPath,'..','LICENSES.chromium.html'))};});
+  if(licenses){assert.ok(licenses.mit&&licenses.notices&&licenses.apache&&licenses.chromium,JSON.stringify(licenses));check('installed MIT/Apache/Electron/Chromium licensing notices are present');}
   assert.equal(before.settings.captureText,false);assert.equal(before.settings.captureImages,false);assert.equal(before.settings.captureLinks,false);assert.equal(before.settings.fetchLinkMetadata,false);
   await page.evaluate(()=>window.clipboardLine.command('setSettings',{patch:{captureText:true,captureImages:true,captureLinks:true}}));
   await application.evaluate(async({clipboard})=>{await clipboard.writeText('Windows clipboard text acceptance');await global.__clipboardLineTest.readClipboard();});

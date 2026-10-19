@@ -13,7 +13,7 @@ const testMode = process.argv.includes('--test-mode');
 const testFolder = process.argv.find(value=>value.startsWith('--test-data='))?.slice('--test-data='.length);
 if(testMode && testFolder) app.setPath('userData',path.resolve(testFolder));
 const development=!app.isPackaged&&!testMode;
-if(development)app.setPath('userData',path.join(app.getPath('appData'),'ClipBoardLine Dev'));
+if(development){const directory=path.join(app.getPath('appData'),'ClipBoardLine Dev');fs.mkdirSync(directory,{recursive:true,mode:0o700});app.setPath('userData',directory);}
 app.setName(development?'ClipBoardLine Dev':'ClipBoardLine');
 protocol.registerSchemesAsPrivileged([{scheme:'appmedia',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);
 let window,store,tray,updates,monitor,clipboardTimer,retentionTimer,updateTimer,previous=null,view='shelves',message='',viewEvent=null;

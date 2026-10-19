@@ -3,9 +3,11 @@ $ErrorActionPreference='Stop'
 $current=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
 if(-not $Check){
   if(-not [System.IO.Directory]::Exists($Directory)){throw 'The application data directory is unavailable.'}
-  $acl=New-Object System.Security.AccessControl.DirectorySecurity
-  $acl.SetOwner($current)
+  # Keep the directory's existing owner/group. Reassigning ownership can require
+  # a privilege even when the user may safely change this owned directory's DACL.
+  $acl=Get-Acl -LiteralPath $Directory
   $acl.SetAccessRuleProtection($true,$false)
+  foreach($existing in @($acl.Access)){[void]$acl.RemoveAccessRuleSpecific($existing)}
   $inherit=[System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
   foreach($sid in @($current.Value,'S-1-5-18','S-1-5-32-544')){
     $identity=[System.Security.Principal.SecurityIdentifier]::new($sid)
