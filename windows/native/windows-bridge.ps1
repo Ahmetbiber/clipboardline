@@ -81,6 +81,7 @@ try {
   } elseif ($Mode -eq 'Capture') {
     FocusInfo | ConvertTo-Json -Compress
   } else {
+    $phase=@{started=[DateTime]::UtcNow.ToString('o')}
     $expected = [Console]::In.ReadToEnd() | ConvertFrom-Json
     if ($expected.handle -notmatch '^\d+$' -or $expected.processId -le 0) { throw 'No previous application was captured.' }
     $window = [IntPtr][Int64]::Parse($expected.handle)
@@ -94,15 +95,22 @@ try {
       # Keep the source focused until the invoking shortcut is fully released.
       # A held Enter must never start repeating inside the destination app.
       $releaseDeadline=[DateTime]::UtcNow.AddSeconds(2)
+      $releasedSince=$null
       do {
         [uint32]$releaseOwner=0
         [void][ClipBoardLineNative]::GetWindowThreadProcessId([ClipBoardLineNative]::GetForegroundWindow(),[ref]$releaseOwner)
         if ($releaseOwner -ne $expected.processId -and $releaseOwner -ne $expected.sourceProcessId) { throw 'Another application became active while the shortcut was held.' }
         $held=@(HeldShortcutKeys)
-        if ($held.Count -eq 0) { break }
+        if ($held.Count -eq 0) {
+          if ($null -eq $releasedSince) { $releasedSince=[DateTime]::UtcNow }
+          # Async key state changes before queued key messages are consumed.
+          # Keep the source focused through a continuous release interval.
+          if (([DateTime]::UtcNow-$releasedSince).TotalMilliseconds -ge 150) { break }
+        } else { $releasedSince=$null }
         Start-Sleep -Milliseconds 30
       } while ([DateTime]::UtcNow -lt $releaseDeadline)
-      if ($held.Count -gt 0) { throw 'Release the shortcut keys, then try paste again.' }
+      if ($held.Count -gt 0 -or $null -eq $releasedSince -or ([DateTime]::UtcNow-$releasedSince).TotalMilliseconds -lt 150) { throw 'Release the shortcut keys, then try paste again.' }
+      $phase.released=[DateTime]::UtcNow.ToString('o')
     }
     if ($Mode -eq 'Paste' -and $expected.prepared) {
       if ([ClipBoardLineNative]::GetForegroundWindow() -ne $window) { throw 'Focus changed before paste. No keys were sent.' }
@@ -110,6 +118,7 @@ try {
       [void][ClipBoardLineNative]::ShowWindow($window,9)
       [void][ClipBoardLineNative]::SetForegroundWindow($window)
     }
+    $phase.activationRequested=[DateTime]::UtcNow.ToString('o')
     $deadline = [DateTime]::UtcNow.AddSeconds(2)
     $stable = 0
     do {
@@ -129,11 +138,13 @@ try {
     } while ($stable -lt 2 -and [DateTime]::UtcNow -lt $deadline)
     if ([ClipBoardLineNative]::GetForegroundWindow() -ne $window -or $held.Count -gt 0) { throw 'Windows did not restore the intended field after the shortcut was released.' }
     if ($Mode -ne 'Restore' -and $stable -lt 2) { throw 'Focus changed. Select an editable field and reopen the shelves.' }
+    $phase.targetStable=[DateTime]::UtcNow.ToString('o')
     if ($Mode -eq 'Paste') {
       $final=FocusInfo
       if (-not $final.editable -or $final.secure -or $final.processId -ne $expected.processId -or $final.runtime -ne $expected.runtime) { throw 'Focus changed immediately before paste. No keys were sent.' }
       if (-not [ClipBoardLineNative]::Paste()) { throw 'Windows blocked keyboard input. Elevated applications may require manual paste.' }
+      $phase.inputSent=[DateTime]::UtcNow.ToString('o')
     }
-    @{ok=$true} | ConvertTo-Json -Compress
+    @{ok=$true;mode=$Mode;phase=$phase} | ConvertTo-Json -Compress
   }
 } catch { @{ok=$false;error=$_.Exception.Message} | ConvertTo-Json -Compress; exit 1 }

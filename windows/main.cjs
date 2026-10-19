@@ -131,7 +131,7 @@ async function writeClipboard(selected) {
   ownFingerprint=(await clipboardContent())?.fingerprint||'';lastFingerprint=ownFingerprint;
 }
 async function copy(payload,paste=false) {
-  if(paste&&pastePromise)return pastePromise;
+  if(pastePromise)return pastePromise;
   const selected=store.selected(ids(payload.ids));const target=previous;
   if(paste&&(!target||!target.editable||target.secure))throw new Error('Select an editable field in another application, then reopen the shelves.');
   if(paste){

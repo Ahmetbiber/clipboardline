@@ -30,6 +30,11 @@ $layout=New-Object System.Windows.Forms.TableLayoutPanel
 $layout.Dock='Fill';$layout.ColumnCount=1;$layout.RowCount=8
 $form.Controls.Add($layout)
 $controls=@{}
+$script:inputEvents=New-Object System.Collections.ArrayList
+function Add-InputEvent($Control,[string]$Kind,$Key) {
+  [void]$script:inputEvents.Add(@{at=[DateTime]::UtcNow.ToString('o');target=$Control.Name;kind=$Kind;key=[string]$Key;length=$Control.Text.Length;selectionStart=$Control.SelectionStart;selectionLength=$Control.SelectionLength;foreground=[FixtureFocus]::GetForegroundWindow().ToInt64().ToString();controlDown=[FixtureFocus]::GetAsyncKeyState(0x11) -lt 0;enterDown=[FixtureFocus]::GetAsyncKeyState(0x0D) -lt 0})
+  while ($script:inputEvents.Count -gt 40) { $script:inputEvents.RemoveAt(0) }
+}
 foreach($target in @('rich','plain','readonly','password')) {
   $label=New-Object System.Windows.Forms.Label
   $label.Text=$target;$label.AutoSize=$true;$layout.Controls.Add($label)
@@ -39,6 +44,11 @@ foreach($target in @('rich','plain','readonly','password')) {
   $control.Name='fixture-'+$target
   if ($target -eq 'readonly') { $control.ReadOnly=$true;$control.Text='Read-only fixture content' }
   if ($target -eq 'password') { $control.UseSystemPasswordChar=$true }
+  if ($target -ne 'password') {
+    $control.Add_KeyDown({param($sender,$event) Add-InputEvent $sender 'keyDown' $event.KeyCode})
+    $control.Add_KeyUp({param($sender,$event) Add-InputEvent $sender 'keyUp' $event.KeyCode})
+    $control.Add_TextChanged({param($sender,$event) Add-InputEvent $sender 'textChanged' ''})
+  }
   $layout.Controls.Add($control);$controls[$target]=$control
 }
 $layout.RowStyles.Clear()
@@ -70,7 +80,7 @@ $timer.Add_Tick({
   try {
     $files=[System.Windows.Forms.Clipboard]::GetFileDropList()
     $focused=(@($controls.Keys|Where-Object {$controls[$_].Focused})|Select-Object -First 1)
-    $value=@{ready=$true;handle=$form.Handle.ToInt64().ToString();foreground=[FixtureFocus]::GetForegroundWindow().ToInt64().ToString();processId=$PID;text=$controls.rich.Text;plainText=$controls.plain.Text;readOnlyText=$controls.readonly.Text;passwordLength=$controls.password.Text.Length;hasImage=$controls.rich.Rtf.Contains('\pict');dropCount=$files.Count;focused=$focused;lastSerial=$script:lastSerial;commandError=$script:commandError;shortcutHeld=([FixtureFocus]::GetAsyncKeyState(0x11) -lt 0 -and [FixtureFocus]::GetAsyncKeyState(0x0D) -lt 0)}
+    $value=@{ready=$true;handle=$form.Handle.ToInt64().ToString();foreground=[FixtureFocus]::GetForegroundWindow().ToInt64().ToString();processId=$PID;text=$controls.rich.Text;plainText=$controls.plain.Text;readOnlyText=$controls.readonly.Text;passwordLength=$controls.password.Text.Length;hasImage=$controls.rich.Rtf.Contains('\pict');dropCount=$files.Count;focused=$focused;lastSerial=$script:lastSerial;commandError=$script:commandError;inputEvents=@($script:inputEvents.ToArray());shortcutHeld=([FixtureFocus]::GetAsyncKeyState(0x11) -lt 0 -and [FixtureFocus]::GetAsyncKeyState(0x0D) -lt 0)}
     $temporary=$Output+'.tmp'
     [System.IO.File]::WriteAllText($temporary,($value|ConvertTo-Json -Compress))
     [System.IO.File]::Copy($temporary,$Output,$true)
