@@ -47,7 +47,8 @@ jobs:
       - name: Install NSIS package into an isolated per-user location
         run: |
           $destination = Join-Path $env:RUNNER_TEMP 'clipboardline-installed'
-          $installer = (Get-Item 'dist/ClipBoardLine-Setup-1.7.0-x64.exe').FullName
+          $package = Get-Content package.json | ConvertFrom-Json
+          $installer = (Get-Item ('dist/ClipBoardLine-Setup-' + $package.version + '-x64.exe')).FullName
           $process = Start-Process $installer -ArgumentList @('/S', "/D=$destination") -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "NSIS installation failed: $($process.ExitCode)" }
           if (-not (Test-Path (Join-Path $destination 'ClipBoardLine.exe'))) { throw 'Installed executable is missing.' }
@@ -58,13 +59,18 @@ jobs:
           npm run test:electron
         env:
           CLIPBOARDLINE_VALIDATION: validation/installed
+      - name: Real signed updater replacement, data preservation and automatic reopen
+        run: node tests/upgrade-smoke.cjs
+        env:
+          CLIPBOARDLINE_VALIDATION: validation/upgrade
       - name: Check installer format, hash and signing state
         run: |
-          $installer = Get-Item 'dist/ClipBoardLine-Setup-1.7.0-x64.exe'
+          $package = Get-Content package.json | ConvertFrom-Json
+          $installer = Get-Item ('dist/ClipBoardLine-Setup-' + $package.version + '-x64.exe')
           $stream = [System.IO.File]::OpenRead($installer.FullName)
           try { if ($stream.ReadByte() -ne 77 -or $stream.ReadByte() -ne 90) { throw 'Installer is not a Windows PE executable.' } } finally { $stream.Dispose() }
           $signature = Get-AuthenticodeSignature $installer.FullName
-          $result = @{platform='win32';architecture='x64';version='1.7.0';build=62;installer=$installer.Name;size=$installer.Length;sha256=(Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant();authenticodeStatus=$signature.Status.ToString();sourceRevision=$env:GITHUB_SHA}
+          $result = @{platform='win32';architecture='x64';version=$package.version;build=$package.clipboardLineBuild;installer=$installer.Name;size=$installer.Length;sha256=(Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant();authenticodeStatus=$signature.Status.ToString();sourceRevision=$env:GITHUB_SHA}
           New-Item validation -ItemType Directory -Force | Out-Null
           $result | ConvertTo-Json | Set-Content validation/windows-package.json
           if ($signature.Status -ne 'Valid') { Write-Host '::notice::This build has no configured Windows Authenticode identity; SmartScreen may warn. Ed25519 public release signing is a separate local release step.' }
@@ -74,7 +80,7 @@ jobs:
         with:
           name: clipboardline-windows-${{ github.sha }}
           path: |
-            windows/dist/ClipBoardLine-Setup-1.7.0-x64.exe
+            windows/dist/ClipBoardLine-Setup-*-x64.exe
             windows/validation/**
           if-no-files-found: error
           retention-days: 14
