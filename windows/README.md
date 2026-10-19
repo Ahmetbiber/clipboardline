@@ -14,6 +14,8 @@ Windows [1.7.2 build 64](https://github.com/orkunisitmak/clipboardline-desktop/r
 
 For source revision [`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd), [Windows CI run 39296605977](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) passed **65 Node tests, 146 native acceptance checks** (48 source, 49 packaged, 49 installed) and **7 isolated upgrade checks**.
 
+**One product version:** macOS and Windows are both **1.7.2**. Future normal updates use the same product version on both platforms; platform build counters remain independent.
+
 **Native updates verified after consolidation:** macOS 1.7.0 → 1.7.1 and Windows 1.7.1 → 1.7.2 installed from the application and reopened automatically, retaining history and settings. The [real Windows update run](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39309767453) used unchanged production binaries, feed and key. Current updates need no GitHub token. Build64’s [exact-source native checks](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39307655801) also passed (48 source, 49 packaged, 49 installed and seven candidate upgrade checks); application code is unchanged from build63.
 
 **One-time build 62 → 63 upgrade note:** if the installer finishes without reopening ClipBoardLine, open it manually once. The original 1.7.0 build 62 client predates the relaunch fix. The real unchanged build62 client completed download and installation, with data preserved; current build63 → 64 also passed automatic reopening.
@@ -103,6 +105,8 @@ See [component licenses and notices](THIRD_PARTY_NOTICES.md), the project
 [privacy guide](../PRIVACY.md), and [contribution guide](../CONTRIBUTING.md).
 
 ## Türkçe
+
+**Ortak uygulama sürümü:** macOS ve Windows artık **1.7.2**. Sonraki normal güncellemeler iki platformda aynı sürüm numarasını kullanır; platformların teknik build sayaçları bağımsızdır.
 
 Birleşme sonrası gerçek Windows 1.7.1 → 1.7.2 güncellemesi, uygulama içinden kurulup otomatik açıldı; metin/görsel, klasör/etiket ve ayarlar korundu. [Yayımlanmış uygulamalarla canlı koşu](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39309767453) ve [aynı kaynaktan yerel kontroller](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39307655801) geçti.
 

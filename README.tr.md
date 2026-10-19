@@ -4,7 +4,7 @@
 
 Görseller, metinler ve linkler elinin altında. Son kopyalarını üç askıda tut, önemli olanları yerel kütüphaneye kaydet ve tümünde klavyeyle hızla gezin.
 
-[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/clipboardline-1.7.1-build65/ClipboardLine-1.7.1-build65.zip) · [Windows x64 için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop)
+[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/clipboardline-1.7.2-build66/ClipboardLine-1.7.2-build66.zip) · [Windows x64 için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop)
 
 > macOS sürümü Swift, AppKit, SwiftUI, Vision ve Core ML kullanır; Apple silicon ve Intel’de macOS 14 veya üstünü destekler. Ayrı Electron sürümü Windows x64 için kullanılabilir; farklar ve gerçek Windows doğrulama kanıtı aşağıdaki platform tablosundadır.
 
@@ -294,6 +294,8 @@ Güncellemeleri Sparkle sağlar. Cihazda arama Apple Vision ve özgün MobileCLI
 Windows [1.7.2 build 64](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.2-build64) yayımlandı: [x64 kurulumunu indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe).
 
 [`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd) kaynak revizyonunun [39296605977 numaralı Windows CI çalışmasında](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) **65 Node testi, 146 gerçek Windows kabul kontrolü** (48 kaynak, 49 paketlenmiş, 49 kurulmuş) ve **7 izole yükseltme kontrolü** geçti.
+
+**Ortak uygulama sürümü:** macOS ve Windows artık **1.7.2**. Sonraki normal güncellemeler iki platformda aynı sürüm numarasını kullanır; platformların teknik build sayaçları bağımsızdır.
 
 **Birleşme sonrası uygulama içi güncellemeler doğrulandı:** macOS 1.7.0 → 1.7.1 ve Windows 1.7.1 → 1.7.2 uygulamadan kurulup otomatik açıldı; geçmiş ve ayarlar korundu. [Gerçek Windows güncelleme koşusu](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39309767453), değiştirilmemiş yayımlanmış uygulamaları, akışı ve anahtarı kullandı. Güncel güncellemeler GitHub tokenı istemez. Build64 için [aynı kaynaktan yerel kontroller](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39307655801) de geçti: 48 kaynak, 49 paket, 49 kurulu uygulama ve yedi aday yükseltme kontrolü; uygulama kodu build63 ile aynı.
 
