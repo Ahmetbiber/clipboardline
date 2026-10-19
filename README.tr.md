@@ -4,7 +4,7 @@
 
 Görseller, metinler ve linkler elinin altında. Son kopyalarını üç askıda tut, önemli olanları yerel kütüphaneye kaydet ve tümünde klavyeyle hızla gezin.
 
-[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-app/releases/latest) · [Windows x64 için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.0-build62/ClipBoardLine-Setup-1.7.0-x64.exe) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop)
+[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-app/releases/latest) · [Windows x64 için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop)
 
 > macOS sürümü Swift, AppKit, SwiftUI, Vision ve Core ML kullanır; Apple silicon ve Intel’de macOS 14 veya üstünü destekler. Ayrı Electron sürümü Windows x64 için kullanılabilir; farklar ve gerçek Windows doğrulama kanıtı aşağıdaki platform tablosundadır.
 
@@ -141,12 +141,12 @@ Bunlar macOS tablosundan ayrı Windows varsayılanlarıdır. Command yerine Cont
 | `← / →` | Önceki / sonraki öğe | Askılar, kütüphane ve önizlemeler; önizleme yerinde değişir. |
 | `↑ / ↓` | Satırlar veya öğeler arasında gezin | Askı araması / askı önizlemesi: önceki veya sonraki görünür dolu askı. Kütüphane ve önizlemesi: ızgara satırı (listede öğe). Askıda arama dışında: önceki / sonraki öğe. |
 | `Ctrl+← / Ctrl+→` | İlk / son sonuç | Geçerli askı veya kütüphane sonuçları; önizlemeler dahil. |
-| `Alt+← / Alt+→` | Önceki / sonraki sayfa | Etkin askıda dokuz öğe atlar; kütüphanede de dokuz sonuç ilerler. Önizlemede çalışır. |
+| `Alt+← / Alt+→` | Önceki / sonraki sayfa | Etkin askıda pencere genişliği ve kart boyutuna göre görünür sayfa kadar, en fazla dokuz kart ilerler. Kütüphanede dokuz sonuç atlar. Önizlemede çalışır. |
 | `Tab / Shift+Tab` | Etkin askıyı değiştir | İkisi de aynı yönde döner. Yalnızca askılar; pencerelerde normal odak geçişi kullanılır. |
-| `1–9` | Numaralı kartı seç | Etkin askının geçerli dokuz öğelik sayfası; önizleme dışındayken. |
+| `1–9` | Numaralı kartı seç | Etkin askının görünür sayfasındaki numaralı kartlardan birini seçer; en fazla dokuz, önizleme dışındayken. |
 | `Shift+← / Shift+→ / Shift+↑ / Shift+↓` | Seçimi genişlet | Askılarda veya kütüphanede gezinirken; metin alanlarında normal düzenleme korunur. |
 | `Ctrl+A` | Geçerli sonuçların tümünü seç | Etkin askı veya geçerli kütüphane sonuçları. |
-| `Ctrl+Click / Shift+Click` | Tekil / aralık seçimi | Kartları tek tek ekle veya çıkar; bitişik bir aralığı seç. |
+| `Ctrl+Click / Shift+Click` | Tekil / aralık seçimi | Kopyalamadan seçmek için değiştirici tuşları veya Öğe seç modunu kullan. Askıda normal tıklama kopyalar ve askıları açık tutar; kütüphanede tıklama seçer, çift tıklama önizler. |
 | `Shift+S` | Görünür askılarda ara | Açık görsel OCR, metin ve link satırlarında tek sözcük araması. Kapalı askılar dahil edilmez. |
 | `Ctrl+F` | Kütüphane aramasını odakla | Yalnız kütüphanede gezinirken. Yerel düzenleme alanları kendi kısayollarını korur. |
 | `Ctrl+0 / Ctrl+1 / Ctrl+2 / Ctrl+3` | Tümü / görsel / metin / link | Yalnız kütüphane tür filtreleri. |
@@ -157,7 +157,7 @@ Bunlar macOS tablosundan ayrı Windows varsayılanlarıdır. Command yerine Cont
 
 | Varsayılan | İşlem | Nerede / ayrıntı |
 | --- | --- | --- |
-| `Enter` | Kopyala ve odağı geri ver | Gezinirken seçimi/geçerli önizlemeyi kopyalar ve pencereyi kapatır. Windows’ta kütüphaneden de kapanır; macOS kütüphanesi farklıdır. Düzenleyiciler ve pencereler Enter’ı önce kendileri işler. |
+| `Enter` | Seçimi / geçerli önizlemeyi kopyala | Askı/askı önizlemesinde kopyalar, askı ve önizlemeyi kapatıp odağı geri verir. Kütüphane ve oradan açılan önizleme açık kalarak kopyalar. Düzenleyiciler ve pencereler Enter’ı önce kendileri işler. |
 | `Ctrl+C` | Kopyala ve gezinmeye devam et | Seçili grup veya önizleme açıksa geçerli öğe. |
 | `Ctrl+Enter` | Önceki uygulamaya yapıştır | Önceki düzenlenebilir hedef gerekir; güvenli veya değişmiş hedefler reddedilir. Metin/görsel düzenlerken önce kaydedip düzenlemeyi bitirir. |
 | `P / Ctrl+P` | Sabitle / favori durumunu değiştir | Görsel, metin ve linkler için tek işlem; çoklu seçimi destekler. Ctrl+P sabit eşdeğerdir. |
@@ -217,6 +217,34 @@ Bunlar macOS tablosundan ayrı Windows varsayılanlarıdır. Command yerine Cont
 
 Desteklenen genel işlemler askılar, arama ve ekran yakalamadır. Kütüphane ve son görseli kopyalama için ayrı genel kısayol yoktur. Toplama varsayılanları, platform farkları, derleme komutları ve gerçek Windows kabul testi kanıtı için Windows yerel kullanım rehberine bak.
 
+## Windows arayüzü ve güncellemeler — 1.7.1
+
+### Masaüstünün üstünde asılı içerikler
+
+Görsel, metin ve linkler saydam masaüstü yüzeyindeki üç eğri ipte asılır. Görseli sığdıran çerçeveler yatay veya dikey ekran görüntüsünün oranını korur; satır denetimleri kompakttır. Normal askı tıklaması kopyalar ve gezinmeyi açık tutar. Yalnızca seçmek için Öğe seç modunu aç veya Ctrl/Shift basılı tut; boş askı alanına tıklamak askıları gizler.
+
+### Normal kütüphane ve Ayarlar çalışma alanı
+
+Kütüphane; küçült, büyüt ve kapat denetimleri bulunan boyutlandırılabilir pencerede açılır. Birleşik araç çubuğunda arama, görünüm/filtre ve kenar/ayrıntı paneli denetimleri bulunur. Nötr ızgara/liste kartları medya, tür ve etiketleri gösterir. Ayarlar, uygulama kimliği bulunan kenar çubuğu ve gruplu denetimler kullanır; tam ekran zorlanmaz.
+
+### Ortada ortak arama ve Eylemler dili
+
+Askı araması görünür tür rozetleri ve sonuç sayısıyla ortada açılır. Enter veya Yukarı/Aşağı, yazı alanından sonuçlarda gezinmeye geçirir; uygulanan sorgu kompakt özet olarak kalır. Eylemler aynı görsel dili ve ortalanmış kısayol rozetlerini kullanır.
+
+### Akışı kesmeyen önizleme
+
+Space odaklı öğeyi önizler. Oklar içeriği pencere kapanmadan değiştirir; üst satır gezinmeyi erişilebilir tutarak işaretleme/kırpma araçlarını birleştirir. Enter askıdan açılan gezinmeyi kopyaladıktan sonra kapatır; kütüphane ve oradan açılan önizleme açık kalır.
+
+### Görünür askıya göre sayfalar
+
+Alt+Sol/Sağ, pencere genişliği ve kart boyutuna göre sığan kart sayısı kadar, en fazla dokuz kart ilerler. Numara tuşları o sayfada sunulan kartları seçer. Kütüphane Yukarı/Aşağı için gerçek ızgara sütunlarını, Alt geçişleri için dokuz sonuç kullanır.
+
+### Otomatik kontrol, seçerek kurulum
+
+Açıkken güncelleme kontrolü açılışta zamanı geldiyse ve uygulama çalışırken saatlik yapılır; başarısız kontroller beş dakika sonra yeniden denenir. Yeni sürüm sistem tepsisi, askı rozeti ve Güncellemeler’de görünür; bildirim bu sayfayı açar. Kontrol kurulum yapmaz. Güncelle ve yeniden aç’a tıklayınca indirilir; imzalı manifest ile kurulumun özeti/boyutu doğrulanır, uygulama değiştirilip yeniden açılır. Mevcut kütüphane/ayarlar korunur; GitHub token’ı gerekmez.
+
+[Windows uygulama ve doğrulama rehberi](windows/README.md#türkçe)
+
 ## Yerel arşiv. Açıkça seçilen bağlantılar.
 
 - **Mac’inde saklanır.** Geçmiş, klasör, etiket, not, küçük görsel ve arama indeksleri yerelde tutulur. ClipBoardLine bulut senkronizasyonu sunmaz. Yerel geçmiş bir parola kasası değildir; kopyaladığın ve sakladığın içerikleri sen seçersin.
@@ -261,25 +289,29 @@ Güncellemeleri Sparkle sağlar. Cihazda arama Apple Vision ve özgün MobileCLI
 
 ## Platform desteği ve mevcut farklar
 
-İlk Windows sürümü [1.7.0 build 62](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.0-build62), [x64 kurulumu](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.0-build62/ClipBoardLine-Setup-1.7.0-x64.exe) olarak kullanılabilir. [Gerçek Windows CI](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39260700144) toplam 71 kabul kontrolünü geçti: kaynaktan 23, paketlenmiş uygulamada 24, kurulmuş uygulamada 24. Gerçek metin/görsel yapıştırma, çoklu görsel kopyalama, ekran yakalama, kırpma ve yerel OCR dahildir. Aşağıdaki platform farkları devam eder.
+Windows [1.7.1 build 63](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.1-build63) yayımlandı: [x64 kurulumunu indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe).
 
-Windows kaynak uygulaması dahildir; kaynak, paketlenmiş ve kurulmuş Windows uygulamalarının yerel kabul testleri ayrı izlenir. JavaScript testinin geçmesi, yerel yapıştırma veya kurulum davranışının kanıtı değildir. Bir derlemeyi doğrulanmış saymadan Windows CI sonucunu ve sürüm dosyalarını kontrol et. macOS ve Windows veri depoları ayrıdır; cihazlar arası senkronizasyon veya otomatik platform geçişi sunulmaz.
+[`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd) kaynak revizyonunun [39296605977 numaralı Windows CI çalışmasında](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) **65 Node testi, 146 gerçek Windows kabul kontrolü** (48 kaynak, 49 paketlenmiş, 49 kurulmuş) ve **7 izole yükseltme kontrolü** geçti.
+
+**Build 62 → 63 için tek seferlik yükseltme notu:** kurulum biter ama ClipBoardLine yeniden açılmazsa bir kez kendin aç. Özgün 1.7.0 build 62 istemcisinde yeniden açma düzeltmesi yoktur. Başarılı yükseltme testi, eski sürümü simüle eden düzeltilmiş istemciyi kullanır; eski kurulu istemcinin parametrelerini geriye dönük değiştirmez.
+
+Sürüm; metin/görsel yapıştırma, odağı geri döndürme, ekran yakalama, OCR ve klavye akışları dahil gerçek Windows kaynak, paketlenmiş ve kurulmuş oturumlarında sınandı. Hangi pano biçimlerini kabul edeceğine hedef uygulama karar verir. macOS ve Windows veri depoları ayrıdır; cihazlar arası senkronizasyon veya otomatik platform geçişi sunulmaz.
 
 | Özellik | macOS | Windows |
 | --- | --- | --- |
-| İçerik askıları ve kütüphane | Yerel AppKit/SwiftUI; görsel/metin/link askıları, ızgara/liste, klasör, etiket ve sabitleme. | Electron uygulaması: üç askı, ızgara/liste, klasör, etiket, sabitleme, not ve ayrıntılar. |
+| İçerik askıları ve kütüphane | Yerel AppKit/SwiftUI; görsel/metin/link askıları, ızgara/liste, klasör, etiket ve sabitleme. | Saydam eğri askılar; birleşik araç çubuğu, ızgara/liste, klasör, etiket, sabitleme, not ve açılıp kapanan kenar/ayrıntı panelli normal boyutlandırılabilir kütüphane. |
 | Varsayılan genel kısayollar | ⌃⌥T askılar; ⌃⌥S arama. | Ctrl+Alt+Space askılar; Ctrl+Alt+S arama; Ctrl+Alt+A ekran yakalama. Kütüphane ve son görseli kopyalama için ayrı genel kısayol şu anda yoktur. |
 | Yerel kısayol değiştiricileri | Uygulama komutlarında Command (⌘); adlandırma/sayfalarda Option (⌥). | Command yerine Control; Option yerine Alt. Yerel ve genel kısayollar değiştirilebilir. |
 | Pano toplama | Görsel/metin isteğe bağlı; tek URL toplama ayarlanabilir. | Görsel/metin/link toplama varsayılan kapalı. Her birini Kaynaklar’dan aç. Metin ve linkler sessiz eklenir. |
 | Arama ve OCR | Apple Vision OCR; isteğe bağlı özgün MobileCLIP-S2 görsel anlam araması. | Paketlenmiş İngilizce/Türkçe verili yerel Tesseract OCR. Metin/OCR sözcük araması; görsel anlam araması yoktur. |
-| Önizleme düzenleme | Çerçevesiz görsel/metin/link; kalıcı işaret ve kırpma; daha kapsamlı yerel ayrıntılar. | Görsel/metin/link önizlemesi; düzenlenebilir tuval işaretleri ve özgünü koruyan kırpma. Geri alma geçmişi mevcut düzenleme oturumunundur. |
+| Önizleme düzenleme | Çerçevesiz görsel/metin/link; kalıcı işaret ve kırpma; daha kapsamlı yerel ayrıntılar. | Çerçevesiz görsel/metin/link önizlemesi; ortak üst işaretleme/gezinme çubuğu ve özgünü koruyan kırpma. Geri alma geçmişi mevcut düzenleme oturumunundur. |
 | Kopyalama ve yapıştırma | ⌘Enter, uygulamanın Erişilebilirlik izniyle önceki düzenlenebilir alanı hedefler. | Ctrl+Enter yerel köprüyle önceki düzenlenebilir Windows alanına döner. Güvenli/değişmiş hedefler reddedilir. |
 | Görsel grupları | Birden çok görsel/dosya biçimi; hangisini alacağına hedef uygulama karar verir. | Yerel FileDrop dosya listesi ve ilk görsel yedeği. Hedef desteği değişir; görseller sessizce birleştirilmez. |
 | Geçmiş ve kurtarma | Türe göre 1/3/7/15/30 gün; saklanan öğeler kalır; kütüphane Çöp Kutusu. | Süresiz tutma dahil türe göre ayrı süreler; saklanan öğeler kalır; kurtarılabilir Çöp Kutusu ve oturum içi kaldırma geri alma. |
 | Link ayrıntıları | İsteğe bağlı genel site/YouTube başlık ve küçük görselleri. | Açıkça etkinleştirilir, varsayılan kapalıdır. Açıldıktan sonra yakalanan/aktarılan genel linklerin başlık/küçük görseli alınabilir. |
 | Ekran kaydı ve Quick Look | macOS Quick Look ve ekran kaydı Trim entegrasyonu. | Bu uygulamada Quick Look, ekran kaydı önizlemesi veya Trim eşdeğeri yoktur. |
 | Diller | Upstream diller korunur; yeni kütüphane metinleri ağırlıkla İngilizce/Türkçe. | İngilizce arayüz ve Türkçe temel etiketler; bazı ayrıntı/durum metinleri İngilizce kalır. OCR İngilizce/Türkçe destekler. |
-| Güncellemeler ve işletim sistemi güveni | Sparkle imzalı herkese açık akış ve arşivler. Proje imzalı Mac derlemesi Apple noter onaylı değildir. | Ayrı imzalı Windows manifesti/kurulum bütünlüğü kanalı; kurulumun şu anda Authenticode yayıncı sertifikası yoktur. |
+| Güncellemeler ve işletim sistemi güveni | Sparkle imzalı herkese açık akış ve arşivler. Proje imzalı Mac derlemesi Apple noter onaylı değildir. | Ayrı imzalı Windows kanalı; ayarlanabilir açılış/saatlik kontrol ve hatada beş dakika sonra yeniden deneme. Güncelle ve yeniden aç için tıklama gerekir. Kurulumun Authenticode yayıncı sertifikası yoktur. |
 
 İlk açılışta işletim sisteminin normal onayı gerekebilir. Mac derlemesi Apple Developer ID/noter onayı yerine kalıcı proje sertifikası kullanır; Windows kurulumu Authenticode imzalı değildir. Güncelleme imzaları ve özetleri proje kanalını doğrular; Apple veya Microsoft yayıncı sertifikası anlamına gelmez. Belgelenmiş sürüm dosyalarını ve normal sistem onayını kullan; sistem korumalarını kapatma.
 

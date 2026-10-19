@@ -2,7 +2,7 @@
 
 [Main feature reference](../README.md) · [Türkçe](#türkçe) ·
 [Source](https://github.com/orkunisitmak/clipboardline-desktop) ·
-[Windows CI](https://github.com/orkunisitmak/clipboardline-desktop/actions)
+[Windows CI](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977)
 
 This folder contains the separate Electron/Windows implementation. Its source,
 packaged executable and installed application have separate native acceptance
@@ -10,7 +10,11 @@ checks. A passing model or renderer test on another operating system does not
 certify native Windows paste, capture, global keys or installation. Check the
 actual Windows CI result and release assets for the build you use.
 
-The first Windows edition is [1.7.0 build 62](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.0-build62): [download the x64 installer](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.0-build62/ClipBoardLine-Setup-1.7.0-x64.exe). [Native Windows CI](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39260700144) passed all **71 acceptance checks** (source 23, packaged 24, installed 24), including actual text/image paste, image batches, capture, crop and local OCR. The documented platform gaps still apply.
+Windows [1.7.1 build 63](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.1-build63) is released: [download the x64 installer](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe).
+
+For source revision [`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd), [Windows CI run 39296605977](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) passed **65 Node tests, 146 native acceptance checks** (48 source, 49 packaged, 49 installed) and **7 isolated upgrade checks**.
+
+**One-time build 62 → 63 upgrade note:** if the installer finishes without reopening ClipBoardLine, open it manually once. The original 1.7.0 build 62 client predates the relaunch fix. The successful upgrade test uses the corrected client with a simulated old version; it does not retrofit the old installed client’s flags.
 
 ## Start with collection off
 
@@ -30,13 +34,22 @@ place. There is no cloud sync, automatic macOS history import or encrypted vault
 
 The complete [English Windows keymap](../README.md#windows-default-keyboard-shortcuts) and [Turkish Windows keymap](../README.tr.md#windows-varsayılan-klavye-kısayolları) list all three global shortcuts, 48 configurable local actions, fixed editor/dialog keys and their contexts. The static [English index](../docs/index.html#windows-shortcuts) and [Turkish index](../docs/tr/index.html#windows-shortcuts) carry the same reference.
 
-Single-letter commands apply while browsing; text fields keep normal typing. Fixed native/editor control keys keep their own contexts even when an action binding is changed. In Windows, Enter copies and closes Library-origin browsing as well as shelf-origin browsing; macOS Library behavior differs.
+Single-letter commands apply while browsing; text fields keep normal typing. Fixed native/editor control keys keep their own contexts even when an action binding is changed. Enter copies and closes shelves/shelf previews, returning focus to the previous application. In Library and Library-origin previews it copies and stays open. Plain shelf clicks copy without closing; use Select items mode or Ctrl/Shift modifiers for selection only.
 
 The global actions currently supported are shelf toggle, shelf search and screen
 capture. Separate global Library and copy-latest hotkeys are not implemented.
 Native multi-image copying offers a FileDrop list and a first-image fallback;
 the receiving app determines what it consumes. Images are not combined into a
 single composite without your action.
+
+## Windows interface and updates — 1.7.1
+
+- **Hanging shelves over your desktop.** Images, text and links hang from three curved ropes on a transparent desktop surface. Aspect-fit image frames preserve wide or portrait screenshots; row controls stay compact. A plain shelf click copies and keeps browsing open. Turn on Select items or hold Ctrl/Shift to select only; clicking an empty shelf area hides the shelves.
+- **A normal Library and Settings workspace.** Library opens in a resizable window with minimize, maximize and close controls. Its unified toolbar offers search, view and filter controls plus sidebar/inspector toggles. Neutral grid/list cards show media, type and tags. Settings uses a branded sidebar and grouped controls; full screen is not forced.
+- **One centered search and Actions language.** Shelf search floats in the center with visible-type chips and a result count. Enter or Up/Down leaves text entry for result navigation; the applied query remains as a compact summary. Actions uses the same visual language and centered shortcut badges.
+- **Preview without breaking your flow.** Space previews the focused item. Arrow keys change content in place; the top row combines navigation with markup/crop tools while keeping navigation accessible. Enter closes shelf-origin browsing after copying; Library and Library-origin previews stay open.
+- **Pages sized to the visible shelf.** Alt+Left/Right advances by the number of cards that fit, up to nine, based on window width and card size. Number keys select the cards actually offered on that page. Library uses its actual grid columns for Up/Down and nine-result Alt jumps.
+- **Check automatically, install deliberately.** When enabled, update checks are scheduled after launch when due and hourly while running; failed checks retry after five minutes. New versions appear in the tray, shelf badge and Updates page; notifications open that page. Checks never install. Click Update and reopen to download, verify the signed manifest and installer hash/size, replace the app and reopen it. Existing Library/settings are retained, and no GitHub token is required.
 
 ## Current platform gaps
 
@@ -86,7 +99,11 @@ See [component licenses and notices](THIRD_PARTY_NOTICES.md), the project
 
 ## Türkçe
 
-İlk Windows sürümü [1.7.0 build 62](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.0-build62) için [x64 kurulumunu indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.0-build62/ClipBoardLine-Setup-1.7.0-x64.exe). [Gerçek Windows CI](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39260700144) 71 kabul kontrolünü geçti (kaynaktan 23, paketlenmiş 24, kurulmuş 24); gerçek metin/görsel yapıştırma, görsel grupları, yakalama, kırpma ve yerel OCR dahildir. Belgelenmiş platform farkları sürer.
+Windows [1.7.1 build 63](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.1-build63) yayımlandı: [x64 kurulumunu indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe).
+
+[`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd) kaynak revizyonunun [39296605977 numaralı Windows CI çalışmasında](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) **65 Node testi, 146 gerçek Windows kabul kontrolü** (48 kaynak, 49 paketlenmiş, 49 kurulmuş) ve **7 izole yükseltme kontrolü** geçti.
+
+**Build 62 → 63 için tek seferlik yükseltme notu:** kurulum biter ama ClipBoardLine yeniden açılmazsa bir kez kendin aç. Özgün 1.7.0 build 62 istemcisinde yeniden açma düzeltmesi yoktur. Başarılı yükseltme testi, eski sürümü simüle eden düzeltilmiş istemciyi kullanır; eski kurulu istemcinin parametrelerini geriye dönük değiştirmez.
 
 Bu klasör, ayrı Electron/Windows uygulamasını içerir. Kaynak, paketlenmiş ve
 kurulmuş uygulamanın yerel kabul testleri ayrıdır; başka sistemde geçen JavaScript
@@ -101,8 +118,16 @@ sunulmaz.
 
 Windows'ta Command yerine **Control**, Option yerine **Alt** kullanılır. Genel
 kısayollar `Ctrl+Alt+Space` (askı), `Ctrl+Alt+S` (arama) ve `Ctrl+Alt+A` (ekran
-yakalama) olarak gelir; Ayarlar'dan değiştirilebilir. [Türkçe Windows kısayol tablosu](../README.tr.md#windows-varsayılan-klavye-kısayolları), üç genel ve 48 değiştirilebilir yerel işlemin yanı sıra sabit düzenleyici/pencere tuşlarını ve bağlamlarını içerir. Enter Windows'ta
-kütüphaneden de kopyalayıp pencereyi kapatır; macOS kütüphane davranışı farklıdır.
+yakalama) olarak gelir; Ayarlar'dan değiştirilebilir. [Türkçe Windows kısayol tablosu](../README.tr.md#windows-varsayılan-klavye-kısayolları), üç genel ve 48 değiştirilebilir yerel işlemin yanı sıra sabit düzenleyici/pencere tuşlarını ve bağlamlarını içerir. Enter askı/askı önizlemesinde kopyalayıp kapatır, odağı önceki uygulamaya döndürür. Kütüphane ve oradan açılan önizlemede kopyalayıp açık kalır. Normal askı tıklaması kapatmadan kopyalar; yalnızca seçim için Öğe seç modunu veya Ctrl/Shift tuşlarını kullan.
+
+### Windows arayüzü ve güncellemeler — 1.7.1
+
+- **Masaüstünün üstünde asılı içerikler.** Görsel, metin ve linkler saydam masaüstü yüzeyindeki üç eğri ipte asılır. Görseli sığdıran çerçeveler yatay veya dikey ekran görüntüsünün oranını korur; satır denetimleri kompakttır. Normal askı tıklaması kopyalar ve gezinmeyi açık tutar. Yalnızca seçmek için Öğe seç modunu aç veya Ctrl/Shift basılı tut; boş askı alanına tıklamak askıları gizler.
+- **Normal kütüphane ve Ayarlar çalışma alanı.** Kütüphane; küçült, büyüt ve kapat denetimleri bulunan boyutlandırılabilir pencerede açılır. Birleşik araç çubuğunda arama, görünüm/filtre ve kenar/ayrıntı paneli denetimleri bulunur. Nötr ızgara/liste kartları medya, tür ve etiketleri gösterir. Ayarlar, uygulama kimliği bulunan kenar çubuğu ve gruplu denetimler kullanır; tam ekran zorlanmaz.
+- **Ortada ortak arama ve Eylemler dili.** Askı araması görünür tür rozetleri ve sonuç sayısıyla ortada açılır. Enter veya Yukarı/Aşağı, yazı alanından sonuçlarda gezinmeye geçirir; uygulanan sorgu kompakt özet olarak kalır. Eylemler aynı görsel dili ve ortalanmış kısayol rozetlerini kullanır.
+- **Akışı kesmeyen önizleme.** Space odaklı öğeyi önizler. Oklar içeriği pencere kapanmadan değiştirir; üst satır gezinmeyi erişilebilir tutarak işaretleme/kırpma araçlarını birleştirir. Enter askıdan açılan gezinmeyi kopyaladıktan sonra kapatır; kütüphane ve oradan açılan önizleme açık kalır.
+- **Görünür askıya göre sayfalar.** Alt+Sol/Sağ, pencere genişliği ve kart boyutuna göre sığan kart sayısı kadar, en fazla dokuz kart ilerler. Numara tuşları o sayfada sunulan kartları seçer. Kütüphane Yukarı/Aşağı için gerçek ızgara sütunlarını, Alt geçişleri için dokuz sonuç kullanır.
+- **Otomatik kontrol, seçerek kurulum.** Açıkken güncelleme kontrolü açılışta zamanı geldiyse ve uygulama çalışırken saatlik yapılır; başarısız kontroller beş dakika sonra yeniden denenir. Yeni sürüm sistem tepsisi, askı rozeti ve Güncellemeler’de görünür; bildirim bu sayfayı açar. Kontrol kurulum yapmaz. Güncelle ve yeniden aç’a tıklayınca indirilir; imzalı manifest ile kurulumun özeti/boyutu doğrulanır, uygulama değiştirilip yeniden açılır. Mevcut kütüphane/ayarlar korunur; GitHub token’ı gerekmez.
 
 Görsel anlam araması, Quick Look ve kayıt Trim eşdeğeri yoktur. Tesseract OCR
 cihazda çalışır; Apple modelleri Windows'ta paketlenmez. İşaretler ve kırpma kalıcı
