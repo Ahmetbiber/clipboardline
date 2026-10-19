@@ -13,6 +13,8 @@
   --danger: #ff9b96;
   --card-width: 150px;
   --photo-height: 104px;
+  --requested-photo-height: 104px;
+  --requested-text-height: 112px;
   --text-height: 112px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", sans-serif;
   font-size: 13px;
@@ -65,9 +67,9 @@ svg { flex-shrink: 0; }
 /* The line is a transparent desktop surface, not a fourth application window. */
 body.view-shelves, body.view-shelves #app, body.view-shelves .shell, .shelf-shell { background: transparent; border: 0; }
 .shelf-shell > .topbar, .shelf-shell > .statusbar { display: none; }
-.size-small { --card-width: 120px; --photo-height: 83px; --text-height: 98px; }
-.size-large { --card-width: 202px; --photo-height: 140px; --text-height: 146px; }
-.shelves { display: grid; grid-template-rows: repeat(var(--rows, 3), minmax(0, 1fr)); height: 100vh; flex: 1 1 100%; padding: 0; overflow: hidden; }
+.size-small { --card-width: 120px; --photo-height: 83px; --text-height: 98px; --requested-photo-height: 83px; --requested-text-height: 98px; }
+.size-large { --card-width: 202px; --photo-height: 140px; --text-height: 146px; --requested-photo-height: 140px; --requested-text-height: 146px; }
+.shelves { --photo-height: clamp(50px, calc(100vh / var(--rows, 3) - 98px), var(--requested-photo-height)); --text-height: clamp(58px, calc(100vh / var(--rows, 3) - 90px), var(--requested-text-height)); display: grid; grid-template-rows: repeat(var(--rows, 3), minmax(0, 1fr)); height: 100vh; flex: 1 1 100%; padding: 0; overflow: hidden; }
 .shelf { position: relative; min-width: 0; min-height: 0; padding: 0; overflow: hidden; --shelf-accent: var(--image); }
 .shelf[data-shelf="text"] { --shelf-accent: var(--text-color); }
 .shelf[data-shelf="link"] { --shelf-accent: var(--link); }
@@ -332,7 +334,6 @@ svg.rope path, svg.line path { fill: none; stroke: #a3a3a9; stroke-width: 1.1; v
   .statusbar .key-legend { display: none; }
 }
 @media (max-height: 600px) {
-  .shelves[style*="3"], .shelves:has(.shelf:nth-child(3)) { --photo-height: 80px; --text-height: 94px; }
   .cards { padding-bottom: 18px; }
   .preview-footer { font-size: 9px; }
 }

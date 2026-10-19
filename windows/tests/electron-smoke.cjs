@@ -7,6 +7,8 @@ const {_electron:electron}=require('playwright');
 const {windowsEnvironment}=require('../lib/windows-environment.cjs');
 const expectedVersion=require('../package.json').version;
 const keyboardLibrary=require('./keyboard-library-acceptance.cjs');
+const edgeConsumer=require('./consumer-edge-acceptance.cjs');
+const notepadConsumer=require('./notepad-acceptance.cjs');
 if(process.platform!=='win32')throw new Error('Run native acceptance on the actual Windows runner.');
 const output=path.resolve(process.env.CLIPBOARDLINE_VALIDATION||'validation');fs.mkdirSync(output,{recursive:true});
 const data=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-runtime-'));
@@ -88,7 +90,9 @@ async function main(){
   await page.keyboard.press('l');await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.view==='library');
   assert.equal(await application.evaluate(()=>global.__clipboardLineTest.getWindow().isFullScreen()),false);await page.screenshot({path:path.join(output,'library.png')});
   await page.evaluate(()=>window.clipboardLine.command('show'));await page.waitForTimeout(250);await page.screenshot({path:path.join(output,'shelves.png')});check('three kinds render in shelves and normal library window');
-  await keyboardLibrary({page,application,textItem,folder,check,until});
+  await keyboardLibrary({page,application,textItem,folder,check,until,output});
+  await edgeConsumer({page,application,textItem,imageItem,check,until,report});
+  await notepadConsumer({page,application,textItem,check,until,report,data});
   // An actual separate WinForms process owns the destination, so focus/paste
   // cannot pass by sending synthetic keys back to the Electron test window.
   await page.evaluate(()=>window.clipboardLine.command('hide'));
@@ -104,6 +108,15 @@ async function main(){
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   await page.locator(`[data-shelf="image"] [data-item-id="${imageItem.id}"]`).click();await page.keyboard.press('Control+Enter');
   await until(fixtureState,s=>s.hasImage);check('CtrlEnter image paste works in separate native rich-text editor');
+  await fixtureCommand({action:'focus',target:'plain',seed:'Held shortcut fixture selection',selectAll:true});await application.evaluate(()=>global.__clipboardLineTest.command('show'));await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click({modifiers:['Control']});
+  let repeated=[];
+  try{
+    const held=await fixtureCommand({action:'hold-paste',duration:1800});assert.equal(held.shortcutHeld,true);await new Promise(resolve=>setTimeout(resolve,900));assert.equal(fixtureState().shortcutHeld,true);
+    const protectedHost=await application.evaluate(()=>({visible:global.__clipboardLineTest.getWindow().isVisible(),focused:global.__clipboardLineTest.getWindow().isFocused()}));assert.deepEqual(protectedHost,{visible:true,focused:true});
+    repeated=[page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id),page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id)];
+  }finally{await fixtureCommand({action:'release-keys'});}
+  const repeatedResults=await Promise.all(repeated);assert.ok(repeatedResults.every(result=>!result.result?.error));await until(fixtureState,value=>value.plainText===textItem.text);
+  check('held OS CtrlEnter keeps the source focused until release and repeated paste requests insert once');
   await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'plain',seed:'Original plain fixture value',selectAll:true});
   await application.evaluate(()=>global.__clipboardLineTest.command('library'));
   await page.locator(`[data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');
@@ -117,8 +130,8 @@ async function main(){
   for(const control of ['readonly','password']){
     await fixtureCommand({action:'focus',target:control});await application.evaluate(()=>global.__clipboardLineTest.command('show'));
     const guarded=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(control==='password'?guarded.secure:!guarded.editable,JSON.stringify(guarded));
-    const beforeTarget=unchanged(fixtureState());await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before rejected target'));
-    await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>!!value.message);
+    const beforeTarget=unchanged(fixtureState());await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click({modifiers:['Control']});await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before rejected target'));
+    await page.keyboard.press('Control+Enter');await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>!!value.message);
     assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before rejected target');assert.deepEqual(unchanged(fixtureState()),beforeTarget);
     assert.equal((await page.evaluate(()=>window.clipboardLine.state())).windowVisible,true);await page.evaluate(()=>window.clipboardLine.command('hide'));
   }
@@ -126,16 +139,16 @@ async function main(){
   await fixtureCommand({action:'focus',target:'rich'});await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const staleTarget=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(staleTarget.editable);
   await fixtureCommand({action:'focus',target:'plain'});await application.evaluate(()=>global.__clipboardLineTest.getWindow().focus());
-  const beforeChanged=unchanged(fixtureState());await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before changed field'));
-  await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>!!value.message);
+  const beforeChanged=unchanged(fixtureState());await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click({modifiers:['Control']});await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before changed field'));
+  await page.keyboard.press('Control+Enter');await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>!!value.message);
   assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before changed field');assert.deepEqual(unchanged(fixtureState()),beforeChanged);
   check('changing the captured native field cancels paste before overwriting the clipboard');
   await application.evaluate(()=>global.__clipboardLineTest.setTarget(null));await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before missing target'));
   const noTarget=await page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id);assert.ok(noTarget.result?.error);assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before missing target');
   check('missing paste target is explicit and leaves clipboard and app focus unchanged');
   await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'plain'});await application.evaluate(()=>global.__clipboardLineTest.enableShortcuts());
-  await fixtureCommand({action:'keys',keys:'^%{SPACE}'});await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===true);
-  await fixtureCommand({action:'keys',keys:'^%{SPACE}'});await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===false);
+  await fixtureCommand({action:'keys',keys:'^% '});await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===true);
+  await fixtureCommand({action:'keys',keys:'^% '});await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===false);
   await fixtureCommand({action:'keys',keys:'^%s'});await page.locator('#search-input').waitFor({state:'visible'});await until(()=>page.locator('#search-input').evaluate(element=>element===document.activeElement),Boolean);
   await page.keyboard.press('Escape');check('real OS global toggle and search shortcuts activate the shelves and search field');
   await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'plain'});await application.evaluate(()=>global.__clipboardLineTest.command('show'));

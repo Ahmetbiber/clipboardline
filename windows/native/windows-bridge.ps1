@@ -52,6 +52,7 @@ function FocusInfo {
   }
   return @{handle=$window.ToInt64().ToString();processId=$owner;runtime=$runtime;editable=$editable;secure=$secure}
 }
+function HeldShortcutKeys { @(0x11,0x12,0x10,0x0D,0x5B,0x5C) | Where-Object { [ClipBoardLineNative]::GetAsyncKeyState($_) -lt 0 } }
 try {
   if ($Mode -eq 'CopyImages') {
     Add-Type -AssemblyName System.Windows.Forms
@@ -89,6 +90,20 @@ try {
     [uint32]$frontOwner = 0
     [void][ClipBoardLineNative]::GetWindowThreadProcessId([ClipBoardLineNative]::GetForegroundWindow(),[ref]$frontOwner)
     if ($frontOwner -ne $expected.processId -and $frontOwner -ne $expected.sourceProcessId) { throw 'Another application became active. Reopen the shelves from the intended field.' }
+    if ($Mode -ne 'Restore' -and -not $expected.prepared) {
+      # Keep the source focused until the invoking shortcut is fully released.
+      # A held Enter must never start repeating inside the destination app.
+      $releaseDeadline=[DateTime]::UtcNow.AddSeconds(2)
+      do {
+        [uint32]$releaseOwner=0
+        [void][ClipBoardLineNative]::GetWindowThreadProcessId([ClipBoardLineNative]::GetForegroundWindow(),[ref]$releaseOwner)
+        if ($releaseOwner -ne $expected.processId -and $releaseOwner -ne $expected.sourceProcessId) { throw 'Another application became active while the shortcut was held.' }
+        $held=@(HeldShortcutKeys)
+        if ($held.Count -eq 0) { break }
+        Start-Sleep -Milliseconds 30
+      } while ([DateTime]::UtcNow -lt $releaseDeadline)
+      if ($held.Count -gt 0) { throw 'Release the shortcut keys, then try paste again.' }
+    }
     if ($Mode -eq 'Paste' -and $expected.prepared) {
       if ([ClipBoardLineNative]::GetForegroundWindow() -ne $window) { throw 'Focus changed before paste. No keys were sent.' }
     } else {
@@ -99,7 +114,7 @@ try {
     $stable = 0
     do {
       Start-Sleep -Milliseconds 30
-      $held = @(0x11,0x12,0x10,0x0D,0x5B,0x5C) | Where-Object { [ClipBoardLineNative]::GetAsyncKeyState($_) -lt 0 }
+      $held = @(HeldShortcutKeys)
       if ([ClipBoardLineNative]::GetForegroundWindow() -ne $window) {
         [uint32]$currentOwner = 0
         [void][ClipBoardLineNative]::GetWindowThreadProcessId([ClipBoardLineNative]::GetForegroundWindow(),[ref]$currentOwner)

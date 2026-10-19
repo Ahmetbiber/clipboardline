@@ -55,7 +55,9 @@ async function main(){
   application=await electron.launch({executablePath:candidate,args:['--test-mode','--test-data='+userdata],timeout:60000});page=await application.firstWindow();await page.waitForFunction(()=>!!window.clipboardLine);
   await until(()=>application.evaluate(()=>!!global.__clipboardLineTest),Boolean);
   await application.evaluate(({app},{userdata,publicKey,fixture,installer})=>{
-    const fs=require('node:fs'),path=require('node:path'),{Updates,FEED}=require(path.join(app.getAppPath(),'lib/updates.cjs'));
+    const fs=process.getBuiltinModule('node:fs'),path=process.getBuiltinModule('node:path');
+    const appRequire=process.getBuiltinModule('node:module').createRequire(path.join(app.getAppPath(),'package.json'));
+    const {Updates,FEED}=appRequire('./lib/updates.cjs');
     const h=global.__clipboardLineTest;h.setUpdates(new Updates(path.join(userdata,'ci-upgrade-cache'),{build:62,version:'1.7.0',publicKey,fetcher:async url=>({bytes:fs.readFileSync(url===FEED?fixture:installer)})}));
   },{userdata,publicKey,fixture,installer});
   const offer=await page.evaluate(()=>window.clipboardLine.command('checkUpdates'));assert.equal(offer.update.availableBuild,manifest.build);assert.equal(offer.update.availableVersion,pkg.version);assert.equal(offer.update.canInstall,true);

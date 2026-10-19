@@ -1,5 +1,15 @@
 'use strict';
 const {app,BrowserWindow,ipcMain,clipboard,ClipboardItem,nativeImage,protocol,net,Tray,Menu,Notification,powerMonitor,globalShortcut,screen,desktopCapturer,dialog,shell} = require('electron');
+// Electron's protocol.handle and net.fetch construct these globals lazily.
+// Finish Node/Undici initialization before renderer/protocol callbacks can
+// re-enter it during the first managed image request in an installed build.
+const {Request:WebRequest,Response:WebResponse,Headers:WebHeaders}=globalThis;
+for(const [name,constructor]of Object.entries({Request:WebRequest,Response:WebResponse,Headers:WebHeaders})){
+  if(typeof constructor!=='function')throw new Error('Web API initialization failed: '+name);
+  const descriptor=Object.getOwnPropertyDescriptor(globalThis,name);
+  Object.defineProperty(globalThis,name,{value:constructor,writable:true,configurable:true,enumerable:descriptor?.enumerable??false});
+}
+new WebRequest('https://example.invalid/');new WebResponse(null,{headers:new WebHeaders()});
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -21,6 +31,7 @@ app.setName(development?'ClipBoardLine Dev':'ClipBoardLine');
 protocol.registerSchemesAsPrivileged([{scheme:'appmedia',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}}]);
 let window,store,tray,updates,updateScheduler,monitor,clipboardTimer,retentionTimer,updateTimer,updateLaunchTimer,previous=null,view='shelves',message='',viewEvent=null;
 let lastFingerprint='',ownFingerprint='',capturing=false,pendingClipboard=false,showing=false,closing=false,watchers=[],normalBounds=null,normalMaximized=false,applyingBounds=false;
+let pastePromise=null;
 const entry = pathToFileURL(path.join(__dirname,'index.html')).href;
 const copyMarker = crypto.randomBytes(16);
 const pending = new Set();
@@ -120,9 +131,13 @@ async function writeClipboard(selected) {
   ownFingerprint=(await clipboardContent())?.fingerprint||'';lastFingerprint=ownFingerprint;
 }
 async function copy(payload,paste=false) {
+  if(paste&&pastePromise)return pastePromise;
   const selected=store.selected(ids(payload.ids));const target=previous;
   if(paste&&(!target||!target.editable||target.secure))throw new Error('Select an editable field in another application, then reopen the shelves.');
-  if(paste){await hide(false);try{await native.preparePaste(target);await writeClipboard(selected);await native.paste({...target,prepared:true});if(store.data.settings.sounds)shell.beep();return;}catch(error){await show(view);throw error;}}
+  if(paste){
+    const operation=(async()=>{try{await native.preparePaste(target);await hide(false);await writeClipboard(selected);await native.paste({...target,prepared:true});if(store.data.settings.sounds)shell.beep();}catch(error){await show(view);throw error;}})();
+    pastePromise=operation;try{return await operation;}finally{if(pastePromise===operation)pastePromise=null;}
+  }
   await writeClipboard(selected);
   if(store.data.settings.sounds)shell.beep();
   if(payload.keepOpen&&!paste){notify('Copied');return;}
@@ -236,14 +251,14 @@ else app.whenReady().then(async()=>{
       // Sender/frame controls remain the application authorization boundary;
       // origin checks here also reject remote-site media reads.
       const corsOrigin=mediaOrigin({method:request.method,origin:request.headers.get('Origin'),initiator:request.initiatorOrigin});
-      if(!corsOrigin)return new Response('Not found',{status:404});
+      if(!corsOrigin)return new WebResponse('Not found',{status:404});
       const url=new URL(request.url);const match=/^\/([0-9a-f-]{36})(\/original|\/thumbnail)?$/.exec(url.pathname);
-      if(url.hostname!=='media'||!match||url.search||url.hash)return new Response('Not found',{status:404});
+      if(url.hostname!=='media'||!match||url.search||url.hash)return new WebResponse('Not found',{status:404});
       let file;
-      if(match[2]==='/thumbnail'){const item=store.item(match[1]);if(!/^[a-f0-9]{64}\.png$/.test(item.thumbnailFile||''))return new Response('Not found',{status:404});file=path.join(store.mediaDirectory,item.thumbnailFile);if(fs.lstatSync(file).isSymbolicLink())return new Response('Not found',{status:404});}
+      if(match[2]==='/thumbnail'){const item=store.item(match[1]);if(!/^[a-f0-9]{64}\.png$/.test(item.thumbnailFile||''))return new WebResponse('Not found',{status:404});file=path.join(store.mediaDirectory,item.thumbnailFile);if(fs.lstatSync(file).isSymbolicLink())return new WebResponse('Not found',{status:404});}
       else file=store.mediaPath(match[1],match[2]==='/original');
-      const response=await net.fetch(pathToFileURL(file).href);return new Response(response.body,{headers:{'Content-Type':'image/png','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Access-Control-Allow-Origin':corsOrigin,'Vary':'Origin'}});
-    }catch{return new Response('Not found',{status:404});}
+      const response=await net.fetch(pathToFileURL(file).href);return new WebResponse(response.body,{headers:{'Content-Type':'image/png','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Access-Control-Allow-Origin':corsOrigin,'Vary':'Origin'}});
+    }catch{return new WebResponse('Not found',{status:404});}
   });
   window=new BrowserWindow({width:1200,height:760,minWidth:1,minHeight:1,show:false,frame:false,transparent:true,backgroundColor:'#00000000',hasShadow:false,skipTaskbar:true,alwaysOnTop:true,icon:appIcon(),
     webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,devTools:testMode}});

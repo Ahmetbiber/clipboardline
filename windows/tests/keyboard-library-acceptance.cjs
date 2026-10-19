@@ -1,9 +1,10 @@
 'use strict';
 const assert=require('node:assert/strict');
+const path=require('node:path');
 
 // Fixture construction uses the isolated model. Every behavior below then
 // travels through the real renderer's keyboard and pointer event handlers.
-module.exports=async function keyboardLibrary({page,application,textItem,folder,check,until}){
+module.exports=async function keyboardLibrary({page,application,textItem,folder,check,until,output}){
   const fixtures=await application.evaluate(({nativeImage})=>{
     const h=global.__clipboardLineTest,ids=[];
     for(let index=0;index<20;index++)ids.push(h.store.insert('text','Navigation fixture '+String(index).padStart(2,'0')).id);
@@ -17,6 +18,11 @@ module.exports=async function keyboardLibrary({page,application,textItem,folder,
   await page.evaluate(()=>window.clipboardLine.command('show'));
   const geometry=await page.evaluate(()=>({height:innerHeight,width:innerWidth,rows:[...document.querySelectorAll('[data-shelf]')].map(row=>{const box=row.getBoundingClientRect(),cards=row.querySelector('.cards').getBoundingClientRect();return{kind:row.dataset.shelf,top:box.top,bottom:box.bottom,numbers:[...row.querySelectorAll('.card-number')].map(number=>{const rect=number.getBoundingClientRect();return{left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,within:rect.left>=cards.left-2&&rect.right<=cards.right+2&&rect.top>=cards.top-2&&rect.bottom<=cards.bottom+2};})};})}));
   assert.equal(geometry.rows.length,3);for(const row of geometry.rows){assert.ok(row.top>=-1&&row.bottom<=geometry.height+1,JSON.stringify(geometry));assert.ok(row.numbers.every(number=>number.within),JSON.stringify(row));}
+  await page.screenshot({path:path.join(output,'shelves-all-kinds.png')});
+  const regularBounds=await application.evaluate(()=>global.__clipboardLineTest.getWindow().getBounds()),regularSize=(await page.evaluate(()=>window.clipboardLine.state())).settings.cardSize;
+  await page.evaluate(()=>window.clipboardLine.command('setSettings',{patch:{cardSize:'large'}}));await application.evaluate(()=>global.__clipboardLineTest.getWindow().setBounds({height:600}));await page.waitForFunction(()=>innerHeight===600);
+  const shortRows=await page.locator('[data-shelf]').evaluateAll(rows=>rows.map(row=>{const rect=row.getBoundingClientRect();return{kind:row.dataset.shelf,top:rect.top,bottom:rect.bottom};}));assert.ok(shortRows.every(row=>row.top>=-1&&row.bottom<=601),JSON.stringify(shortRows));
+  await page.evaluate(size=>window.clipboardLine.command('setSettings',{patch:{cardSize:size}}),regularSize);await application.evaluate((_electron,bounds)=>global.__clipboardLineTest.getWindow().setBounds(bounds),regularBounds);await page.waitForFunction(height=>innerHeight===height,regularBounds.height);
   check('all three shelf rows and every rendered quick number remain inside the window');
   await page.locator('[data-action="activate-shelf"][data-kind="text"]').click();
   await page.keyboard.press('Control+ArrowLeft');await until(focus,id=>id===fixtures.text);
@@ -32,7 +38,7 @@ module.exports=async function keyboardLibrary({page,application,textItem,folder,
   await page.keyboard.press('Shift+s');await page.locator('#search-input').waitFor({state:'visible'});
   const hud=await page.locator('.search-hud').boundingBox(),screen=await page.evaluate(()=>({width:innerWidth,height:innerHeight}));assert.ok(hud&&Math.abs(hud.x+hud.width/2-screen.width/2)<=5&&Math.abs(hud.y+hud.height/2-screen.height/2)<=15,JSON.stringify({hud,screen}));
   assert.deepEqual(await page.locator('[data-shelf]').evaluateAll(rows=>rows.map(row=>{const rect=row.getBoundingClientRect();return{top:rect.top,bottom:rect.bottom};})),beforeSearch);
-  await page.locator('#search-input').fill('shared search fixture');await page.keyboard.press('ArrowDown');
+  await page.locator('#search-input').fill('shared search fixture');await page.screenshot({path:path.join(output,'search-hud.png')});await page.keyboard.press('ArrowDown');
   await until(()=>page.locator('[data-item-id]').count(),count=>count===3);
   await page.locator(`[data-shelf="image"] [data-item-id="${fixtures.image}"]`).click();await page.keyboard.press('Space');
   await page.locator('#preview-dialog').waitFor({state:'visible'});await page.keyboard.press('ArrowDown');
@@ -71,6 +77,7 @@ module.exports=async function keyboardLibrary({page,application,textItem,folder,
   await page.locator('[data-action="scope"][data-scope="recent"]').click();await page.keyboard.press('Control+ArrowLeft');
   const grid=await page.locator('.library-grid > .card').evaluateAll(cards=>({columns:cards.filter(card=>card.offsetTop===cards[0].offsetTop).length,ids:cards.map(card=>card.dataset.itemId)}));assert.ok(grid.ids.length>grid.columns);
   await page.keyboard.press('ArrowDown');await until(()=>page.locator('.library-grid .card.focused').getAttribute('data-item-id'),id=>id===grid.ids[grid.columns]);await page.keyboard.press('ArrowUp');await until(()=>page.locator('.library-grid .card.focused').getAttribute('data-item-id'),id=>id===grid.ids[0]);
+  await page.screenshot({path:path.join(output,'library-grid.png')});
   check('Library vertical arrows use the actual rendered grid column count');
   await page.locator(`[data-action="folder-scope"][data-folder="${folder.id}"]`).click();
   await page.locator(`[data-item-id="${first}"]`).waitFor({state:'visible'});assert.equal(await page.locator(`[data-item-id="${second}"]`).count(),0);
