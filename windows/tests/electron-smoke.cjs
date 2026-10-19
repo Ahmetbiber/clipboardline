@@ -50,6 +50,19 @@ async function main(){
   const ocrState=await page.evaluate(id=>window.clipboardLine.command('ocr',{id}),imageItem.id);assert.ok(!ocrState.result?.error,ocrState.result?.error);assert.match(ocrState.result.text,/HELLO\s+CLIPBOARDLINE\s+42/i);check('bundled English/Turkish OCR worker recognizes real image locally');
   const edited=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=400;c.height=100;const g=c.getContext('2d');g.fillStyle='orange';g.fillRect(0,0,400,100);g.fillStyle='red';g.fillRect(20,20,100,50);return c.toDataURL('image/png');});
   const editState=await page.evaluate(({id,dataUrl})=>window.clipboardLine.command('saveImage',{id,dataUrl,crop:{x:10,y:10,width:400,height:100},annotations:[{type:'rectangle',x:20,y:20,width:100,height:50,color:'#ff0000'}]}),{id:imageItem.id,dataUrl:edited});assert.ok(!editState.result?.error);assert.equal(editState.items.find(i=>i.id===imageItem.id).annotations.length,1);check('edited crop/markup output and original persist separately');
+  await page.evaluate(()=>window.clipboardLine.command('show'));
+  await page.locator(`[data-shelf="image"] [data-item-id="${imageItem.id}"]`).click();await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});await page.keyboard.press('c');
+  const canvas=page.locator('#markup-canvas');await canvas.waitFor({state:'visible'});
+  await page.waitForFunction(()=>{const canvas=document.getElementById('markup-canvas');return canvas?.width===900&&canvas.height===220;});
+  const box=await canvas.boundingBox();assert.ok(box&&box.width>100&&box.height>30);
+  await page.mouse.move(box.x+box.width*.60,box.y+box.height*.20);await page.mouse.down();await page.mouse.move(box.x+box.width*.90,box.y+box.height*.80,{steps:6});await page.mouse.up();
+  await page.screenshot({path:path.join(output,'synthetic-crop.png')});
+  await page.keyboard.press('Enter');await canvas.waitFor({state:'hidden'});
+  const cropped=(await page.evaluate(()=>window.clipboardLine.state())).items.find(value=>value.id===imageItem.id);assert.ok(cropped.crop);
+  for(const [key,expected]of Object.entries({x:540,y:44,width:270,height:132}))assert.ok(Math.abs(cropped.crop[key]-expected)<=2,JSON.stringify(cropped.crop));
+  const raster=await application.evaluate(async({net,nativeImage},{current,original})=>{const read=async url=>nativeImage.createFromBuffer(Buffer.from(await(await net.fetch(url)).arrayBuffer())).getSize();return{current:await read(current),original:await read(original)};},{current:cropped.mediaUrl,original:cropped.originalMediaUrl});
+  assert.deepEqual(raster.current,{width:cropped.crop.width,height:cropped.crop.height});assert.deepEqual(raster.original,{width:900,height:220});
+  await page.keyboard.press('Escape');await page.locator('#preview-dialog').waitFor({state:'hidden'});check('real crop canvas drag saves original-coordinate bounds and cropped raster');
   await application.evaluate(()=>{const h=global.__clipboardLineTest;h.store.insert('link','https://example.com/reference');h.command('show');});
   await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click();
   await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});
@@ -91,7 +104,13 @@ async function main(){
   const copied=await page.evaluate(id=>window.clipboardLine.command('copy',{ids:[id]}),textItem.id);assert.ok(!copied.result?.error);assert.equal(await application.evaluate(()=>global.__clipboardLineTest.getWindow().isVisible()),false);check('plain Enter copy dismisses shelves/preview host and restores previous application');
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const screenCapture=await page.evaluate(()=>window.clipboardLine.command('capture'));assert.ok(screenCapture.result?.id,screenCapture.result?.error);check('actual Windows desktop capture produces a managed image');
-  await page.evaluate(()=>window.clipboardLine.command('settings'));await page.waitForTimeout(250);await page.screenshot({path:path.join(output,'settings.png')});
+  await page.locator('#preview-dialog').waitFor({state:'visible'});await page.locator('#markup-canvas').waitFor({state:'visible'});
+  await page.evaluate(()=>window.clipboardLine.command('settings'));await page.locator('#preview-dialog').waitFor({state:'hidden'});await page.locator('.settings-main').waitFor({state:'visible'});await page.locator('[data-setting="theme"]').waitFor({state:'visible'});
+  await page.locator('[data-action="settings-tab"][data-tab="sources"]').click();await page.locator('[data-setting="captureText"]').waitFor({state:'visible'});
+  // The real capture is exercised above but never exported as a screenshot or
+  // retained in the test library: published evidence contains only our own UI.
+  await page.evaluate(id=>window.clipboardLine.command('trash',{ids:[id]}),screenCapture.result.id);const removedCapture=await page.evaluate(id=>window.clipboardLine.command('delete',{ids:[id]}),screenCapture.result.id);assert.ok(!removedCapture.result?.error,removedCapture.result?.error);assert.ok(!removedCapture.items.some(value=>value.id===screenCapture.result.id));
+  await page.screenshot({path:path.join(output,'settings.png')});check('native Settings transition dismisses capture crop/preview and exposes usable controls');
   const persisted=JSON.parse(fs.readFileSync(path.join(data,'library.json'),'utf8'));assert.ok(persisted.items.some(i=>i.id===textItem.id&&i.pinned&&i.tags.includes('work')));check('real persisted library retains named pinned organization');
   if(fixture){fixture.kill();fixture=null;}
   await application.close();application=null;
