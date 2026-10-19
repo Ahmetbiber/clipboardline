@@ -16,7 +16,7 @@ if(testMode && testFolder) app.setPath('userData',path.resolve(testFolder));
 const development=!app.isPackaged&&!testMode;
 if(development){const directory=path.join(app.getPath('appData'),'ClipBoardLine Dev');fs.mkdirSync(directory,{recursive:true,mode:0o700});app.setPath('userData',directory);}
 app.setName(development?'ClipBoardLine Dev':'ClipBoardLine');
-protocol.registerSchemesAsPrivileged([{scheme:'appmedia',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);
+protocol.registerSchemesAsPrivileged([{scheme:'appmedia',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}}]);
 let window,store,tray,updates,monitor,clipboardTimer,retentionTimer,updateTimer,previous=null,view='shelves',message='',viewEvent=null;
 let lastFingerprint='',ownFingerprint='',capturing=false,pendingClipboard=false,showing=false,closing=false,lastChecked=0,watchers=[];
 const entry = pathToFileURL(path.join(__dirname,'index.html')).href;
@@ -209,18 +209,25 @@ else app.whenReady().then(async()=>{
   store=new Store(app.getPath('userData'));updates=new Updates(path.join(store.directory,'updates'),{changed:broadcast});
   protocol.handle('appmedia',async request=>{
     try{
+      // CORS permits the local opaque-origin editor to export its canvas.
+      // Sender/frame controls remain the application authorization boundary;
+      // origin checks here also reject remote-site media reads.
+      if(request.method!=='GET')return new Response('Not found',{status:404});
+      if(request.initiatorOrigin&&!['null','file://'].includes(request.initiatorOrigin))return new Response('Not found',{status:404});
+      if(request.headers.get('Origin')&&request.headers.get('Origin')!=='null')return new Response('Not found',{status:404});
       const url=new URL(request.url);const match=/^\/([0-9a-f-]{36})(\/original|\/thumbnail)?$/.exec(url.pathname);
       if(url.hostname!=='media'||!match||url.search||url.hash)return new Response('Not found',{status:404});
       let file;
       if(match[2]==='/thumbnail'){const item=store.item(match[1]);if(!/^[a-f0-9]{64}\.png$/.test(item.thumbnailFile||''))return new Response('Not found',{status:404});file=path.join(store.mediaDirectory,item.thumbnailFile);if(fs.lstatSync(file).isSymbolicLink())return new Response('Not found',{status:404});}
       else file=store.mediaPath(match[1],match[2]==='/original');
-      const response=await net.fetch(pathToFileURL(file).href);return new Response(response.body,{headers:{'Content-Type':'image/png','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+      const response=await net.fetch(pathToFileURL(file).href);return new Response(response.body,{headers:{'Content-Type':'image/png','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Access-Control-Allow-Origin':'null','Vary':'Origin'}});
     }catch{return new Response('Not found',{status:404});}
   });
   window=new BrowserWindow({width:1200,height:760,minWidth:640,minHeight:360,show:false,frame:false,backgroundColor:'#18191d',alwaysOnTop:true,icon:appIcon(),
     webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,devTools:testMode}});
   window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   window.webContents.on('will-navigate',(event,url)=>{if(url!==entry)event.preventDefault();});
+  window.webContents.on('will-frame-navigate',event=>{if(!event.isMainFrame||event.url!==entry)event.preventDefault();});
   window.webContents.on('will-attach-webview',event=>event.preventDefault());
   window.webContents.session.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));
   window.on('close',event=>{if(!closing){event.preventDefault();void hide();}});

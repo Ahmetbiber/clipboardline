@@ -16,6 +16,7 @@ async function main(){
   const args=['--test-mode','--test-data='+data];
   application=await electron.launch({...(process.env.CLIPBOARDLINE_EXECUTABLE?{executablePath:path.resolve(process.env.CLIPBOARDLINE_EXECUTABLE)}:{args:[path.resolve('.'),...args]}),...(process.env.CLIPBOARDLINE_EXECUTABLE?{args}:{}),timeout:60000});
   const page=await application.firstWindow();await page.waitForFunction(()=>!!window.clipboardLine);
+  report.rendererErrors=[];page.on('pageerror',error=>{if(report.rendererErrors.length<20)report.rendererErrors.push(String(error.stack||error.message).slice(0,2000));});
   await until(()=>application.evaluate(()=>!!global.__clipboardLineTest),Boolean);
   const preferences=await page.evaluate(()=>window.clipboardLine.diagnostics());
   assert.equal(preferences.contextIsolated,true);assert.equal(preferences.sandboxed,true);
@@ -43,8 +44,8 @@ async function main(){
   const dataUrl=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=900;canvas.height=220;const c=canvas.getContext('2d');c.fillStyle='#ffffff';c.fillRect(0,0,900,220);c.fillStyle='#000000';c.font='bold 64px Arial';c.fillText('HELLO CLIPBOARDLINE 42',20,130);return canvas.toDataURL('image/png');});
   await application.evaluate(async({clipboard,ClipboardItem,nativeImage},value)=>{const image=nativeImage.createFromDataURL(value);await clipboard.write([new ClipboardItem({'image/png':new Blob([image.toPNG()],{type:'image/png'})})]);await global.__clipboardLineTest.readClipboard();},dataUrl);
   state=await page.evaluate(()=>window.clipboardLine.state());const imageItem=state.items.find(i=>i.kind==='image');assert.ok(imageItem);check('real native image clipboard capture');
-  const media=await application.evaluate(async({net},url)=>{const response=await net.fetch(url);return{status:response.status,length:(await response.arrayBuffer()).byteLength};},imageItem.mediaUrl);assert.equal(media.status,200);assert.ok(media.length>1000);
-  const blocked=await application.evaluate(async({net})=>(await net.fetch('appmedia://media/../../library.json')).status);assert.equal(blocked,404);check('managed media protocol serves images and rejects path traversal');
+  const media=await application.evaluate(async({net},url)=>{const response=await net.fetch(url);return{status:response.status,length:(await response.arrayBuffer()).byteLength,cors:response.headers.get('Access-Control-Allow-Origin')};},imageItem.mediaUrl);assert.equal(media.status,200);assert.ok(media.length>1000);assert.equal(media.cors,'null');
+  const blocked=await application.evaluate(async({net},url)=>({path:(await net.fetch('appmedia://media/../../library.json')).status,origin:(await net.fetch(url,{headers:{Origin:'https://example.com'}})).status,post:(await net.fetch(url,{method:'POST'})).status}),imageItem.mediaUrl);assert.deepEqual(blocked,{path:404,origin:404,post:404});check('managed media protocol serves images and rejects path traversal, remote origins and writes');
   await page.evaluate(id=>window.clipboardLine.command('copy',{ids:[id],keepOpen:true}),imageItem.id);
   const dimensions=await application.evaluate(async({clipboard,nativeImage})=>{const entries=await clipboard.read();const item=entries.find(i=>i.types.includes('image/png'));return nativeImage.createFromBuffer(Buffer.from(await(await item.getType('image/png')).arrayBuffer())).getSize();});assert.deepEqual(dimensions,{width:900,height:220});check('real image copy preserves full raster dimensions');
   const ocrState=await page.evaluate(id=>window.clipboardLine.command('ocr',{id}),imageItem.id);assert.ok(!ocrState.result?.error,ocrState.result?.error);assert.match(ocrState.result.text,/HELLO\s+CLIPBOARDLINE\s+42/i);check('bundled English/Turkish OCR worker recognizes real image locally');
@@ -56,6 +57,7 @@ async function main(){
   await page.waitForFunction(()=>{const canvas=document.getElementById('markup-canvas');return canvas?.width===900&&canvas.height===220;});
   const box=await canvas.boundingBox();assert.ok(box&&box.width>100&&box.height>30);
   await page.mouse.move(box.x+box.width*.60,box.y+box.height*.20);await page.mouse.down();await page.mouse.move(box.x+box.width*.90,box.y+box.height*.80,{steps:6});await page.mouse.up();
+  const exportable=await canvas.evaluate(element=>{try{return{png:element.toDataURL('image/png').startsWith('data:image/png;base64,')};}catch(error){return{error:error.name+': '+error.message};}});assert.equal(exportable.png,true,JSON.stringify(exportable));
   await page.screenshot({path:path.join(output,'synthetic-crop.png')});
   await page.keyboard.press('Enter');await canvas.waitFor({state:'hidden'});
   const cropped=(await page.evaluate(()=>window.clipboardLine.state())).items.find(value=>value.id===imageItem.id);assert.ok(cropped.crop);
@@ -121,6 +123,7 @@ async function main(){
   assert.equal(await application.evaluate(()=>typeof global.__clipboardLineTest),'undefined');
   assert.equal(await productionPage.evaluate(async()=>{try{await fetch('https://example.com');return false;}catch{return true;}}),true);
   await productionPage.screenshot({path:path.join(output,'production-startup.png')});check('normal production startup creates tray/services, defaults to opt-in and blocks renderer network');
+  assert.equal(report.rendererErrors.length,0,JSON.stringify(report.rendererErrors));
   report.completedAt=new Date().toISOString();report.passed=true;
 }
 main().catch(error=>{report.passed=false;report.error=error.stack;console.error(error.stack);process.exitCode=1;}).finally(async()=>{if(fixture)fixture.kill();if(application)await application.close().catch(()=>{});fs.writeFileSync(path.join(output,'windows-runtime.json'),JSON.stringify(report,null,2));fs.rmSync(data,{recursive:true,force:true,maxRetries:4});});

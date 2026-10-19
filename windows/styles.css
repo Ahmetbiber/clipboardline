@@ -7,3 +7,5 @@
 .preview-toolbar>button,.preview-toolbar>select,.preview-toolbar>input,.preview-toolbar>label,.preview-toolbar>.divider,.preview-toolbar>.position{flex:0 0 auto}
 .preview-toolbar button{width:max-content;max-width:none;white-space:nowrap;flex-shrink:0}
 .preview-toolbar>.grow{flex:1 0 12px;min-width:12px}
+
+.dialog .preview-toolbar input[type=color]{width:40px;min-width:40px;max-width:40px;flex:0 0 40px}
