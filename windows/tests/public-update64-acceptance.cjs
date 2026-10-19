@@ -65,7 +65,7 @@ async function updateFromUI(page,label,{requireAutomatic=false}={}){
  return scenario;
 }
 async function main(){
- const feed=(await boundedFetch(FEED,{maximum:200000,timeout:60000})).bytes;report.manifest=verifyEnvelope(feed);report.feedSHA256=hash(feed);assert.equal(report.manifest.version,'1.7.2');assert.equal(report.manifest.build,64);assert.equal(report.manifest.sourceRevision,'b3aa9f45015076031aab0fad2f1b4e5173155800');
+ const feed=(await boundedFetch(FEED,{maximum:200000,timeout:60000})).bytes;report.manifest=verifyEnvelope(feed);report.feedSHA256=hash(feed);assert.equal(report.manifest.version,'1.7.2');assert.equal(report.manifest.build,64);assert.equal(report.manifest.sourceRevision,'b3aa9f45015076031aab0fad2f1b4e5173155800');assert.equal(report.manifest.sha256,'6bd6d9cb53efbb343e35e59206ee220166fc0c8838811cd03c241a340c3e583b');assert.equal(report.manifest.size,154613686);
  check('merged canonical Latest serves the unchanged production-signed Windows1.7.2/build64 manifest anonymously');
  const previousURL='https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.1-build63/ClipBoardLine-Setup-1.7.1-x64.exe';
  const previous=(await boundedFetch(previousURL,{maximum:200*1024*1024,timeout:120000})).bytes;assert.equal(hash(previous),'f8e45afd1ce3ae4d5bbe1c6f355697cbe9f258e5297685a49d94cd05644631b1');
