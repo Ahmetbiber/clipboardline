@@ -189,7 +189,7 @@ async function main(){
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const screenCapture=await page.evaluate(()=>window.clipboardLine.command('capture'));assert.ok(screenCapture.result?.id,screenCapture.result?.error);check('actual Windows desktop capture produces a managed image');
   await page.locator('#preview-dialog').waitFor({state:'visible'});await page.locator('#markup-canvas').waitFor({state:'visible'});
-  await page.evaluate(()=>window.clipboardLine.command('settings'));await page.locator('#preview-dialog').waitFor({state:'hidden'});await page.locator('.settings-main').waitFor({state:'visible'});await page.locator('[data-setting="theme"]').waitFor({state:'visible'});
+  await page.evaluate(()=>window.clipboardLine.command('settings'));await page.locator('#preview-dialog').waitFor({state:'hidden'});await page.locator('.settings-main').waitFor({state:'visible'});await page.locator('[data-action="settings-tab"][data-tab="general"]').click();await page.locator('[data-setting="theme"]').waitFor({state:'visible'});
   await page.locator('[data-action="settings-tab"][data-tab="sources"]').click();await page.locator('[data-setting="captureText"]').waitFor({state:'visible'});
   // The real capture is exercised above but never exported as a screenshot or
   // retained in the test library: published evidence contains only our own UI.
