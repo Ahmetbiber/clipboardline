@@ -131,7 +131,7 @@ async function main(){
   const fixtureOutput=path.join(data,'native-target.json');const ps=path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
   fixture=spawn(ps,['-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',path.resolve('tests/native-fixture.ps1'),'-Output',fixtureOutput],{windowsHide:false,stdio:'ignore',env:windowsEnvironment()});
   const fixtureState=()=>JSON.parse(fs.readFileSync(fixtureOutput,'utf8'));
-  const fixtureCommand=async payload=>{const serial=crypto.randomUUID(),file=fixtureOutput+'.commands';fs.writeFileSync(file+'.tmp',JSON.stringify({...payload,serial}));fs.renameSync(file+'.tmp',file);const result=await until(fixtureState,value=>value.lastSerial===serial);assert.equal(result.commandError,'',result.commandError);return result;};
+  const fixtureCommand=async payload=>{const serial=crypto.randomUUID(),file=fixtureOutput+'.commands';fs.writeFileSync(file+'.tmp',JSON.stringify({...payload,serial}));for(let attempt=0;;attempt++){try{fs.renameSync(file+'.tmp',file);break;}catch(error){if(!['EPERM','EACCES','EBUSY'].includes(error.code)||attempt>=20)throw error;await new Promise(resolve=>setTimeout(resolve,25));}}const result=await until(fixtureState,value=>value.lastSerial===serial);assert.equal(result.commandError,'',result.commandError);return result;};
   await until(fixtureState,s=>s.ready);
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const target=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(target?.editable&&!target?.secure,JSON.stringify(target));
