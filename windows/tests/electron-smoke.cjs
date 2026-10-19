@@ -46,6 +46,9 @@ async function main(){
   const count=textCopy.items.length;await application.evaluate(()=>global.__clipboardLineTest.readClipboard());assert.equal((await page.evaluate(()=>window.clipboardLine.state())).items.length,count);check('real text copy and own-copy loop suppression');
   await application.evaluate(async({clipboard,ClipboardItem})=>{await clipboard.write([new ClipboardItem({'text/plain':new Blob(['SYNTHETIC_PRIVATE_TEST']), 'electron application/osclipboard;format="ExcludeClipboardContentFromMonitorProcessing"':new Blob([Buffer.from([1])])})]);await global.__clipboardLineTest.readClipboard();});
   assert.ok(!(await page.evaluate(()=>window.clipboardLine.state())).items.some(i=>i.text==='SYNTHETIC_PRIVATE_TEST'));check('private clipboard marker is excluded');
+  await page.evaluate(()=>window.clipboardLine.command('hide'));await page.evaluate(()=>window.clipboardLine.command('show'));
+  await until(()=>page.locator('[data-shelf="text"] .card.focused').getAttribute('data-item-id'),id=>id===textItem.id);await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});assert.equal(await page.locator('#preview-dialog').getAttribute('aria-label'),'Named synthetic key');await page.keyboard.press('Escape');
+  check('fresh opening focuses the first nonempty shelf and Space previews text when Images is empty');
   const dataUrl=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=900;canvas.height=220;const c=canvas.getContext('2d');c.fillStyle='#ffffff';c.fillRect(0,0,900,220);c.fillStyle='#000000';c.font='bold 64px Arial';c.fillText('HELLO CLIPBOARDLINE 42',20,130);return canvas.toDataURL('image/png');});
   await application.evaluate(async({clipboard,ClipboardItem,nativeImage},value)=>{const image=nativeImage.createFromDataURL(value);await clipboard.write([new ClipboardItem({'image/png':new Blob([image.toPNG()],{type:'image/png'})})]);await global.__clipboardLineTest.readClipboard();},dataUrl);
   state=await page.evaluate(()=>window.clipboardLine.state());const imageItem=state.items.find(i=>i.kind==='image');assert.ok(imageItem);check('real native image clipboard capture');
@@ -95,7 +98,6 @@ async function main(){
   await page.evaluate(()=>window.clipboardLine.command('show'));await page.waitForTimeout(250);await page.screenshot({path:path.join(output,'shelves.png')});check('three kinds render in shelves and normal library window');
   await keyboardLibrary({page,application,textItem,folder,check,until,output});
   await edgeConsumer({page,application,textItem,imageItem,check,until,report});
-  await notepadConsumer({page,application,textItem,check,until,report,data});
   // An actual separate WinForms process owns the destination, so focus/paste
   // cannot pass by sending synthetic keys back to the Electron test window.
   await page.evaluate(()=>window.clipboardLine.command('hide'));
@@ -176,6 +178,7 @@ async function main(){
   const exited=new Promise(resolve=>fixture.once('exit',resolve));fixture.kill();await exited;fixture=null;await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before closed target'));
   const closed=await page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id);assert.ok(closed.result?.error);assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before closed target');
   check('closed destination process fails safely before clipboard replacement or keyboard input');
+  await notepadConsumer({page,application,textItem,check,until,report,data});
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const screenCapture=await page.evaluate(()=>window.clipboardLine.command('capture'));assert.ok(screenCapture.result?.id,screenCapture.result?.error);check('actual Windows desktop capture produces a managed image');
   await page.locator('#preview-dialog').waitFor({state:'visible'});await page.locator('#markup-canvas').waitFor({state:'visible'});

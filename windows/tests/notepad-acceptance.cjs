@@ -43,8 +43,8 @@ module.exports=async function notepadAcceptance({page,application,textItem,check
     if(ready.status==='unavailable'){
       result={application:'Notepad',status:'unavailable',reason:ready.reason};results.push(result);console.log('UNAVAILABLE Notepad: '+ready.reason);return result;
     }
-    assert.equal(ready.status,'ready',ready.reason);
-    const focused=await command('focus');assert.equal(focused.text,seed);assert.equal(focused.selectedText,seed);assert.equal(focused.foreground,true);assert.equal(focused.editorFocused,true);
+    assert.equal(ready.status,'ready',JSON.stringify({reason:ready.reason,discovery:ready.discovery}));
+    const focused=await command('focus');assert.equal(focused.text,seed);if(focused.selectionMethod==='UIA TextPattern')assert.equal(focused.selectedText,seed);else assert.equal(focused.selectionMethod,'Native CtrlA');assert.equal(focused.foreground,true);assert.equal(focused.editorFocused,true);
     await application.evaluate(()=>global.__clipboardLineTest.command('show'));
     const target=await application.evaluate(()=>global.__clipboardLineTest.getTarget());
     assert.equal(target?.handle,focused.handle,JSON.stringify({target,notepad:focused.handle}));assert.equal(target?.processId,focused.processId);assert.equal(target?.runtime,focused.runtime);assert.ok(target.editable&&!target.secure,JSON.stringify(target));
@@ -59,7 +59,7 @@ module.exports=async function notepadAcceptance({page,application,textItem,check
     assert.equal(pasted.foreground,true);assert.equal(pasted.editorFocused,true);
     await command('save');
     const saved=await until(()=>fs.readFileSync(document,'utf8').replace(/^\uFEFF/,''),value=>value===textItem.text,10000);assert.equal(saved,textItem.text);
-    result={application:'Notepad',status:'passed',version:ready.version||'',processHandoff:!!ready.processHandoff,verification:'Exact UIA document text and saved synthetic file',selectionReplaced:true,windowHidden:true};results.push(result);
+    result={application:'Notepad',status:'passed',version:ready.version||'',processHandoff:!!ready.processHandoff,selectionMethod:ready.selectionMethod,verification:'Exact UIA document text and saved synthetic file',selectionReplaced:true,windowHidden:true};results.push(result);
     return result;
   }catch(error){primaryError=error;results.push({application:'Notepad',status:'failed',reason:error.message});throw error;}
   finally{

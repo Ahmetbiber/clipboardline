@@ -10,8 +10,8 @@ module.exports=async function keyboardLibrary({page,application,textItem,folder,
     for(let index=0;index<20;index++)ids.push(h.store.insert('text','Navigation fixture '+String(index).padStart(2,'0')).id);
     const text=h.store.insert('text','Shared search fixture result');ids.push(text.id);
     const link=h.store.insert('link','https://example.com/shared-search-fixture');ids.push(link.id);
-    const bitmap=Buffer.alloc(8*8*4);for(let offset=0;offset<bitmap.length;offset+=4){bitmap[offset]=80;bitmap[offset+1]=200;bitmap[offset+2]=100;bitmap[offset+3]=255;}
-    const image=h.store.insert('image',nativeImage.createFromBitmap(bitmap,{width:8,height:8}).toPNG());image.ocrText='Shared search fixture result';h.store.persist();ids.push(image.id);
+    const width=240,height=140,bitmap=Buffer.alloc(width*height*4);for(let y=0;y<height;y++)for(let x=0;x<width;x++){const offset=(y*width+x)*4,accent=x>22&&x<218&&y>24&&y<116;bitmap[offset]=accent?130+Math.round(x/4):70;bitmap[offset+1]=accent?100+Math.round(y/2):150;bitmap[offset+2]=accent?90:90;bitmap[offset+3]=255;}
+    const image=h.store.insert('image',nativeImage.createFromBitmap(bitmap,{width,height}).toPNG());image.ocrText='Shared search fixture result';h.store.persist();ids.push(image.id);
     return{ids,image:image.id,text:text.id,link:link.id};
   });
   const focus=()=>page.locator('[data-shelf="text"] .card.focused').getAttribute('data-item-id');
@@ -91,6 +91,15 @@ module.exports=async function keyboardLibrary({page,application,textItem,folder,
   await page.keyboard.press('Control+f');await page.locator('#search-input').fill('');await page.keyboard.press('Enter');
   await page.locator('[data-action="tag-scope"][data-tag="work"]').click();await page.locator(`[data-item-id="${textItem.id}"]`).waitFor({state:'visible'});
   check('Library folder/tag/type/search filters and Enter copy retain the normal Library window');
+  await page.locator(`[data-action="folder-menu"][data-folder="${folder.id}"]`).click();await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
+  await page.locator('#simple-input').fill('Native child fixture');await page.keyboard.press('Enter');
+  const childState=await until(()=>page.evaluate(()=>window.clipboardLine.state()),next=>next.folders.some(value=>value.name==='Native child fixture'&&value.parentId===folder.id)),child=childState.folders.find(value=>value.name==='Native child fixture'&&value.parentId===folder.id);
+  await page.locator(`[data-action="folder-menu"][data-folder="${child.id}"]`).click();await page.keyboard.press('Enter');await page.locator('#simple-input').fill('Renamed native child fixture');await page.keyboard.press('Enter');
+  await until(()=>page.evaluate(()=>window.clipboardLine.state()),next=>next.folders.some(value=>value.id===child.id&&value.name==='Renamed native child fixture'));
+  await page.locator(`[data-action="folder-menu"][data-folder="${child.id}"]`).click();await page.keyboard.press('ArrowDown');await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
+  assert.ok((await page.evaluate(()=>window.clipboardLine.state())).folders.some(value=>value.id===child.id));await page.keyboard.press('Enter');
+  const afterFolder=await until(()=>page.evaluate(()=>window.clipboardLine.state()),next=>!next.folders.some(value=>value.id===child.id));assert.ok(afterFolder.folders.some(value=>value.id===folder.id&&value.name===folder.name));
+  check('Library folder menu keyboard creates a subfolder, renames it and requires removal confirmation');
   // Remove only this function's fixture records before later native paste tests.
   await page.evaluate(ids=>window.clipboardLine.command('trash',{ids}),fixtures.ids);await page.evaluate(ids=>window.clipboardLine.command('delete',{ids}),fixtures.ids);
   await application.evaluate(async(_electron,text)=>{const h=global.__clipboardLineTest;h.store.insert('text',text);await h.command('show');},textItem.text);

@@ -31,7 +31,7 @@ $configuration=[System.IO.File]::ReadAllText($Config)|ConvertFrom-Json
 # writes or a second paste path. Microsoft API contracts:
 # https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.textpattern.getselection
 # https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/find-and-highlight-text-using-ui-automation
-$script:status=@{status='starting';lastSerial='';commandError=''}
+$script:status=@{status='starting';lastSerial='';commandError='';discovery=@()}
 $script:root=$null;$script:editor=$null;$script:textPattern=$null;$script:valuePattern=$null;$script:suffix='';$script:handle=[IntPtr]::Zero;$script:owner=0;$script:runtime='';$script:ownerStarted=$null
 function Write-State {
   $temporary=$configuration.output+'.tmp'
@@ -62,12 +62,17 @@ function Focus-Document([bool]$Select) {
   [void][NotepadAcceptanceNative]::ShowWindow($script:handle,9)
   [void][NotepadAcceptanceNative]::SetForegroundWindow($script:handle)
   $script:editor.SetFocus()
-  if ($Select) { $script:textPattern.DocumentRange.Select() }
   $deadline=[DateTime]::UtcNow.AddSeconds(3)
   do {
     Start-Sleep -Milliseconds 60
     $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
-    if ([NotepadAcceptanceNative]::GetForegroundWindow() -eq $script:handle -and $null -ne $focused -and [string]::Join('.',$focused.GetRuntimeId()) -eq $script:runtime) { return }
+    if ([NotepadAcceptanceNative]::GetForegroundWindow() -eq $script:handle -and $null -ne $focused -and [string]::Join('.',$focused.GetRuntimeId()) -eq $script:runtime) {
+      if ($Select) {
+        if ($null -ne $script:textPattern) { $script:textPattern.DocumentRange.Select() }
+        elseif (-not [NotepadAcceptanceNative]::ControlKey(0x41)) { throw 'Windows rejected selection in the owned Notepad editor.' }
+      }
+      return
+    }
   } while ([DateTime]::UtcNow -lt $deadline)
   throw 'Windows did not focus the exact owned Notepad editor.'
 }
@@ -76,9 +81,12 @@ function Observe-Document {
   $script:status.foreground=[NotepadAcceptanceNative]::GetForegroundWindow() -eq $script:handle
   $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
   $script:status.editorFocused=$null -ne $focused -and [string]::Join('.',$focused.GetRuntimeId()) -eq $script:runtime
-  $selection=@($script:textPattern.GetSelection())
-  $selected=if ($selection.Count -eq 1) {[string]$selection[0].GetText(-1)} else {''}
-  if ($script:suffix -and $selected.EndsWith($script:suffix,[StringComparison]::Ordinal)) { $selected=$selected.Substring(0,$selected.Length-$script:suffix.Length) }
+  $selected=$null
+  if ($null -ne $script:textPattern) {
+    $selection=@($script:textPattern.GetSelection())
+    $selected=if ($selection.Count -eq 1) {[string]$selection[0].GetText(-1)} else {''}
+    if ($script:suffix -and $selected.EndsWith($script:suffix,[StringComparison]::Ordinal)) { $selected=$selected.Substring(0,$selected.Length-$script:suffix.Length) }
+  }
   $script:status.selectedText=$selected
 }
 try {
@@ -104,16 +112,19 @@ try {
         $editors=$window.FindAll([System.Windows.Automation.TreeScope]::Descendants,$types)
         foreach ($candidate in $editors) {
           if ($candidate.Current.IsOffscreen -or -not $candidate.Current.IsEnabled -or $candidate.Current.IsPassword) { continue }
-          $text=$null;if (-not $candidate.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern,[ref]$text)) { continue }
+          $text=$null;[void]$candidate.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern,[ref]$text)
           $value=$null;[void]$candidate.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$value)
+          if ($null -eq $text -and $null -eq $value) { continue }
+          if ($null -ne $value -and $value.Current.IsReadOnly) { continue }
           $raw=if ($null -ne $value) {[string]$value.Current.Value} else {[string]$text.DocumentRange.GetText(-1)}
+          if ($script:status.discovery.Count -lt 12) { $script:status.discovery+=@{control=[string]$candidate.Current.ControlType.ProgrammaticName;class=[string]$candidate.Current.ClassName;textPattern=$null -ne $text;valuePattern=$null -ne $value;length=$raw.Length;seedLength=([string]$configuration.seed).Length;seedMatch=$raw.TrimEnd([char[]]"`r`n") -ceq [string]$configuration.seed} }
           $suffix=$null
           foreach ($terminator in @('',"`r","`r`n","`n")) { if ($raw -ceq ([string]$configuration.seed+$terminator)) {$suffix=$terminator;break} }
           if ($null -eq $suffix) { continue }
           $script:root=$window;$script:editor=$candidate;$script:textPattern=$text;$script:valuePattern=$value;$script:suffix=$suffix
           $script:handle=[IntPtr]$window.Current.NativeWindowHandle;$script:owner=$process.Id;$script:ownerStarted=$process.StartTime.ToUniversalTime().Ticks;$script:runtime=[string]::Join('.',$candidate.GetRuntimeId())
           $version='';try {$version=[string]$process.MainModule.FileVersionInfo.FileVersion} catch {}
-          $script:status=@{status='ready';lastSerial='';commandError='';handle=$script:handle.ToInt64().ToString();processId=$script:owner;runtime=$script:runtime;version=$version;processHandoff=$process.Id -ne $launcher.Id;providerTerminator=$suffix.Replace("`r",'CR').Replace("`n",'LF')}
+          $script:status=@{status='ready';lastSerial='';commandError='';handle=$script:handle.ToInt64().ToString();processId=$script:owner;runtime=$script:runtime;version=$version;processHandoff=$process.Id -ne $launcher.Id;providerTerminator=$suffix.Replace("`r",'CR').Replace("`n",'LF');selectionMethod=if ($null -ne $text) {'UIA TextPattern'} else {'Native CtrlA'};discovery=$script:status.discovery}
           break
         }
       } catch { }

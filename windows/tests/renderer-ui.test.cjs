@@ -47,7 +47,7 @@ function fixture(){
  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../renderer.js'),'utf8'),context,{filename:'renderer.js'});
  async function ready(){await new Promise(setImmediate);}
  async function key(code,{ctrl=false,alt=false,shift=false,key}={}){const event={code,key:key||(/^Key/.test(code)?code.slice(3).toLowerCase():code==='Space'?' ':code),ctrlKey:ctrl,metaKey:false,altKey:alt,shiftKey:shift,repeat:false,target:new Element(),preventDefault(){this.prevented=true;}};for(const listener of listeners.get('keydown')||[])await listener(event);await ready();return event;}
- async function click(action){const target=new Element();target.dataset.action=action;target.closest=selector=>selector==='[data-action]'?target:null;for(const listener of listeners.get('click')||[])listener({target,stopPropagation(){}});await ready();}
+ async function click(action,extra={}){const target=new Element();target.dataset.action=action;Object.assign(target.dataset,extra);target.closest=selector=>selector==='[data-action]'?target:null;for(const listener of listeners.get('click')||[])listener({target,stopPropagation(){}});await ready();}
  async function pointer(type,x,y){const target=document.getElementById('markup-canvas');for(const listener of listeners.get(type)||[])listener({target,clientX:x,clientY:y,pointerId:1,shiftKey:false,preventDefault(){}});await ready();}
  async function input(id,value){const target=document.getElementById(id);target.value=value;target.selectionStart=value.length;for(const listener of listeners.get('input')||[])await listener({target});await ready();}
  return{ready,key,input,click,pointer,imageLoads,failExportOnce(){exportFailures++;},failCleanupOnce(){cleanupFailures++;},failEditOnce(){editFailures++;},state,commands,nodes,image,text1,text2,link,api,get main(){return nodes.get('app').innerHTML;},get overlay(){return nodes.get('overlay-root').innerHTML;}};
@@ -86,3 +86,68 @@ test('canvas export failure blocks native Settings until explicit Save succeeds'
 
 
 test('Settings browsing keys do not pin, copy or paste the last shelf selection',async()=>{const f=fixture();await f.ready();await f.api.command('settings');await f.ready();await f.key('KeyP');await f.key('Enter');await f.key('Enter',{ctrl:true});assert.equal(f.state.items.find(item=>item.id===f.image).pinned,false);assert.equal(f.commands.filter(command=>['pin','copy','paste'].includes(command.action)).length,0);await f.key('KeyK',{ctrl:true});assert.match(f.overlay,/Search actions/);});
+
+test('fresh opening skips an empty enabled image shelf so Space and Enter operate on the first text',async()=>{
+ const f=fixture();await f.ready();
+ f.api.emit({items:f.state.items.filter(value=>value.kind!=='image')});
+ await f.api.command('show');await f.ready();
+ assert.match(f.main,/card kind-text focused selected/);
+ await f.key('Space');assert.match(f.overlay,/aria-label="Text one"/);
+ await f.key('Enter');
+ assert.equal(f.commands.at(-1).action,'copy');
+ assert.deepEqual(f.commands.at(-1).payload.ids,[f.text1]);
+ assert.equal(f.state.windowVisible,false);
+});
+
+test('fresh focus skips empty or disabled kinds and safely handles every shelf empty',async()=>{
+ const f=fixture();await f.ready();
+ f.api.emit({items:f.state.items.filter(value=>value.kind!=='image'),settings:{...f.state.settings,visibleKinds:['image','link']}});
+ await f.api.command('show');await f.ready();
+ assert.match(f.main,/card kind-link focused selected/);
+ await f.key('Space');assert.match(f.overlay,/aria-label="Reference link"/);
+ await f.key('Escape');
+ f.api.emit({items:[]});await f.api.command('show');await f.ready();
+ const commands=f.commands.length;await f.key('Space');await f.key('Enter');
+ assert.equal(f.overlay,'');assert.equal(f.commands.length,commands);
+});
+
+test('folder menu arrows retain folder operations and Enter creates a subfolder under the chosen folder',async()=>{
+ const f=fixture();await f.ready();const folderId='10000000-0000-4000-8000-000000000000';
+ f.api.emit({folders:[{id:folderId,name:'Chosen folder',parentId:null}]});
+ await f.api.command('library');await f.click('folder-menu',{folder:folderId});
+ assert.match(f.overlay,/Rename folder/);assert.match(f.overlay,/New subfolder/);assert.match(f.overlay,/Remove folder/);
+ await f.key('ArrowDown');
+ assert.match(f.overlay,/dialog-option selected[^>]*data-action="new-subfolder"/);
+ assert.doesNotMatch(f.overlay,/Search actions|execute-command/);
+ await f.key('Enter');assert.match(f.overlay,/New folder/);
+ await f.input('simple-input','Child folder');await f.key('Enter');
+ assert.equal(f.commands.at(-1).action,'createFolder');
+ assert.deepEqual(f.commands.at(-1).payload,{name:'Child folder',parentId:folderId});
+ assert.equal(f.commands.filter(command=>['copy','paste','pin','remove'].includes(command.action)).length,0);
+});
+
+test('folder menu Enter renames its folder and Escape cancels remaining folder actions',async()=>{
+ const f=fixture();await f.ready();const folderId='10000000-0000-4000-8000-000000000000';
+ f.api.emit({folders:[{id:folderId,name:'Chosen folder',parentId:null}]});
+ await f.api.command('library');await f.click('folder-menu',{folder:folderId});
+ await f.key('Enter');assert.match(f.overlay,/Rename folder/);
+ await f.input('simple-input','Renamed folder');await f.key('Enter');
+ assert.equal(f.commands.at(-1).action,'renameFolder');
+ assert.deepEqual(f.commands.at(-1).payload,{id:folderId,name:'Renamed folder'});
+ await f.click('folder-menu',{folder:folderId});await f.key('ArrowDown');
+ const commands=f.commands.length;await f.key('Escape');
+ assert.equal(f.overlay,'');assert.equal(f.commands.length,commands);
+});
+
+test('folder menu removal requires its confirmation and never removes an item instead',async()=>{
+ const f=fixture();await f.ready();const folderId='10000000-0000-4000-8000-000000000000';
+ f.api.emit({folders:[{id:folderId,name:'Chosen folder',parentId:null}]});
+ await f.api.command('library');await f.click('folder-menu',{folder:folderId});
+ await f.key('ArrowDown');await f.key('ArrowDown');
+ assert.match(f.overlay,/dialog-option selected[^>]*data-action="remove-folder"/);
+ await f.key('Enter');assert.match(f.overlay,/Item content remains in the library/);
+ assert.equal(f.commands.filter(command=>command.action==='removeFolder').length,0);
+ await f.key('Enter');assert.equal(f.commands.at(-1).action,'removeFolder');
+ assert.deepEqual(f.commands.at(-1).payload,{id:folderId});
+ assert.equal(f.commands.filter(command=>['copy','paste','pin','remove','trash'].includes(command.action)).length,0);
+});
