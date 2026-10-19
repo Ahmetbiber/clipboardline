@@ -1,6 +1,6 @@
 {
   "name": "clipboardline-desktop",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "Keyboard-first local clipboard shelves and saved library for Windows",
   "author": "ClipBoardLine contributors",
   "license": "MIT",
@@ -94,5 +94,5 @@
       "runAfterFinish": false
     }
   },
-  "clipboardLineBuild": 63
+  "clipboardLineBuild": 64
 }
