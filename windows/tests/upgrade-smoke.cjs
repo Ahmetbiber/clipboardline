@@ -13,10 +13,11 @@ const output=path.resolve(process.env.CLIPBOARDLINE_VALIDATION||'validation/upgr
 const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-upgrade-'));
 const installer=path.resolve('dist',`ClipBoardLine-Setup-${pkg.version}-x64.exe`),candidate=path.resolve('dist/win-unpacked/ClipBoardLine.exe');
 const installedDirectory=path.join(temporary,'installed'),installed=path.join(installedDirectory,'ClipBoardLine.exe');
-const previousURL='https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.0-build62/ClipBoardLine-Setup-1.7.0-x64.exe';
-const previousSHA='0f6f1aa59a406b5d7d2e2a64eb1dc1797fde4fc205e8781eb381645137923541';
+const previousVersion=pkg.version==='1.7.2'?'1.7.1':'1.7.0',previousBuild=pkg.version==='1.7.2'?63:62;
+const previousURL=`https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-${previousVersion}-build${previousBuild}/ClipBoardLine-Setup-${previousVersion}-x64.exe`;
+const previousSHA=previousBuild===63?'f8e45afd1ce3ae4d5bbe1c6f355697cbe9f258e5297685a49d94cd05644631b1':'0f6f1aa59a406b5d7d2e2a64eb1dc1797fde4fc205e8781eb381645137923541';
 const powershell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
-const report={sourceRevision:process.env.GITHUB_SHA,platform:process.platform,arch:process.arch,version:pkg.version,build:pkg.clipboardLineBuild||63,previousVersion:'1.7.0',previousBuild:62,scope:'real-old-install-and-data -> corrected-client isolated signed fixture -> actual candidate NSIS replacement and automatic reopen',oldClientCodeModified:false,publicFeedChanged:false,productionKeyChanged:false,checks:[],startedAt:new Date().toISOString()};
+const report={sourceRevision:process.env.GITHUB_SHA,platform:process.platform,arch:process.arch,version:pkg.version,build:pkg.clipboardLineBuild||63,previousVersion,previousBuild,scope:'real-old-install-and-data -> corrected-client isolated signed fixture -> actual candidate NSIS replacement and automatic reopen',oldClientCodeModified:false,publicFeedChanged:false,productionKeyChanged:false,checks:[],startedAt:new Date().toISOString()};
 let application,installerObserver,observerOutput;
 const check=(name,details={})=>{report.checks.push({name,passed:true,...details});console.log('PASS '+name);};
 const hash=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -38,11 +39,11 @@ async function runInstaller(file,args){await new Promise((resolve,reject)=>{cons
 async function main(){
   assert.ok(fs.existsSync(installer)&&fs.existsSync(candidate),'Build the candidate installer and unpacked application first.');
   const previousBytes=(await boundedFetch(previousURL,{maximum:200*1024*1024,timeout:120000})).bytes;assert.equal(crypto.createHash('sha256').update(previousBytes).digest('hex'),previousSHA);
-  const previous=path.join(temporary,'previous.exe');fs.writeFileSync(previous,previousBytes);check('previous public 1.7.0 installer matches its pinned release SHA256');
+  const previous=path.join(temporary,'previous.exe');fs.writeFileSync(previous,previousBytes);check('previous public '+previousVersion+' installer matches its pinned release SHA256');
   await runInstaller(previous,['/S','/D='+installedDirectory]);assert.ok(fs.existsSync(installed));
   application=await electron.launch({executablePath:installed,args:[],timeout:60000});let page=await application.firstWindow();await page.waitForFunction(()=>!!window.clipboardLine);
-  const before=await page.evaluate(()=>window.clipboardLine.state());assert.equal(before.version,'1.7.0');assert.equal(before.build,62);
-  const userdata=await application.evaluate(({app})=>app.getPath('userData'));check('actual previous installed 1.7.0 application launches with its existing per-user data location');
+  const before=await page.evaluate(()=>window.clipboardLine.state());assert.equal(before.version,previousVersion);assert.equal(before.build,previousBuild);
+  const userdata=await application.evaluate(({app})=>app.getPath('userData'));check('actual previous installed '+previousVersion+' application launches with its existing per-user data location');
   const nonce=crypto.randomUUID();const noteText='Upgrade preservation '+nonce;
   const noteState=await page.evaluate(text=>window.clipboardLine.command('newNote',{text,title:'Upgrade note'}),noteText),noteId=noteState.result.id;
   await page.evaluate(id=>window.clipboardLine.command('tag',{ids:[id],tags:['upgrade-proof']}),noteId);
@@ -66,14 +67,14 @@ async function main(){
   const fixture=path.join(temporary,'signed-fixture.json');fs.writeFileSync(fixture,JSON.stringify(envelope));
   application=await electron.launch({executablePath:candidate,args:['--test-mode','--test-data='+userdata],timeout:60000});page=await application.firstWindow();await page.waitForFunction(()=>!!window.clipboardLine);
   await until(()=>application.evaluate(()=>!!global.__clipboardLineTest),Boolean);
-  await application.evaluate(({app},{userdata,publicKey,fixture,installer})=>{
+  await application.evaluate(({app},{userdata,publicKey,fixture,installer,previousVersion,previousBuild})=>{
     const fs=process.getBuiltinModule('node:fs'),path=process.getBuiltinModule('node:path');
     const appRequire=process.getBuiltinModule('node:module').createRequire(path.join(app.getAppPath(),'package.json'));
     const {Updates,FEED}=appRequire('./lib/updates.cjs');
-    const h=global.__clipboardLineTest;h.setUpdates(new Updates(path.join(userdata,'ci-upgrade-cache'),{build:62,version:'1.7.0',publicKey,fetcher:async url=>({bytes:fs.readFileSync(url===FEED?fixture:installer)})}));
-  },{userdata,publicKey,fixture,installer});
+    const h=global.__clipboardLineTest;h.setUpdates(new Updates(path.join(userdata,'ci-upgrade-cache'),{build:previousBuild,version:previousVersion,publicKey,fetcher:async url=>({bytes:fs.readFileSync(url===FEED?fixture:installer)})}));
+  },{userdata,publicKey,fixture,installer,previousVersion,previousBuild});
   const offer=await page.evaluate(()=>window.clipboardLine.command('checkUpdates'));assert.equal(offer.update.availableBuild,manifest.build);assert.equal(offer.update.availableVersion,pkg.version);assert.equal(offer.update.canInstall,true);
-  report.fixture={actualClientVersion:pkg.version,actualClientBuild:pkg.clipboardLineBuild||63,simulatedInstalledVersion:'1.7.0',simulatedInstalledBuild:62,testKeyInjectedOnlyIntoIsolatedMain:true,installerSHA256:candidateSHA,installerBytes:candidateSize};
+  report.fixture={actualClientVersion:pkg.version,actualClientBuild:pkg.clipboardLineBuild||63,simulatedInstalledVersion:previousVersion,simulatedInstalledBuild:previousBuild,testKeyInjectedOnlyIntoIsolatedMain:true,installerSHA256:candidateSHA,installerBytes:candidateSize};
   check('corrected candidate client verifies a dedicated local signed fixture and offers the exact candidate installer');
   report.beforeInstallation=installDiagnostics();await startInstallerObserver(await application.evaluate(()=>process.pid),userdata);
   const closed=application.waitForEvent('close',{timeout:60000});
