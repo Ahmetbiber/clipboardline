@@ -14,7 +14,7 @@ const check=(name,details={})=>{report.checks.push({name,passed:true,...details}
 async function until(reader,predicate,timeout=15000){const end=Date.now()+timeout;let value;while(Date.now()<end){try{value=await reader();if(predicate(value))return value;}catch{}await new Promise(resolve=>setTimeout(resolve,100));}throw new Error('Timed out waiting for native test state: '+JSON.stringify(value));}
 async function main(){
   const args=['--test-mode','--test-data='+data];
-  application=await electron.launch({...(process.env.CLIPBOARDLINE_EXECUTABLE?{executablePath:path.resolve(process.env.CLIPBOARDLINE_EXECUTABLE)}:{args:[path.resolve('main.cjs'),...args]}),...(process.env.CLIPBOARDLINE_EXECUTABLE?{args}:{}),timeout:60000});
+  application=await electron.launch({...(process.env.CLIPBOARDLINE_EXECUTABLE?{executablePath:path.resolve(process.env.CLIPBOARDLINE_EXECUTABLE)}:{args:[path.resolve('.'),...args]}),...(process.env.CLIPBOARDLINE_EXECUTABLE?{args}:{}),timeout:60000});
   const page=await application.firstWindow();await page.waitForFunction(()=>!!window.clipboardLine);
   await until(()=>application.evaluate(()=>!!global.__clipboardLineTest),Boolean);
   const preferences=await page.evaluate(()=>window.clipboardLine.diagnostics());
@@ -85,7 +85,9 @@ async function main(){
   // The original and this PNG are different managed originals, so the FileDrop
   // batch contains two actual files, with the first raster as an app fallback.
   const batch=await page.evaluate(ids=>window.clipboardLine.command('copy',{ids,keepOpen:true}),[imageItem.id,secondImage]);assert.ok(!batch.result?.error,batch.result?.error);
-  await until(fixtureState,s=>s.dropCount===2);check('multi-image copy supplies native Windows FileDrop batch');
+  await until(fixtureState,s=>s.dropCount===2);
+  await application.evaluate(()=>global.__clipboardLineTest.readClipboard());assert.equal((await page.evaluate(()=>window.clipboardLine.state())).items.length,batch.items.length);
+  check('multi-image copy supplies native Windows FileDrop batch without recapture');
   const copied=await page.evaluate(id=>window.clipboardLine.command('copy',{ids:[id]}),textItem.id);assert.ok(!copied.result?.error);assert.equal(await application.evaluate(()=>global.__clipboardLineTest.getWindow().isVisible()),false);check('plain Enter copy dismisses shelves/preview host and restores previous application');
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const screenCapture=await page.evaluate(()=>window.clipboardLine.command('capture'));assert.ok(screenCapture.result?.id,screenCapture.result?.error);check('actual Windows desktop capture produces a managed image');
@@ -93,7 +95,7 @@ async function main(){
   const persisted=JSON.parse(fs.readFileSync(path.join(data,'library.json'),'utf8'));assert.ok(persisted.items.some(i=>i.id===textItem.id&&i.pinned&&i.tags.includes('work')));check('real persisted library retains named pinned organization');
   if(fixture){fixture.kill();fixture=null;}
   await application.close();application=null;
-  application=await electron.launch({...(process.env.CLIPBOARDLINE_EXECUTABLE?{executablePath:path.resolve(process.env.CLIPBOARDLINE_EXECUTABLE),args:[]}:{args:[path.resolve('main.cjs')]}),timeout:60000});
+  application=await electron.launch({...(process.env.CLIPBOARDLINE_EXECUTABLE?{executablePath:path.resolve(process.env.CLIPBOARDLINE_EXECUTABLE),args:[]}:{args:[path.resolve('.')]}),timeout:60000});
   const productionPage=await application.firstWindow();await productionPage.waitForFunction(()=>!!window.clipboardLine);
   const production=await until(()=>productionPage.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===true);
   assert.equal(production.settings.captureText,false);assert.equal(production.settings.captureImages,false);assert.equal(production.settings.captureLinks,false);assert.equal(production.settings.fetchLinkMetadata,false);

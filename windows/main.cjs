@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const {pathToFileURL} = require('node:url');
 const {spawn} = require('node:child_process');
 const {Store,plainURL,ids} = require('./lib/model.cjs');
+const {privateClipboard}=require('./lib/clipboard-policy.cjs');
 const native = require('./lib/native.cjs');
 const {metadataFetch,linkMetadata} = require('./lib/network.cjs');
 const {Updates} = require('./lib/updates.cjs');
@@ -23,7 +24,7 @@ const copyMarker = crypto.randomBytes(16);
 const pending = new Set();
 const ocrJobs=new Map(),ocrQueue=[];let indexing=false;
 
-function state(result) { return {...store.publicState(),version:app.getVersion(),build:62,platform:process.platform,development,view,windowVisible:window?.isVisible()||false,message,viewEvent,update:{...updates.state},...(result===undefined?{}:{result})}; }
+function state(result) { return {...store.publicState(),version:app.getVersion(),build:62,platform:process.platform,development,view,windowVisible:window?.isVisible()||false,message:message||store.privacyWarning||'',viewEvent,update:{...updates.state},...(result===undefined?{}:{result})}; }
 function broadcast() { if(window&&!window.isDestroyed())window.webContents.send('clipboardline:changed',state()); }
 function notify(text) { message=text;broadcast(); }
 function trusted(event) {
@@ -46,10 +47,6 @@ async function show(next='shelves',event=null) {
 async function hide(restore=true) {
   const target=previous;previous=null;window.hide();viewEvent=null;broadcast();
   if(restore&&target)await native.restore(target).catch(()=>{});
-}
-function privateClipboard(formats) {
-  if(formats.some(f=>/concealed|password|agilebits|ExcludeClipboardContentFromMonitorProcessing/i.test(f)))return true;
-  return false;
 }
 async function clipboardContent() {
   const entries=await clipboard.read(),formats=entries.flatMap(item=>item.types);if(privateClipboard(formats))return null;
@@ -154,7 +151,7 @@ function configureShortcuts() {
     if(!okay)message=`Shortcut ${shortcut} is unavailable. Choose another in Settings.`;
   }
 }
-const modelActions=new Set(['pin','name','folder','createFolder','renameFolder','removeFolder','tag','remove','undo','trash','restore','delete','editText','saveImage']);
+const modelActions=new Set(['pin','name','folder','createFolder','renameFolder','removeFolder','tag','remove','undo','trash','restore','delete','editText','saveImage','cleanup']);
 async function command(action,payload={}) {
   if(typeof action!=='string'||!payload||typeof payload!=='object'||Array.isArray(payload)||JSON.stringify(payload).length>92_000_000)throw new Error('Invalid command');
   message='';let result;

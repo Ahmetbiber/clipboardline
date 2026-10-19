@@ -36,9 +36,9 @@ Görseller, metinler ve linkler elinin altında. Son kopyalarını üç askıda 
 | **Kişiselleştirilebilir Mac arayüzü** | Küçük, orta ve büyük kartlar; yumuşak askı renkleri veya nötr cam; açılma davranışı, tam ekran uygulama üstünde görünme, ses ve girişte başlatma ayarları. Uygulama dilini macOS’tan bağımsız seç. Gezinme kısayollarının çoğu değiştirilebilir veya kapatılabilir. |
 | **Yerel ve imzalı güncellemeler** | Sparkle sürüm notlarını, indirmeyi ve kurulumu yönetir. Resmî herkese açık güncellemeler GitHub hesabı veya token istemez. Otomatik kontrol kapatılabilir; açıkken uygulama çalıştığı sürece saatte bir yapılır. İndirme ve kurulum senin işlemini gerektirir. |
 
-## Varsayılan klavye kısayolları
+## macOS varsayılan klavye kısayolları
 
-Bunlar varsayılanlardır. Ayarlar → Klavye kısayolları bölümünden gezinme tuşları ve genel kısayollar değiştirilebilir veya kapatılabilir. Tek harfli tuşlar yalnızca gezinirken uygulama komutu olur; metin alanlarında normal yazım korunur. ⌘ Command · ⌥ Option/Alt · ⌃ Control · ⇧ Shift.
+Bu tablo macOS varsayılanlarını gösterir. Windows değiştiricileri ve genel kısayolları aşağıdaki platform tablosunda, ek ayrıntılar [Windows rehberinde](windows/README.md) bulunur. Ayarlar → Klavye kısayolları bölümünden gezinme tuşları ve genel kısayollar değiştirilebilir veya kapatılabilir. Tek harfli tuşlar yalnızca gezinirken uygulama komutu olur; metin alanlarında normal yazım korunur. ⌘ Command · ⌥ Option/Alt · ⌃ Control · ⇧ Shift.
 
 ### Her uygulamadan erişim
 
@@ -56,7 +56,7 @@ Bunlar varsayılanlardır. Ayarlar → Klavye kısayolları bölümünden gezinm
 | `L` | Kütüphaneyi aç | Askılar odaktayken. |
 | `Tab / ⇧Tab` | Etkin askıyı değiştir | Askılarda; ikisi de etkin satırı döndürür. |
 | `← / →` | Önceki / sonraki öğe | Askılar, kütüphane ve önizlemeler. |
-| `↑ / ↓` | Satırlar veya sonuçlar arasında gezin | Askı aramasında önceki/sonraki görünür dolu satır. Askı önizlemesinde satır değiştirir. Kütüphanede ızgara satırı (listede öğe) değiştirir. Askıda arama dışında önceki/sonraki öğe. |
+| `↑ / ↓` | Satırlar veya sonuçlar arasında gezin | Askı aramasında önceki/sonraki görünür dolu satır. Askı önizlemesinde satır değiştirir. Kütüphanede ızgara satırı (listede öğe), kütüphane önizlemesinde önceki/sonraki sonuç. Askıda arama dışında önceki/sonraki öğe. |
 | `⌘← / ⌘→` | Askıdaki ilk / son öğe | Askılar ve askıdan açılan önizlemeler. |
 | `⌥← / ⌥→` | Önceki / sonraki askı sayfası | Numaralı görünür sayfalar arasında geçer; askı önizlemesinde de çalışır. |
 | `1–9` | Numaralı görünür kartı seç | Etkin askı; numaralar görünür alanı ve filtreleri izler. |
@@ -131,7 +131,7 @@ Bunlar varsayılanlardır. Ayarlar → Klavye kısayolları bölümünden gezinm
 
 ## Kaynak kodundan derleme ve test
 
-Herkese açık kaynak kopyası, resmî dağıtım/güncelleme deposundan ayrıdır. Aşağıdaki komutlar için macOS SDK’sı bulunan Xcode ve Python 3 gerekir. Model hazırlama, sabitlenmiş MobileCLIP-S2 dosyalarını indirip yerelde derler; uygulamadaki arama çevrimdışı çalışır. Paketleme için deponun geliştirme rehberini izle. Resmî imzalama anahtarları, kimlik bilgileri ve kullanıcı geçmişi kaynak kopyasında bulunmaz.
+Herkese açık kaynak kopyası, resmî dağıtım/güncelleme deposundan ayrıdır. Aşağıdaki komutlar için macOS SDK’sı bulunan Xcode ve Python 3 gerekir. İsteğe bağlı model hazırlama, sabitlenmiş MobileCLIP-S2 dosyalarını indirip yerelde derler; uygulamadaki arama çevrimdışı çalışır. Paketleme için deponun geliştirme rehberini izle. Resmî imzalama anahtarları, kimlik bilgileri ve kullanıcı geçmişi kaynak kopyasında bulunmaz.
 
 ```sh
 git clone https://github.com/orkunisitmak/clipboardline-desktop.git
@@ -169,7 +169,7 @@ Windows kaynak uygulaması dahildir; kaynak, paketlenmiş ve kurulmuş Windows u
 | Özellik | macOS | Windows |
 | --- | --- | --- |
 | İçerik askıları ve kütüphane | Yerel AppKit/SwiftUI; görsel/metin/link askıları, ızgara/liste, klasör, etiket ve sabitleme. | Electron uygulaması: üç askı, ızgara/liste, klasör, etiket, sabitleme, not ve ayrıntılar. |
-| Varsayılan genel kısayollar | ⌃⌥T askılar; ⌃⌥S arama. | Ctrl+Alt+Space askılar; Ctrl+Alt+S arama; Ctrl+Alt+A ekran yakalama. |
+| Varsayılan genel kısayollar | ⌃⌥T askılar; ⌃⌥S arama. | Ctrl+Alt+Space askılar; Ctrl+Alt+S arama; Ctrl+Alt+A ekran yakalama. Kütüphane ve son görseli kopyalama için ayrı genel kısayol şu anda yoktur. |
 | Yerel kısayol değiştiricileri | Uygulama komutlarında Command (⌘); adlandırma/sayfalarda Option (⌥). | Command yerine Control; Option yerine Alt. Yerel ve genel kısayollar değiştirilebilir. |
 | Pano toplama | Görsel/metin isteğe bağlı; tek URL toplama ayarlanabilir. | Görsel/metin/link toplama varsayılan kapalı. Her birini Kaynaklar’dan aç. Metin ve linkler sessiz eklenir. |
 | Arama ve OCR | Apple Vision OCR; isteğe bağlı özgün MobileCLIP-S2 görsel anlam araması. | Paketlenmiş İngilizce/Türkçe verili yerel Tesseract OCR. Metin/OCR sözcük araması; görsel anlam araması yoktur. |

@@ -36,9 +36,9 @@ Images, text and links, close at hand. Keep recent copies on three shelves, save
 | **A Mac interface you can tune** | Small, medium and large cards; soft shelf colors or neutral glass; configurable reveal behavior, full-screen-app visibility, sounds and login launch. Choose the app language independently of macOS. Most browsing shortcuts can be remapped or disabled. |
 | **Native signed updates** | Sparkle presents release notes, downloads and installation. Official public updates need no GitHub account or token. Automatic checks can be disabled; when enabled they run hourly while the app is running. Download and installation require your action. |
 
-## Default keyboard shortcuts
+## macOS default keyboard shortcuts
 
-These are defaults. Settings → Keyboard shortcuts can change or disable browsing bindings and global hotkeys. Single-letter keys belong to the app only while browsing; text fields keep normal typing. ⌘ Command · ⌥ Option/Alt · ⌃ Control · ⇧ Shift.
+This table lists macOS defaults. Windows modifiers and global keys are listed in the platform matrix below; see the [Windows guide](windows/README.md) for its own behavior. Settings → Keyboard shortcuts can change or disable browsing bindings and global hotkeys. Single-letter keys belong to the app only while browsing; text fields keep normal typing. ⌘ Command · ⌥ Option/Alt · ⌃ Control · ⇧ Shift.
 
 ### Global access
 
@@ -56,7 +56,7 @@ These are defaults. Settings → Keyboard shortcuts can change or disable browsi
 | `L` | Open Library | While shelves are focused. |
 | `Tab / ⇧Tab` | Switch active shelf | Shelves; both cycle the active row. |
 | `← / →` | Previous / next item | Shelves, Library and previews. |
-| `↑ / ↓` | Navigate rows or results | Shelf search: previous/next visible nonempty row. Shelf preview: switch row. Library: previous/next grid row (list: item). Outside shelf search: previous/next item. |
+| `↑ / ↓` | Navigate rows or results | Shelf search: previous/next visible nonempty row. Shelf preview: switch row. Library: previous/next grid row (list: item); Library preview: previous/next result. Outside shelf search: previous/next item. |
 | `⌘← / ⌘→` | First / last shelf item | Shelves and shelf-origin previews. |
 | `⌥← / ⌥→` | Previous / next shelf page | Moves between visible numbered pages; also in shelf previews. |
 | `1–9` | Select numbered visible card | Active shelf; numbers follow the viewport and filters. |
@@ -131,7 +131,7 @@ These are defaults. Settings → Keyboard shortcuts can change or disable browsi
 
 ## Build and test from source
 
-The public source snapshot is separate from the official binary/update repository. Xcode with a macOS SDK and Python 3 are needed for the commands below. Model preparation downloads pinned MobileCLIP-S2 assets and compiles them locally; runtime search works offline. Use the repository’s development guide for packaging. Official release signing keys, credentials and user history are not included.
+The public source snapshot is separate from the official binary/update repository. Xcode with a macOS SDK and Python 3 are needed for the commands below. Optional model preparation downloads pinned MobileCLIP-S2 assets and compiles them locally; runtime search works offline. Use the repository’s development guide for packaging. Official release signing keys, credentials and user history are not included.
 
 ```sh
 git clone https://github.com/orkunisitmak/clipboardline-desktop.git
@@ -169,7 +169,7 @@ The Windows source implementation is included; native acceptance is tracked sepa
 | Capability | macOS | Windows |
 | --- | --- | --- |
 | Content shelves and Library | Native AppKit/SwiftUI; image/text/link shelves, grid/list, folders, tags and pins. | Electron implementation: three shelves, grid/list, folders, tags, pins, notes and inspector. |
-| Default global shortcuts | ⌃⌥T shelves; ⌃⌥S search. | Ctrl+Alt+Space shelves; Ctrl+Alt+S search; Ctrl+Alt+A screen capture. |
+| Default global shortcuts | ⌃⌥T shelves; ⌃⌥S search. | Ctrl+Alt+Space shelves; Ctrl+Alt+S search; Ctrl+Alt+A screen capture. Separate global Library/copy-latest shortcuts are not currently implemented. |
 | Local shortcut modifiers | Command (⌘) for app commands; Option (⌥) for naming/pages. | Control replaces Command; Alt replaces Option. Local and global bindings are configurable. |
 | Clipboard collection | Image/text opt-in; standalone link capture configurable. | Image/text/link collection all default off. Enable each explicitly in Sources. Text and link capture stays silent. |
 | Search and OCR | Apple Vision OCR; optional original MobileCLIP-S2 semantic image search. | Local Tesseract OCR with packaged English/Turkish data. Literal text/OCR search; no semantic image search. |

@@ -16,6 +16,7 @@ const DEFAULTS = Object.freeze({
 });
 const clone = value => structuredClone(value);
 const fail = message => { throw new Error(message); };
+function incompleteDeletion(message){const error=new Error('Permanent deletion is incomplete. '+message+' Retry cleanup in Settings.');error.committed=true;return error;}
 function text(value, maximum = 1024 * 1024, empty = false) {
   if (typeof value !== 'string' || value.length > maximum || (!empty && !value.length) || value.includes('\0')) fail('Invalid text');
   return value;
@@ -77,24 +78,30 @@ class Store {
       catch(error){const detail=String(error.stderr||error.message||'').replaceAll(this.directory,'[application data]').replace(/[\r\n]+/g,' ').slice(0,900);fail('The private application data permissions could not be secured. Existing files were preserved. '+detail);}
     }
     this.mediaDirectory = path.join(this.directory, 'media'); fs.mkdirSync(this.mediaDirectory, {recursive: true, mode: 0o700});
+    if(fs.lstatSync(this.mediaDirectory).isSymbolicLink())fail('Managed media must not be a symlink.');
     this.file = path.join(this.directory, 'library.json');
     this.data = {schema: 1, items: [], folders: [], settings: clone(DEFAULTS)};
     if (fs.existsSync(this.file)) {
+      if(fs.lstatSync(this.file).isSymbolicLink())fail('Library must not be a symlink.');
       if (fs.statSync(this.file).size > 64 * 1024 * 1024) fail('Library exceeds safe load size');
       let parsed;
       try { parsed = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { fail('Library is unreadable. Original data was preserved; recover library.json.backup.'); }
       if (parsed.schema !== 1 || !Array.isArray(parsed.items) || parsed.items.length > 20000 || !Array.isArray(parsed.folders)) fail('Unsupported library format');
       this.data = {...parsed, settings: settings(parsed.settings)};
       for (const item of this.data.items) this.validateStored(item);
+      if(this.data.pendingDeletionFiles&&(!Array.isArray(this.data.pendingDeletionFiles)||this.data.pendingDeletionFiles.length>200000||this.data.pendingDeletionFiles.some(name=>typeof name!=='string'||!/^[a-f0-9]{64}\.png$/.test(name))))fail('Invalid pending deletion state.');
     }
+    this.privacyWarning='';
+    if(this.data.pendingBackupRefresh||this.data.pendingDeletionFiles?.length)try{this.finishPermanentDeletion();}catch(error){this.privacyWarning=error.message;}
     this.expire();
   }
   validateStored(item) {
     ids([item.id]); if (!KINDS.includes(item.kind) || !Array.isArray(item.folderIds) || !Array.isArray(item.tags)) fail('Invalid library record');
     if (item.text != null) text(item.text, 1024 * 1024, true);
-    for (const key of ['imageFile', 'renderedFile']) if (item[key] && !/^[a-f0-9]{64}\.png$/.test(item[key])) fail('Unsafe managed media path');
+    for (const key of ['imageFile', 'renderedFile','thumbnailFile']) if (item[key] && !/^[a-f0-9]{64}\.png$/.test(item[key])) fail('Unsafe managed media path');
   }
   persist() {
+    for(const destination of [this.file,this.file+'.backup'])if(fs.existsSync(destination)&&fs.lstatSync(destination).isSymbolicLink())fail('Library files must not be symlinks.');
     const temporary = this.file + '.tmp-' + crypto.randomUUID();
     let descriptor;
     try {
@@ -102,6 +109,35 @@ class Store {
       if (fs.existsSync(this.file)) fs.copyFileSync(this.file, this.file + '.backup');
       fs.renameSync(temporary, this.file);
     } finally { if (descriptor != null) fs.closeSync(descriptor); if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
+  }
+  mediaReferences(){return new Set(this.data.items.flatMap(item=>[item.imageFile,item.renderedFile,item.thumbnailFile]).filter(Boolean));}
+  preparePermanentDeletion(){
+    if(fs.lstatSync(this.mediaDirectory).isSymbolicLink())fail('Managed media must not be a symlink.');
+    const referenced=this.mediaReferences(),files=fs.readdirSync(this.mediaDirectory).filter(name=>/^[a-f0-9]{64}\.png$/.test(name)&&!referenced.has(name));
+    this.data.pendingDeletionFiles=[...new Set([...(this.data.pendingDeletionFiles||[]),...files])];
+    this.data.pendingBackupRefresh=true;
+  }
+  refreshPrivateBackup(){
+    const destination=this.file+'.backup',temporary=destination+'.tmp-'+crypto.randomUUID();let descriptor;
+    if(fs.existsSync(destination)&&fs.lstatSync(destination).isSymbolicLink())fail('Library backup must not be a symlink.');
+    try{descriptor=fs.openSync(temporary,'wx',0o600);fs.writeFileSync(descriptor,JSON.stringify(this.data));fs.fsyncSync(descriptor);fs.closeSync(descriptor);descriptor=null;fs.renameSync(temporary,destination);}
+    finally{if(descriptor!=null)fs.closeSync(descriptor);if(fs.existsSync(temporary))fs.unlinkSync(temporary);}
+  }
+  finishPermanentDeletion(){
+    const pending=[...(this.data.pendingDeletionFiles||[])];
+    if(!pending.length&&!this.data.pendingBackupRefresh)return;
+    try{
+      // This method runs only after the deletion request itself was persisted.
+      // Replace the rollback JSON before touching any image, so deleted text and
+      // records cannot survive in that older snapshot or be resurrected from it.
+      this.refreshPrivateBackup();
+      if(fs.lstatSync(this.mediaDirectory).isSymbolicLink())throw new Error('Managed media directory changed.');
+      const referenced=this.mediaReferences();
+      for(const name of pending){if(!/^[a-f0-9]{64}\.png$/.test(name))throw new Error('Invalid managed filename.');if(referenced.has(name))continue;try{fs.unlinkSync(path.join(this.mediaDirectory,name));}catch(error){if(error.code!=='ENOENT')throw error;}}
+      this.data.pendingDeletionFiles=[];this.data.pendingBackupRefresh=false;
+      try{this.persist();}catch(error){this.data.pendingDeletionFiles=pending;this.data.pendingBackupRefresh=true;throw error;}
+      this.privacyWarning='';
+    }catch(error){const problem=incompleteDeletion('The local backup or unused managed images could not be removed.');this.privacyWarning=problem.message;throw problem;}
   }
   selected(value) { const selected = ids(value); const result = selected.map(id => this.data.items.find(i => i.id === id)); if (result.some(i => !i)) fail('An item no longer exists'); return result; }
   item(id) { return this.selected([id])[0]; }
@@ -154,10 +190,11 @@ class Store {
   }
   modify(action, payload = {}) {
     const before=clone(this.data), undo=clone(this.undoStack);
-    try{return this.modifyTransaction(action,payload);}catch(error){this.data=before;this.undoStack=undo;throw error;}
+    try{return this.modifyTransaction(action,payload);}catch(error){if(!error.committed){this.data=before;this.undoStack=undo;}throw error;}
   }
   modifyTransaction(action, payload = {}) {
     const now = this.clock();
+    if(action==='cleanup'){this.finishPermanentDeletion();return;}
     if (action === 'setSettings') { this.data.settings = settings(payload.patch, this.data.settings); this.expire(false); this.persist(); return; }
     if (action === 'createFolder') {
       const name = text(payload.name, 120).trim(); if (!name) fail('Folder name is empty');
@@ -208,14 +245,17 @@ class Store {
     }
     if (action === 'delete') this.data.items = this.data.items.filter(i => !items.includes(i));
     if (['delete', 'trash', 'restore'].includes(action)) this.undoStack = this.undoStack.filter(batch => !batch.some(old => items.some(i => i.id === old.id)));
+    if(action==='delete')this.preparePermanentDeletion();
     this.persist();
+    if(action==='delete')this.finishPermanentDeletion();
   }
   publicState() {
     return {
       items: this.data.items.map(({imageFile, renderedFile, thumbnailFile, ...item}) => ({...clone(item),
         ...(thumbnailFile ? {thumbnailUrl: `appmedia://media/${item.id}/thumbnail`} : {}),
         ...(item.kind === 'image' ? {mediaUrl: `appmedia://media/${item.id}`, originalMediaUrl: `appmedia://media/${item.id}/original`} : {})})),
-      folders: clone(this.data.folders), settings: clone(this.data.settings), canUndo: this.undoStack.length > 0
+      folders: clone(this.data.folders), settings: clone(this.data.settings), canUndo: this.undoStack.length > 0,
+      needsDeletionCleanup:!!(this.data.pendingBackupRefresh||this.data.pendingDeletionFiles?.length)
     };
   }
 }
