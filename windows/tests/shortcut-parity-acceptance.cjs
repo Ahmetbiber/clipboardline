@@ -12,10 +12,11 @@ module.exports=async function shortcutParity({page,application,check,until}){
   const first=h.store.insert('text','Shortcut parity first text'),second=h.store.insert('text','Shortcut parity second text');first.createdAt=now+2;second.createdAt=now+1;first.pinned=second.pinned=true;
   h.store.persist();return{image:image.id,first:first.id,second:second.id,ids:[image.id,first.id,second.id]};
  });
- const set=patch=>page.evaluate(patch=>window.clipboardLine.command('setSettings',{patch}),patch);
+ const set=async patch=>{const result=await page.evaluate(patch=>window.clipboardLine.command('setSettings',{patch}),patch);assert.ok(!result.result?.error,result.result?.error);return result;};
  const show=async()=>{await page.evaluate(()=>window.clipboardLine.command('hide'));await page.evaluate(()=>window.clipboardLine.command('show'));await page.locator('.shelves').waitFor({state:'visible'});};
  const focus=()=>page.locator('.card.focused').first().getAttribute('data-item-id');
- const expectFocus=id=>until(focus,value=>value===id);
+ const navigationSnapshot=()=>page.evaluate(async()=>{const state=await window.clipboardLine.state();const rows=Object.fromEntries(['image','text','link'].map(kind=>{const pinned=document.querySelector('[data-action="pinned-kind"][data-kind="'+kind+'"]')?.getAttribute('aria-pressed')==='true';return[kind,state.items.filter(value=>value.kind===kind&&!value.trashedAt&&!value.hiddenFromShelf&&(!pinned||value.pinned)).sort((a,b)=>b.createdAt-a.createdAt).map(value=>value.id)];}));return{rows,focus:document.querySelector('.card.focused')?.dataset.itemId,active:document.querySelector('.active-shelf')?.dataset.shelf,preview:document.querySelector('#preview-dialog')?.getAttribute('aria-label'),windowVisible:state.windowVisible,editor:{id:document.activeElement?.id,tag:document.activeElement?.tagName}};});
+ const expectFocus=async id=>{try{return await until(focus,value=>value===id);}catch(error){throw new Error(error.message+'; expected navigation '+JSON.stringify({expected:id,...await navigationSnapshot()}));}};
  const palette=async query=>{await page.keyboard.press('Control+k');await page.locator('#modal-query').fill(query);};
  try{
   await set({visibleKinds:['image','text','link'],localShortcuts:Object.fromEntries(Object.keys(original.settings.localShortcuts||{}).map(action=>[action,null]))});await show();
@@ -36,7 +37,10 @@ module.exports=async function shortcutParity({page,application,check,until}){
   await palette('Preview');await page.keyboard.press('Enter');await until(()=>page.locator('#preview-dialog').getAttribute('aria-label'),name=>name==='Shortcut parity second text');
   await page.keyboard.press('e');await page.locator('#text-editor').fill('Shortcut parity edited text');await page.keyboard.press('Control+Enter');await page.locator('#text-editor').waitFor({state:'hidden'});
   assert.equal((await page.evaluate(()=>window.clipboardLine.state())).windowVisible,true);assert.equal((await page.evaluate(()=>window.clipboardLine.state())).items.find(value=>value.id===fixtures.second).text,'Shortcut parity edited text');
-  await page.keyboard.press('ArrowUp');await expectFocus(fixtures.image);await page.keyboard.press('m');await page.locator('#markup-canvas').waitFor({state:'visible'});await page.keyboard.press('Control+Enter');await page.locator('#markup-canvas').waitFor({state:'hidden'});assert.equal(await page.locator('#preview-dialog').isVisible(),true);
+  const beforeUp=await navigationSnapshot(),column=beforeUp.rows.text.indexOf(fixtures.second);assert.equal(column,1,JSON.stringify(beforeUp));const expectedImage=beforeUp.rows.image[Math.min(column,beforeUp.rows.image.length-1)];assert.ok(expectedImage,JSON.stringify(beforeUp));await page.keyboard.press('ArrowUp');await expectFocus(expectedImage);assert.equal((await navigationSnapshot()).active,'image');
+  // Up preserves the column; explicitly move to column zero to exercise the
+  // deliberately tiny first image's markup workspace as well.
+  await page.keyboard.press('Control+ArrowLeft');await expectFocus(fixtures.image);await page.keyboard.press('m');await page.locator('#markup-canvas').waitFor({state:'visible'});await page.keyboard.press('Control+Enter');await page.locator('#markup-canvas').waitFor({state:'hidden'});assert.equal(await page.locator('#preview-dialog').isVisible(),true);
   check('action-bar Preview uses the focused batch member and CtrlEnter finishes text/image editing while preserving preview');
 
   await palette('Marker');await page.keyboard.press('Enter');await page.locator('#markup-canvas').waitFor({state:'visible'});assert.equal(await page.locator('[data-tool="marker"]').getAttribute('aria-pressed'),'true');await page.keyboard.press('Control+Enter');
@@ -54,7 +58,7 @@ module.exports=async function shortcutParity({page,application,check,until}){
  }finally{
   await page.keyboard.press('Escape').catch(()=>{});
   const current=await page.evaluate(()=>window.clipboardLine.state());
-  await set({...original.settings,localShortcuts:{...Object.fromEntries(Object.keys(current.settings.localShortcuts||{}).map(action=>[action,null])),...original.settings.localShortcuts}});
+  const {watchFolders,...restorable}=original.settings;await set({...restorable,localShortcuts:{...Object.fromEntries(Object.keys(current.settings.localShortcuts||{}).map(action=>[action,null])),...original.settings.localShortcuts}});
   await page.evaluate(ids=>window.clipboardLine.command('trash',{ids}),fixtures.ids);await page.evaluate(ids=>window.clipboardLine.command('delete',{ids}),fixtures.ids);await show();
  }
 };
