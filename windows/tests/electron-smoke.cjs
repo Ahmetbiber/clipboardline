@@ -185,7 +185,11 @@ async function main(){
       // ClipboardLine may show its error UI, but it must never activate the
       // obsolete first Form or mutate either destination along the way.
       const sourceHandle=await application.evaluate(()=>global.__clipboardLineTest.getWindow().getNativeWindowHandle().readBigUInt64LE().toString());
-      const after=await until(fixtureState,value=>value.foreground===sourceHandle);
+      // Windows may keep the user's second Form in front when it refuses the
+      // source error window's activation. Either is safe; the obsolete first
+      // Form must never activate. Wait for a fresh fixture tick before checking.
+      const observedAt=fs.statSync(fixtureOutput).mtimeMs;
+      const after=await until(()=>fs.statSync(fixtureOutput).mtimeMs>observedAt?fixtureState():null,value=>value&&(value.foreground===sourceHandle||value.foreground===second.secondHandle));
       assert.equal(after.primaryActivations,second.primaryActivations);assert.equal(after.text,second.text);assert.equal(after.plainText,second.plainText);assert.equal(after.secondText,second.secondText);
       check('same-process different-window preparation rejects without activating the captured HWND or changing clipboard and editors');
     }finally{
