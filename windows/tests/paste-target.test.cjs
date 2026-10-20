@@ -65,3 +65,23 @@ test('native startup stderr is bounded and visible only in an explicitly isolate
     await assert.rejects(sandbox.module.exports.capture(),error=>{assert.equal(error.message.includes('Synthetic compiler diagnostic'),exposed);assert.ok(error.message.length<2600);return true;});
   }
 });
+
+test('native capture diagnostics retain bounded readiness metadata after rejection without exposing provider payloads or changing target schema',async()=>{
+  const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+  const file=path.resolve(__dirname,'../lib/native.cjs'),requireFrom=require('node:module').createRequire(file);
+  const failed={reason:'sample-limit',samples:80,loadingSamples:79,missingSamples:1,elapsedMs:2430};
+  const succeeded={reason:'stable-editor',samples:4,loadingSamples:1,missingSamples:1,elapsedMs:95};
+  const replies=[{ok:false,error:'Synthetic capture rejected',captureTrace:{...failed,value:'never retained',name:'never retained'}},
+    {ok:true,chain:[]},{...field(),captureTrace:succeeded},{ok:true,chain:[]},
+    {...field(),captureTrace:{...failed,samples:81,value:'never retained'}},{ok:true,chain:[]}];
+  const sandbox={module:{exports:{}},__dirname:path.dirname(file),process:{platform:'win32',env:{},pid:100,argv:[]},Buffer,
+    require:name=>name==='node:child_process'?{execFile(_file,_args,_options,done){const reply=replies.shift();queueMicrotask(()=>done(reply.ok===false?new Error('rejected'):null,JSON.stringify(reply),''));return{stdin:{end(){}}};}}:requireFrom(name)};
+  vm.runInNewContext(fs.readFileSync(file,'utf8'),sandbox,{filename:file});const native=sandbox.module.exports;
+  await assert.rejects(native.capture(),/Synthetic capture rejected/);
+  const diagnostic=JSON.parse(JSON.stringify(await native.captureDiagnostics()));assert.deepEqual(diagnostic.captureTrace,failed);assert.ok(!JSON.stringify(diagnostic).includes('never retained'));
+  assert.deepEqual(JSON.parse(JSON.stringify(await native.capture())),field());
+  assert.deepEqual(JSON.parse(JSON.stringify(await native.captureDiagnostics())).captureTrace,succeeded);
+  assert.deepEqual(JSON.parse(JSON.stringify(await native.capture())),field());
+  assert.equal((await native.captureDiagnostics()).captureTrace,undefined,'Invalid metadata must not retain an earlier capture trace');
+  assert.equal(replies.length,0);
+});

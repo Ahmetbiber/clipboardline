@@ -57,32 +57,56 @@ public static class ClipBoardLineNative {
     // Chromium's loading root is a BUSY, READONLY DOCUMENT. It is never an
     // editor; wait only for its explicit focus relation to become available.
     // https://source.chromium.org/chromium/chromium/src/+/main:content/browser/accessibility/accessibility_win_browsertest.cc
-    return role==15&&(state&0x840)==0x840&&(state&0x20000001)==0&&(states&12)==0;
+    return role==15&&(state&0x844)==0x844&&(state&0x20000001)==0&&(states&12)==0;
+  }
+  private static string lastCaptureTrace="{}";
+  public static string CaptureTrace() {return lastCaptureTrace;}
+  private static FocusSample CaptureResult(FocusSample result,string reason,int samples,int loading,int missing,long elapsed) {
+    // Bounded capability metadata only, preserved even when capture rejects.
+    lastCaptureTrace="{\"reason\":\""+reason+"\",\"samples\":"+samples+",\"loadingSamples\":"+loading+",\"missingSamples\":"+missing+",\"elapsedMs\":"+elapsed+"}";
+    return result;
+  }
+  private static FocusSample LegacyFocus(IntPtr window,uint owner,string runtime,bool editable,bool secure,bool loading,bool identityValid) {
+    if(!identityValid) {
+      // A loading document can temporarily vend an obsolete renderer HWND.
+      // Keep only a retry signal. Never expose its unverified field identity,
+      // and never turn a mismatched editable/readonly/password leaf into one.
+      return loading&&!editable&&!secure?Snapshot(window,owner,"",false,false,true):null;
+    }
+    return Snapshot(window,owner,runtime,editable,secure,loading);
   }
   private static FocusSample CaptureReady(Func<FocusSample> read,Func<bool> sameWindow,Func<long> elapsed,Action pause) {
-    bool waiting=false;string firstEditor=null;int stable=0;
+    bool waiting=false;string firstEditor=null;int stable=0,samples=0,loading=0,missing=0;
     for(int sample=0;sample<80;sample++) {
-      if(elapsed()>=2500||!sameWindow())return null;
-      var actual=read();
-      if(elapsed()>=2500||!sameWindow()||actual==null)return null;
-      if(actual.Loading) {waiting=true;stable=0;}
-      else if(!waiting)return actual; // Existing warm/native capture fast path.
+      if(elapsed()>=2500)return CaptureResult(null,"deadline",samples,loading,missing,elapsed());
+      if(!sameWindow())return CaptureResult(null,"host-changed",samples,loading,missing,elapsed());
+      var actual=read();samples++;
+      if(elapsed()>=2500)return CaptureResult(null,"query-deadline",samples,loading,missing,elapsed());
+      if(!sameWindow())return CaptureResult(null,"host-changed-during-query",samples,loading,missing,elapsed());
+      if(actual==null) {
+        missing++;stable=0;
+        if(!waiting)return CaptureResult(null,"missing-before-loading",samples,loading,missing,elapsed());
+        // A provider may briefly disappear while replacing its loading tree.
+        // No identity is inferred; resolve the same current host afresh.
+      }
+      else if(actual.Loading) {waiting=true;stable=0;loading++;}
+      else if(!waiting)return CaptureResult(actual,"warm",samples,loading,missing,elapsed());
       else {
-        if(!actual.Editable||actual.Secure)return actual;
+        if(!actual.Editable||actual.Secure)return CaptureResult(actual,actual.Secure?"secure":"noneditable",samples,loading,missing,elapsed());
         if(firstEditor==null)firstEditor=actual.Runtime;
-        else if(firstEditor!=actual.Runtime)return null;
-        if(++stable>=2)return actual;
+        else if(firstEditor!=actual.Runtime)return CaptureResult(null,"editor-changed",samples,loading,missing,elapsed());
+        if(++stable>=2)return CaptureResult(actual,"stable-editor",samples,loading,missing,elapsed());
       }
       pause();
     }
-    return null;
+    return CaptureResult(null,"sample-limit",samples,loading,missing,elapsed());
   }
   public static string CaptureFocus() {
     var window=GetForegroundWindow();uint owner;GetWindowThreadProcessId(window,out owner);
     if(window==IntPtr.Zero||owner==0)return null;
     var clock=System.Diagnostics.Stopwatch.StartNew();
     Func<bool> same=delegate {uint currentOwner;var current=GetForegroundWindow();GetWindowThreadProcessId(current,out currentOwner);return current==window&&currentOwner==owner&&IsWindow(window);};
-    var result=CaptureReady(delegate {var value=DescribeFocus(AutomationElement.FocusedElement,false);return value!=null&&value.Window==window&&value.Owner==owner?value:null;},same,delegate{return clock.ElapsedMilliseconds;},delegate{System.Threading.Thread.Sleep(30);});
+    var result=CaptureReady(delegate {try{var value=DescribeFocus(AutomationElement.FocusedElement,false);return value!=null&&value.Window==window&&value.Owner==owner?value:null;}catch(Exception){return null;}},same,delegate{return clock.ElapsedMilliseconds;},delegate{System.Threading.Thread.Sleep(30);});
     return result==null?null:result.Json;
   }
   private static bool MayResolveLegacy(bool editable,bool enabled,bool secure,bool readOnly) {return !editable&&enabled&&!secure&&!readOnly;}
@@ -90,6 +114,7 @@ public static class ClipBoardLineNative {
   private static int CapturePolicyChecks() {
     int checks=0;Action<bool,string> check=delegate(bool ok,string label){if(!ok)throw new InvalidOperationException("Capture readiness regression: "+label);checks++;};
     check(LoadingDocument(15,0x844,0x400),"busy Chromium document");
+    check(!LoadingDocument(15,0x840,0x400),"unfocused busy document");
     check(!LoadingDocument(42,0x844,0x400),"readonly text is not a loading document");
     check(!LoadingDocument(15,0x44,0x400),"ordinary readonly document");
     check(!LoadingDocument(15,0x844|1,0x400),"disabled document");
@@ -101,9 +126,16 @@ public static class ClipBoardLineNative {
     var second=Snapshot(new IntPtr(1),2,"editor-b",true,false);
     var readOnly=Snapshot(new IntPtr(1),2,"readonly",false,false);
     var secure=Snapshot(new IntPtr(1),2,"password",false,true);
+    var unverifiedLoading=LegacyFocus(new IntPtr(1),2,"unverified",false,false,true,false);
+    check(unverifiedLoading!=null&&unverifiedLoading.Loading&&!unverifiedLoading.Editable&&!unverifiedLoading.Secure&&unverifiedLoading.Runtime=="","mismatched loading identity is retry metadata only");
+    check(LegacyFocus(new IntPtr(1),2,"wrong-editor",true,false,false,false)==null,"mismatched positive identity is rejected");
+    check(LegacyFocus(new IntPtr(1),2,"wrong-readonly",false,false,false,false)==null,"mismatched readonly identity is rejected");
+    check(LegacyFocus(new IntPtr(1),2,"wrong-password",false,true,true,false)==null,"mismatched secure identity is never loading metadata");
     long elapsed=0;int reads=0;
     Func<FocusSample[],FocusSample> sequence=delegate(FocusSample[] values){elapsed=0;reads=0;return CaptureReady(delegate{return values[Math.Min(reads++,values.Length-1)];},delegate{return true;},delegate{return elapsed;},delegate{elapsed+=30;});};
     check(sequence(new[]{busy,busy,first,first})==first&&reads==4,"busy tree resolves to stable editor");
+    check(sequence(new[]{unverifiedLoading,first,first})==first&&reads==3,"unverified loading must resolve to two verified editor samples");
+    check(sequence(new FocusSample[]{null})==null&&reads==1,"initial unknown capture is rejected immediately");
     check(sequence(new[]{first})==first&&reads==1,"warm capture stays immediate");
     check(sequence(new[]{readOnly})==readOnly&&reads==1,"readonly leaf stays immediate");
     check(sequence(new[]{secure})==secure&&reads==1,"password leaf stays immediate");
@@ -112,11 +144,15 @@ public static class ClipBoardLineNative {
     check(sequence(new[]{busy,first,second})==null&&reads==3,"first positive field stays latched");
     check(sequence(new[]{busy,first,busy,first,first})==first,"intervening loading retains first identity");
     check(sequence(new[]{busy})==null&&reads==80,"sample cap rejects permanent loading");
-    check(sequence(new FocusSample[]{busy,null})==null&&reads==2,"missing provider is not eligible");
+    check(sequence(new FocusSample[]{busy,null,first,first})==first&&reads==4,"transient missing provider after loading retries the same field");
+    check(sequence(new FocusSample[]{busy,first,null,second,second})==null&&reads==4,"missing provider never forgets first positive identity");
+    check(sequence(new FocusSample[]{busy,null})==null&&reads==80,"permanent missing provider remains bounded and ineligible");
     elapsed=0;reads=0;
     check(CaptureReady(delegate{reads++;elapsed+=2600;return first;},delegate{return true;},delegate{return elapsed;},delegate{})==null&&reads==1,"query time counts toward deadline");
     elapsed=0;reads=0;
     check(CaptureReady(delegate{reads++;return busy;},delegate{return reads==0;},delegate{return elapsed;},delegate{elapsed+=30;})==null&&reads==1,"foreground change during query cancels");
+    elapsed=0;reads=0;
+    check(CaptureReady(delegate{reads++;return reads==1?busy:null;},delegate{return reads<2;},delegate{return elapsed;},delegate{elapsed+=30;})==null&&reads==2,"host change during missing-provider retry cancels");
     reads=0;
     check(CaptureReady(delegate{reads++;return first;},delegate{return false;},delegate{return 0;},delegate{})==null&&reads==0,"changed window never queried");
     return checks;
@@ -168,12 +204,13 @@ public static class ClipBoardLineNative {
         int states,unique;IntPtr handle;
         if(IA2Number(ia2,35,out states)!=0||IA2Number(ia2,41,out unique)!=0||IA2Handle(ia2,out handle)!=0||unique==0){diagnostic="{\"stage\":\"ia2-identity-unavailable\"}";return null;}
         uint handleOwner;GetWindowThreadProcessId(handle,out handleOwner);
-        if(handle==IntPtr.Zero||GetAncestor(handle,2)!=window||handleOwner!=owner||GetForegroundWindow()!=window){diagnostic="{\"stage\":\"ia2-owner-mismatch\"}";return null;}
+        bool identityValid=handle!=IntPtr.Zero&&GetAncestor(handle,2)==window&&handleOwner==owner;
+        if(GetForegroundWindow()!=window){diagnostic="{\"stage\":\"foreground-changed\"}";return null;}
         bool secure=(state&0x20000000)!=0;
         // IA2_EDITABLE may coexist with MSAA_READONLY; explicit denial wins.
         bool editable=IA2Editable(state,states);
-        diagnostic="{\"stage\":\"ia2-focus\",\"depth\":"+depth+",\"role\":"+role+",\"state\":"+state+",\"ia2States\":"+states+",\"uniqueId\":"+unique+",\"nativeFocusWindow\":\""+focusedWindow.ToInt64()+"\",\"window\":\""+handle.ToInt64()+"\"}";
-        return Snapshot(window,owner,"99."+window.ToInt64()+"."+unique,editable,secure,LoadingDocument(role,state,states));
+        diagnostic="{\"stage\":\""+(identityValid?"ia2-focus":"ia2-owner-mismatch")+"\",\"depth\":"+depth+",\"role\":"+role+",\"state\":"+state+",\"ia2States\":"+states+",\"uniqueId\":"+unique+",\"nativeFocusWindow\":\""+focusedWindow.ToInt64()+"\",\"window\":\""+handle.ToInt64()+"\"}";
+        return LegacyFocus(window,owner,"99."+window.ToInt64()+"."+unique,editable,secure,LoadingDocument(role,state,states),identityValid);
       } finally {Marshal.Release(ia2);}
     }catch(Exception){diagnostic="{\"stage\":\"provider-unavailable\"}";return null;}
   }
@@ -307,7 +344,9 @@ try {
   } elseif ($Mode -eq 'CaptureDiagnostics') {
     [ClipBoardLineNative]::FocusDiagnostics()
   } elseif ($Mode -eq 'Capture') {
-    FocusInfo -WaitForLoading $true | ConvertTo-Json -Compress
+    $captureInfo=FocusInfo -WaitForLoading $true
+    $captureInfo | Add-Member -NotePropertyName captureTrace -NotePropertyValue ([ClipBoardLineNative]::CaptureTrace() | ConvertFrom-Json)
+    $captureInfo | ConvertTo-Json -Compress
   } else {
     $phase=@{started=[DateTime]::UtcNow.ToString('o')}
     $expected = [Console]::In.ReadToEnd() | ConvertFrom-Json
@@ -390,4 +429,8 @@ try {
     }
     @{ok=$true;mode=$Mode;phase=$phase} | ConvertTo-Json -Compress
   }
-} catch { @{ok=$false;error=$_.Exception.Message} | ConvertTo-Json -Compress; exit 1 }
+} catch {
+  $captureFailure=@{ok=$false;error=$_.Exception.Message}
+  if($Mode -eq 'Capture'){$captureFailure.captureTrace=[ClipBoardLineNative]::CaptureTrace() | ConvertFrom-Json}
+  $captureFailure | ConvertTo-Json -Compress; exit 1
+}
