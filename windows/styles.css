@@ -191,6 +191,8 @@ svg.rope path, svg.line path { fill: none; stroke: #a3a3a9; stroke-width: 1.1; v
 .inspector h2 { margin: 4px 0 12px; font-size: 16px; line-height: 1.35; font-weight: 600; overflow-wrap: anywhere; }
 .inspector label { display: block; margin: 18px 0 7px; color: var(--muted); font-size: 11px; }
 .inspector input, .inspector textarea { width: 100%; font-size: 12px; }
+.inspector input.inspector-title { margin: 10px 0 12px; padding: 4px 0; border: 0; border-radius: 3px; background: transparent; font-size: 16px; font-weight: 600; line-height: 1.35; }
+.inspector-title::placeholder { color: var(--text); opacity: 1; }
 .inspector textarea { min-height: 100px; max-height: 260px; }
 .inspector p { color: var(--muted); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 .inspector .toolbar, .note-actions { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -430,7 +432,8 @@ svg.rope path, svg.line path { fill: none; stroke: #a3a3a9; stroke-width: 1.1; v
 .membership > .ui-icon { width: 13px; height: 13px; }
 .membership > button { flex: 0 0 22px; width: 22px; min-width: 22px; height: 22px; min-height: 22px; padding: 3px; }
 .membership > button > .ui-icon { width: 12px; height: 12px; }
-.inspector-primary-actions { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.inspector-primary-actions { margin: 0 0 16px; }
+.inspector-secondary-actions { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
 
 /* Full-resolution image previews hug their image; editing uses the shared bar. */
 .preview-dialog.image-preview:not(.editing-preview) { width: auto; height: auto; min-width: 80px; min-height: 80px; max-width: 94vw; max-height: 90vh; border-radius: 12px; background: transparent; }

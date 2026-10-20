@@ -45,6 +45,7 @@ function fixture({deferInitialState=false,initialVisible=true}={}){
   if(action==='details'){if(detailsFailures){detailsFailures--;cleanupError='Synthetic atomic inspector write failure';}else selected.forEach(item=>{for(const key of ['name','text','note'])if(Object.hasOwn(payload,key))item[key]=payload[key];});}
   if(action==='note')selected.forEach(item=>item.note=payload.note);
   if(action==='retain')selected.forEach(item=>item.retainedAt=Date.now());
+  if(action==='folder')selected.forEach(item=>{item.folderIds=[...new Set([...item.folderIds,payload.folderId])];if(payload.pinning!==false)item.pinned=true;item.retainedAt??=Date.now();});
   if(action==='unassign')selected.forEach(item=>item.folderIds=item.folderIds.filter(id=>id!==payload.folderId));
   if(action==='removeTag')selected.forEach(item=>item.tags=item.tags.filter(tag=>tag!==payload.tag));
   if(action==='renameTag')state.items.forEach(item=>item.tags=item.tags.map(tag=>tag===payload.tag?payload.name:tag));
@@ -91,9 +92,22 @@ test('image browsing previews use rendered full resolution instead of cached thu
 test('Library notes and memberships have focused controls and use captured target IDs',async()=>{
  const f=fixture();await f.ready();const text=f.state.items.find(value=>value.id===f.text1);text.pinned=true;text.note='A searchable note';text.folderIds=['20000000-0000-4000-8000-000000000001'];text.tags=['client'];f.state.folders=[{id:text.folderIds[0],name:'Client work'}];f.api.emit({items:f.state.items,folders:f.state.folders});await f.ready();await savedLibrary(f);assert.equal(focusedCard(f),f.text1);
  assert.match(f.main,/id="detail-note"[^>]*>A searchable note<\/textarea>/);
- await f.input('detail-note','Updated organization note');await f.click('save-detail-note');assert.equal(text.note,'Updated organization note');assert.deepEqual(f.commands.at(-1),{action:'note',payload:{id:f.text1,note:'Updated organization note'}});
+ await f.input('detail-note','Updated organization note');await f.click('save-inspector-draft');assert.equal(text.note,'Updated organization note');assert.deepEqual(f.commands.at(-1),{action:'details',payload:{id:f.text1,note:'Updated organization note'}});
  await f.click('remove-item-folder',{id:f.text1,folder:text.folderIds[0]});assert.equal(text.folderIds.length,0);assert.equal(f.commands.at(-1).action,'unassign');
  await f.click('remove-item-tag',{id:f.text1,tag:'client'});assert.deepEqual(text.tags,[]);assert.equal(f.commands.at(-1).action,'removeTag');
+});
+
+test('Library navigation and inspector hierarchy match the native editable-title and primary-action workflow',async()=>{
+ const f=fixture();await f.ready();await recent(f);const sidebar=f.main.match(/<aside class="sidebar"[\s\S]*?<\/aside>/)[0],inspector=f.main.match(/<aside class="inspector"[\s\S]*?<\/aside>/)[0];assert.deepEqual([...sidebar.matchAll(/data-scope="([^"]+)"/g)].map(match=>match[1]),['saved','pinned','unorganized','recent','trash']);assert.match(inspector,/id="detail-name" class="inspector-title"[^>]*aria-label="Name"/);assert.doesNotMatch(inspector,/<h2>|save-detail-name|save-detail-text|save-detail-note|Name and pin/);assert.match(inspector,/data-action="preview"[\s\S]*?<path d="M8 3H3v5M3 3l7 7M16 21h5v-5M21 21l-7-7"/);const primary=inspector.indexOf('inspector-primary-actions');assert.ok(primary>inspector.indexOf('detail-name')&&primary<inspector.indexOf('inspector-section'));assert.equal((inspector.match(/data-action="copy"/g)||[]).length,1);assert.equal((inspector.match(/data-action="pin"/g)||[]).length,1);assert.doesNotMatch(inspector,/save-inspector-draft/);
+});
+
+test('an actual failed inspector draft exposes one Save retry without turning title edits into pin actions',async()=>{
+ const f=fixture();await f.ready();await recent(f);await f.key('ArrowRight');f.failDetails(2);await f.input('detail-name','Retained draft title');assert.match(f.main,/data-action="save-inspector-draft"/);assert.equal(f.state.items.find(value=>value.id===f.text1).name,'');await f.click('save-inspector-draft');assert.match(f.main,/data-action="save-inspector-draft"/);await f.click('save-inspector-draft');const value=f.state.items.find(value=>value.id===f.text1);assert.equal(value.name,'Retained draft title');assert.equal(value.pinned,false);assert.doesNotMatch(f.main,/data-action="save-inspector-draft"/);assert.equal(f.commands.some(value=>value.action==='name'),false);
+});
+
+test('inspector Add to folder preserves pin state and memberships while ShiftP still pins',async()=>{
+ const f=fixture();await f.ready();const a='20000000-0000-4000-8000-000000000001',b='20000000-0000-4000-8000-000000000002';f.state.folders=[{id:a,name:'Existing folder'},{id:b,name:'Additional folder'}];Object.assign(f.state.items[0],{retainedAt:1000,folderIds:[a],pinned:false});f.api.emit({folders:f.state.folders,items:f.state.items});await f.ready();await savedLibrary(f);await f.click('add-to-folder');assert.match(f.overlay,/aria-label="Add to folder"/);assert.doesNotMatch(f.overlay,/Pin without folder/);assert.match(f.overlay,/data-action="confirm-modal"[^>]*>Add<\/button>/);await f.key('ArrowDown');await f.key('Enter');assert.deepEqual(f.commands.findLast(value=>value.action==='folder').payload,{ids:[f.image],folderId:b,pinning:false});assert.deepEqual(f.state.items[0].folderIds,[a,b]);assert.equal(f.state.items[0].pinned,false);
+ await f.key('KeyP',{shift:true});assert.match(f.overlay,/Pin without folder/);await f.click('choose-folder',{folder:b});assert.deepEqual(f.commands.findLast(value=>value.action==='folder').payload,{ids:[f.image],folderId:b});assert.equal(f.state.items[0].pinned,true);
 });
 
 test('Library multi-tag filters require every selected tag and Clear filters restores results',async()=>{
