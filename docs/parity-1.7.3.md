@@ -97,7 +97,7 @@ polling would keep restarting it. A cold capture therefore has a 3.2-second
 monotonic deadline with bounded AX calls; ordinary resolved fields retain the
 fast path. Only an actual stable editable field can receive paste, and its
 identity is checked before and after clipboard preparation. No security
-permission, field value or undocumented enhanced-UI flag is requested.
+permission, field value or undocumented enhanced-UI flag is requested. Chromium web text controls without an explicit editability hint also use a supported setter-capability denial to reject readonly controls. This check is limited to web text roles with provider DOM metadata; native/custom editors and generic rich roots do not require an assignable value. No DOM identifier is logged.
 
 Full-tree test clients may warm the target before a clipboard test; this is an
 inference from the provider sources, not proof of the cause in a particular

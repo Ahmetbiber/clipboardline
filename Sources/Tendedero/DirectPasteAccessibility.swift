@@ -8,6 +8,9 @@ import ApplicationServices
         var focusedElement: (pid_t) -> AnyObject?
         var attribute: (AnyObject, String) -> AnyObject?
         var isElement: (AnyObject) -> Bool
+        /// Capability only: this must never fetch AXValue itself. Unsupported
+        /// providers return nil rather than being treated as read-only.
+        var valueSettable: (AnyObject) -> Bool? = { _ in nil }
 
         static var system: Environment { system(deadline: nil) }
         static func system(deadline: TimeInterval?) -> Environment {
@@ -31,7 +34,16 @@ import ApplicationServices
             return Environment(focusedElement: { pid in
                 let application = AXUIElementCreateApplication(pid)
                 return attribute(application, kAXFocusedUIElementAttribute)
-            }, attribute: attribute, isElement: { CFGetTypeID($0) == AXUIElementGetTypeID() })
+            }, attribute: attribute, isElement: { CFGetTypeID($0) == AXUIElementGetTypeID() },
+                valueSettable: { object in
+                    let remaining = deadline.map { $0 - ProcessInfo.processInfo.systemUptime } ?? 0.15
+                    guard remaining > 0 else { return nil }
+                    let element = unsafeBitCast(object, to: AXUIElement.self)
+                    AXUIElementSetMessagingTimeout(element, Float(min(0.15, remaining)))
+                    var settable = DarwinBoolean(false)
+                    guard AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success else { return nil }
+                    return settable.boolValue
+                })
         }
     }
 
@@ -76,7 +88,8 @@ import ApplicationServices
         let editable: Bool?
         let enabled: Bool
         let secure: Bool
-        var blocked: Bool { !enabled || editable == false || secure }
+        let readOnlyTextRole: Bool
+        var blocked: Bool { !enabled || editable == false || secure || readOnlyTextRole }
     }
 
     static func focusedField(_ pid: pid_t) -> DirectPasteCoordinator.FocusedField? {
@@ -96,11 +109,25 @@ import ApplicationServices
             let isEditable = environment.attribute(element, kAXIsEditableAttribute) as? Bool
             // An explicit read-only answer wins over a conflicting positive hint.
             let hint: Bool? = editable == false || isEditable == false ? false : editable ?? isEditable
-            DirectPasteDiagnostics.log.debug("Field role=\(role ?? "missing", privacy: .public) subrole=\(subrole ?? "missing", privacy: .public) editable=\(String(describing: hint), privacy: .public)")
-            return Capabilities(textRole: role == kAXTextFieldRole || role == kAXTextAreaRole || role == kAXComboBoxRole,
+            let textRole = role == kAXTextFieldRole || role == kAXTextAreaRole || role == kAXComboBoxRole
+            let secure = role == kAXSecureTextFieldSubrole || subrole == kAXSecureTextFieldSubrole
+            // Chromium exposes readonly web text controls through the setter
+            // capability, not an AXEditable Boolean. Its AXDOMIdentifier getter
+            // returns a string even without an HTML id. Limit this fallback to
+            // those web text roles without an explicit positive editable hint:
+            // native/custom editors and generic rich roots may accept paste
+            // without exposing an AXValue setter. DOM ids are never logged.
+            // A missing capability is not a denial; no value/selection is read.
+            // Chromium152 AXPlatformNodeCocoa::isAccessibilitySelectorAllowed
+            // rejects setters when its delegate IsReadOnlyOrDisabled is true.
+            let roleOnlyWebText = textRole && !secure && hint == nil &&
+                environment.attribute(element, "AXDOMIdentifier") is String
+            let settable = roleOnlyWebText ? environment.valueSettable(element) : nil
+            DirectPasteDiagnostics.log.debug("Field role=\(role ?? "missing", privacy: .public) subrole=\(subrole ?? "missing", privacy: .public) editable=\(String(describing: hint), privacy: .public) valueSettable=\(String(describing: settable), privacy: .public)")
+            return Capabilities(textRole: textRole,
                 focusContainer: [kAXGroupRole, "AXWebArea", kAXScrollAreaRole, kAXWindowRole, kAXSplitGroupRole].contains(role ?? ""),
                 editable: hint, enabled: (environment.attribute(element, kAXEnabledAttribute) as? Bool) != false,
-                secure: role == kAXSecureTextFieldSubrole || subrole == kAXSecureTextFieldSubrole)
+                secure: secure, readOnlyTextRole: settable == false)
         }
         func field(_ element: AnyObject, _ facts: Capabilities, ancestor: Bool = false) -> DirectPasteCoordinator.FocusedField {
             .init(identity: element, editable: !facts.blocked && (ancestor || facts.textRole || facts.editable == true), secure: facts.secure,

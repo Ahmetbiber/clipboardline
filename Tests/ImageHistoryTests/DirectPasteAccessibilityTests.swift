@@ -8,6 +8,7 @@ import XCTest
 @MainActor private final class PasteAccessibilityFixture {
     final class Element: NSObject {
         var attributes: [String: AnyObject] = [:]
+        var valueSettable: Bool?
         let ownerPID: pid_t
         init(role: String, ownerPID: pid_t = 101) {
             self.ownerPID = ownerPID
@@ -18,21 +19,25 @@ import XCTest
     var focused: AnyObject?
     var requestedPIDs = [pid_t]()
     var reads = [String]()
+    var setterQueries = [AnyObject]()
     var environment: DirectPasteAccessibility.Environment {
         .init(focusedElement: { self.requestedPIDs.append($0); return self.focused }, attribute: { element, name in
             self.reads.append(name)
             return (element as? Element)?.attributes[name]
-        }, isElement: { $0 is Element })
+        }, isElement: { $0 is Element }, valueSettable: { element in
+            self.setterQueries.append(element)
+            return (element as? Element)?.valueSettable
+        })
     }
     func resolve() -> DirectPasteCoordinator.FocusedField? { DirectPasteAccessibility.focusedField(101, environment: environment) }
 }
 
 @MainActor final class DirectPasteAccessibilityTests: HistoryTestCase {
-    func testPasteAccessibilityTextRolesDoNotRequireSettableValueOrReadContent() throws {
+    func testPasteAccessibilityTextRolesAcceptUnsupportedSetterCapabilityWithoutReadingContent() throws {
         for role in [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole] {
             let fixture = PasteAccessibilityFixture(), element = PasteAccessibilityFixture.Element(role: role)
-            // An app may expose a nonassignable AX value while accepting paste.
-            // The resolver never even requests that value or its settable state.
+            // An unsupported AX setter capability is not a read-only verdict.
+            // The resolver asks only capability metadata, never the value.
             element.attributes[kAXValueAttribute] = "Must not be read" as NSString
             element.attributes[kAXSelectedTextAttribute] = "Must not be read" as NSString
             fixture.focused = element
@@ -40,6 +45,81 @@ import XCTest
             XCTAssertTrue(field.identity === element); XCTAssertTrue(field.editable); XCTAssertFalse(field.secure)
             XCTAssertFalse(fixture.reads.contains(kAXValueAttribute)); XCTAssertFalse(fixture.reads.contains(kAXSelectedTextAttribute))
             XCTAssertFalse(fixture.reads.contains(kAXSelectedTextRangeAttribute))
+        }
+    }
+
+    func testPasteAccessibilityRejectsExplicitReadOnlyTextRoleBeforeUsingAnAncestor() throws {
+        for role in [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole] {
+            let fixture = PasteAccessibilityFixture(), leaf = PasteAccessibilityFixture.Element(role: role)
+            let ancestor = PasteAccessibilityFixture.Element(role: kAXGroupRole)
+            leaf.valueSettable = false
+            leaf.attributes["AXDOMIdentifier"] = "synthetic-readonly" as NSString
+            leaf.attributes["AXHighestEditableAncestor"] = ancestor
+            fixture.focused = leaf
+            let field = try XCTUnwrap(fixture.resolve())
+            XCTAssertTrue(field.identity === leaf); XCTAssertFalse(field.editable)
+            XCTAssertFalse(field.awaitingAccessibility); XCTAssertFalse(field.secure)
+            XCTAssertFalse(fixture.reads.contains("AXHighestEditableAncestor"))
+            XCTAssertFalse(fixture.reads.contains(kAXValueAttribute))
+        }
+    }
+
+    func testPasteAccessibilityNativeAndExplicitCustomTextEditorsKeepNonassignableValueCompatibility() throws {
+        for role in [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole] {
+            for explicitHint in [false, true] {
+                let fixture = PasteAccessibilityFixture(), editor = PasteAccessibilityFixture.Element(role: role)
+                editor.valueSettable = false
+                if explicitHint {
+                    editor.attributes["AXDOMIdentifier"] = "custom-rich-editor" as NSString
+                    editor.set("AXEditable", true)
+                }
+                fixture.focused = editor
+                let field = try XCTUnwrap(fixture.resolve())
+                XCTAssertTrue(field.identity === editor); XCTAssertTrue(field.editable)
+                XCTAssertTrue(fixture.setterQueries.isEmpty, "Native/custom paste eligibility does not require AXValue assignment")
+                XCTAssertFalse(fixture.reads.contains(kAXValueAttribute))
+            }
+        }
+    }
+
+    func testPasteAccessibilityWebIdentifierMayBeEmptyAndUnsupportedSetterIsNotReadOnly() throws {
+        for setter: Bool? in [nil, true, false] {
+            let fixture = PasteAccessibilityFixture(), editor = PasteAccessibilityFixture.Element(role: kAXTextAreaRole)
+            editor.attributes["AXDOMIdentifier"] = "" as NSString; editor.valueSettable = setter
+            fixture.focused = editor
+            XCTAssertEqual(try XCTUnwrap(fixture.resolve()).editable, setter != false)
+            XCTAssertEqual(fixture.setterQueries.count, 1)
+            XCTAssertFalse(fixture.reads.contains(kAXValueAttribute))
+        }
+    }
+
+    func testPasteAccessibilityCustomRichEditorsDoNotRequireAValueSetter() throws {
+        for direct in [false, true] {
+            let fixture = PasteAccessibilityFixture()
+            let leaf = PasteAccessibilityFixture.Element(role: kAXStaticTextRole)
+            let root = PasteAccessibilityFixture.Element(role: kAXGroupRole)
+            leaf.valueSettable = false; root.valueSettable = false
+            if direct { root.set("AXEditable", true); fixture.focused = root }
+            else { leaf.attributes["AXHighestEditableAncestor"] = root; fixture.focused = leaf }
+            let field = try XCTUnwrap(fixture.resolve())
+            XCTAssertTrue(field.identity === root); XCTAssertTrue(field.editable)
+            XCTAssertTrue(fixture.setterQueries.isEmpty, "Do not equate generic rich-editor value assignment with paste")
+            XCTAssertFalse(fixture.reads.contains(kAXValueAttribute))
+        }
+    }
+
+    func testPasteAccessibilityResolvesTextRootBeforeQueryingItsSetterCapability() throws {
+        for readOnly in [false, true] {
+            let fixture = PasteAccessibilityFixture()
+            let leaf = PasteAccessibilityFixture.Element(role: kAXStaticTextRole)
+            let root = PasteAccessibilityFixture.Element(role: kAXTextAreaRole)
+            leaf.valueSettable = false; root.valueSettable = !readOnly
+            root.attributes["AXDOMIdentifier"] = "synthetic-rich-root" as NSString
+            leaf.attributes["AXHighestEditableAncestor"] = root; fixture.focused = leaf
+            let field = try XCTUnwrap(fixture.resolve())
+            XCTAssertTrue(field.identity === root); XCTAssertEqual(field.editable, !readOnly)
+            XCTAssertTrue(fixture.setterQueries.count == 1 && fixture.setterQueries[0] === root)
+            XCTAssertFalse(fixture.reads.contains(kAXValueAttribute))
         }
     }
 
