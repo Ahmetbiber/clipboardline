@@ -10,6 +10,7 @@ const keyboardLibrary=require('./keyboard-library-acceptance.cjs');
 const shortcutParity=require('./shortcut-parity-acceptance.cjs');
 const libraryPreview=require('./library-preview-acceptance.cjs');
 const semanticImages=require('./semantic-image-acceptance.cjs');
+const nativeDrag=require('./native-drag-acceptance.cjs');
 const edgeConsumer=require('./consumer-edge-acceptance.cjs');
 const notepadConsumer=require('./notepad-acceptance.cjs');
 if(process.platform!=='win32')throw new Error('Run native acceptance on the actual Windows runner.');
@@ -49,8 +50,8 @@ async function main(){
   const before=await page.evaluate(()=>window.clipboardLine.state());assert.equal(before.version,expectedVersion);
   const licenses=await application.evaluate(({app})=>{if(!app.isPackaged)return null;const fs=process.getBuiltinModule('node:fs'),path=process.getBuiltinModule('node:path');return{mit:fs.readFileSync(path.join(process.resourcesPath,'LICENSE.txt'),'utf8').includes('Alejandro Buján'),notices:fs.existsSync(path.join(process.resourcesPath,'THIRD_PARTY_NOTICES.md')),apache:fs.readFileSync(path.join(process.resourcesPath,'licenses','LICENSE-Tesseract-core-and-data.txt'),'utf8').includes('Apache License'),chromium:fs.existsSync(path.join(process.resourcesPath,'..','LICENSES.chromium.html'))};});
   if(licenses){assert.ok(licenses.mit&&licenses.notices&&licenses.apache&&licenses.chromium,JSON.stringify(licenses));check('installed MIT/Apache/Electron/Chromium licensing notices are present');}
-  assert.equal(before.settings.captureText,false);assert.equal(before.settings.captureImages,false);assert.equal(before.settings.captureLinks,false);assert.equal(before.settings.fetchLinkMetadata,false);
-  await page.evaluate(()=>window.clipboardLine.command('setSettings',{patch:{captureText:true,captureImages:true,captureLinks:true}}));
+  assert.equal(before.settings.captureText,false);assert.equal(before.settings.captureImages,false);assert.equal(before.settings.captureLinks,true);assert.equal(before.settings.fetchLinkMetadata,true);
+  await page.evaluate(()=>window.clipboardLine.command('setSettings',{patch:{captureText:true,captureImages:true,captureLinks:true,fetchLinkMetadata:false}}));
   await application.evaluate(async({clipboard})=>{await clipboard.writeText('Windows clipboard text acceptance');await global.__clipboardLineTest.readClipboard();});
   let state=await page.evaluate(()=>window.clipboardLine.state());const textItem=state.items.find(i=>i.text==='Windows clipboard text acceptance');assert.ok(textItem);check('real native text clipboard capture');
   await application.evaluate(async({clipboard})=>{await clipboard.writeText('A different copied text');await global.__clipboardLineTest.readClipboard();await clipboard.writeText('Windows clipboard text acceptance');await global.__clipboardLineTest.readClipboard();});
@@ -130,6 +131,7 @@ async function main(){
   await shortcutParity({page,application,check,until,output});
   await libraryPreview({page,application,check,until,output});
   await semanticImages({page,application,check,until,output});
+  await nativeDrag({page,application,check});
   await edgeConsumer({page,application,textItem,imageItem,check,until,report});
   // An actual separate WinForms process owns the destination, so focus/paste
   // cannot pass by sending synthetic keys back to the Electron test window.
@@ -275,10 +277,10 @@ async function main(){
   application=await electron.launch({...(process.env.CLIPBOARDLINE_EXECUTABLE?{executablePath:path.resolve(process.env.CLIPBOARDLINE_EXECUTABLE),args:[]}:{args:[path.resolve('.')]}),timeout:60000});
   const productionPage=await application.firstWindow();activePage=productionPage;await productionPage.waitForFunction(()=>!!window.clipboardLine);
   const production=await until(()=>productionPage.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===true);
-  assert.equal(production.settings.captureText,false);assert.equal(production.settings.captureImages,false);assert.equal(production.settings.captureLinks,false);assert.equal(production.settings.fetchLinkMetadata,false);
+  assert.equal(production.settings.captureText,false);assert.equal(production.settings.captureImages,false);assert.equal(production.settings.captureLinks,true);assert.equal(production.settings.fetchLinkMetadata,true);
   assert.equal(await application.evaluate(()=>typeof global.__clipboardLineTest),'undefined');
   assert.equal(await productionPage.evaluate(async()=>{try{await fetch('https://example.com');return false;}catch{return true;}}),true);
-  await productionPage.screenshot({path:path.join(output,'production-startup.png')});check('normal production startup creates tray/services, defaults to opt-in and blocks renderer network');
+  await productionPage.screenshot({path:path.join(output,'production-startup.png')});check('normal production startup creates tray/services, keeps image/text opt-in, matches Mac link defaults and blocks renderer network');
   assert.equal(report.rendererErrors.length,0,JSON.stringify(report.rendererErrors));
   report.completedAt=new Date().toISOString();report.passed=true;
 }
