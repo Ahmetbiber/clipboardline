@@ -36,6 +36,7 @@ Görseller, metinler ve linkler elinin altında. Son kopyalarını üç askıda 
 | **Askıdan kaldır ve geri getir** | S seçili öğeleri kaldırır ve sıradaki uygun öğeyi seçer. Kaydedilmiş kayıtlar kütüphanede kalır; geçici kopyalar kurtarılabilir Çöp Kutusu’na gider. Backspace aynı oturumdaki son askı kaldırmasını, gruplar dahil, geri getirir. Harici özgün dosyalar korunur. |
 | **Klavye odaklı Eylemler** | Bağlama uygun Eylemler çubuğunda düzenleme, gezinme, görsel araçları, kütüphane görünümleri, ayarlar ve güncellemeleri ara. Komutlar güncel kısayolları gösterir ve çubuk açılırken seçili olan öğe ya da sıralı grup üzerinde çalışır. |
 | **Kişiselleştirilebilir arayüz** | Küçük, orta ve büyük kartlar; yumuşak askı renkleri veya nötr cam; açılma davranışı, tam ekran uygulama üstünde görünme, ses ve girişte başlatma ayarları. Uygulama dilini sistemden bağımsız seç. Gezinme, seçim ve genel kısayollar değiştirilebilir veya kapatılabilir. |
+| **Ekran kayıtları — aday** | MP4/MOV kayıtları Görseller’de tutulur. Windows 1.7.3; yerel Windows medya API’leriyle dosya içe aktarma/izleme, oynatma, M/Eylemler ile kırpma ve dosya kopyalama/sürükleme/dışa aktarma ekler. Yayımlamadan önce yerel kabul testi zorunludur; codec ve kırpma farkları aşağıdadır. |
 | **Yerel ve imzalı güncellemeler** | Mac’te Sparkle, Windows’ta imzalı kurulum akışı kullanılır. Resmî herkese açık güncellemeler GitHub hesabı veya token istemez. Otomatik kontrol kapatılabilir; açıkken uygulama çalıştığı sürece saatte bir yapılır. İndirme ve kurulum senin işlemini gerektirir. |
 
 ## macOS varsayılan klavye kısayolları
@@ -190,7 +191,7 @@ Bunlar macOS tablosundan ayrı Windows varsayılanlarıdır. Command yerine Cont
 | `Ctrl+O` | Seçili linki tarayıcıda aç | Kütüphanede seçili link veya link önizlemesi; Ctrl+Enter yapıştırma içindir. |
 | `Ctrl+Shift+C` | Görselde tanınan yazıyı kopyala | Seçili görsel veya görsel önizlemesi; yerel İngilizce/Türkçe OCR. Gezinme açık kalır. |
 | `E` | Metni düzenle | Metin önizlemesinde. Enter satır ekler; Ctrl+Enter veya Esc kaydedip bitirir. |
-| `M` | Görsel işaretlemeyi aç / bitir | Görsel önizlemesinde. İşaretleme zaten açıksa kaydedip bitirir. |
+| `M` | Görsel işaretlemeyi aç / bitir | Fotoğraf önizlemesinde işaretlemeyi açar/bitirir. Kayıt önizlemesinde kırpmayı açar. Yerel kayıt kabul testi bekleniyor. |
 | `C` | Görsel kırpmayı aç | Görsel önizlemesi veya işaretleme; özgün pikseller korunur. |
 | `Enter / Esc (kırpma)` | Kırpmayı uygula / iptal et | Enter uygular, Esc iptal eder. Doğrudan kırpma önizleme gezinmesine, işaretlemeden açılan kırpma işaretlemeye döner. |
 | `Ctrl+Enter / Esc (işaretleme)` | İşaretlemeyi kaydet ve bitir | Kırpma aracı dışındayken ikisi de kaydedip bitirir. Düzenlerken tek Enter kopyalamaz. Kaydetme başarısızsa taslak açık kalır. |
@@ -319,7 +320,7 @@ Geçmiş 1.7.2 sürümü; metin/görsel yapıştırma, odağı geri döndürme, 
 | Görsel grupları | Birden çok görsel/dosya biçimi; hangisini alacağına hedef uygulama karar verir. | Yerel FileDrop dosya listesi ve ilk görsel yedeği. Hedef desteği değişir; görseller sessizce birleştirilmez. |
 | Geçmiş ve kurtarma | Türe göre 1/3/7/15/30 gün; saklanan öğeler kalır; kütüphane Çöp Kutusu. | Süresiz tutma dahil türe göre ayrı süreler; saklanan öğeler kalır; kurtarılabilir Çöp Kutusu ve oturum içi kaldırma geri alma. |
 | Link ayrıntıları | İsteğe bağlı genel site/YouTube başlık ve küçük görselleri. | İsteğe bağlı genel site/YouTube zenginleştirmesi varsayılan açıktır; kapatılabilir. Önceden kapatılmış tercihler korunur. |
-| Ekran kaydı ve Quick Look | Quick Look .mov/.mp4 kayıtları önizler; AVKit Trim kaynak kaydı düzenler. | AÇIK işlev farkı: kayıt içe aktarma/yakalama, oynatma ve Trim yoktur. Görseli dosya olarak açmak eşdeğeri değildir. |
+| Ekran kaydı ve Quick Look | Quick Look .mov/.mp4 kayıtları yerel oynatma denetimleriyle önizler; AVKit Trim şu anda kaynak kaydı değiştirir. | Aday: MP4/MOV içe aktarma ve izlenen klasörden toplama, oynatma, M/Eylemler ile kırpma, dosya kopyalama/sürükleme/dışa aktarma. Yayımlama öncesi yerel kabul testi zorunludur. Kurulu Windows codec’lerini kullanır; özgünü korur, kırpmayı gerekirse yeniden kodlayarak MP4’e yazar. |
 | Diller | Sistem dili veya ortak dokuz dil kataloğundan biri. | Aynı ortak dokuz dil kataloğu ve sistem dili seçimi. OCR dilleri İngilizce/Türkçedir. |
 | Güncellemeler ve işletim sistemi güveni | Sparkle imzalı herkese açık akış ve arşivler. Proje imzalı Mac derlemesi Apple noter onaylı değildir. | Ortak herkese açık depodaki Windows imzalı akışı; ayarlanabilir açılış/saatlik kontrol ve hatada beş dakika sonra yeniden deneme. Güncelle ve yeniden aç için tıklama gerekir. Kurulumun Authenticode yayıncı sertifikası yoktur. |
 

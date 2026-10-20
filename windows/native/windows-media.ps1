@@ -50,13 +50,27 @@ function Open-Clip([string]$File){
 function Describe-Clip($Clip){
   $properties=$Clip.GetVideoEncodingProperties()
   if($Clip.OriginalDuration.TotalMilliseconds -le 0 -or $properties.Width -le 0 -or $properties.Height -le 0){throw 'The recording has no usable video track.'}
-  return @{durationMs=[double]$Clip.OriginalDuration.TotalMilliseconds;width=[int]$properties.Width;height=[int]$properties.Height;videoCodec=[string]$properties.Subtype;audioTracks=[int]$Clip.EmbeddedAudioTracks.Count}
+  # Raw WinRT collections are not ordinary PowerShell arrays. Its synthetic
+  # Count property can report 1 for an opaque RCW, even when the view is empty.
+  $audioCollection=[System.Collections.Generic.IReadOnlyCollection[Windows.Media.Editing.EmbeddedAudioTrack]]
+  $audioCount=[int]$audioCollection.GetProperty('Count').GetValue($Clip.EmbeddedAudioTracks,$null)
+  return @{durationMs=[double]$Clip.OriginalDuration.TotalMilliseconds;width=[int]$properties.Width;height=[int]$properties.Height;videoCodec=[string]$properties.Subtype;audioTracks=$audioCount}
+}
+function Insert-Clip($Composition,$Clip){
+  # WinRT IVector<T> is projected as IList<T> in .NET, but PowerShell's raw
+  # RCW binder does not expose its Add method. Invoke the declared IList<T>
+  # Insert method through the typed interface rather than guessing ABI slots.
+  # https://learn.microsoft.com/uwp/api/windows.foundation.collections.ivector-1
+  $listType=[System.Collections.Generic.IList[Windows.Media.Editing.MediaClip]]
+  $insert=$listType.GetMethod('Insert',[Type[]]@([int],[Windows.Media.Editing.MediaClip]))
+  if(-not $insert){throw 'Windows media clip collection projection is unavailable.'}
+  $null=$insert.Invoke($Composition.Clips,[object[]]@([int]0,$Clip))
 }
 function Write-Poster($Clip,[string]$Directory){
   $script:stage='PosterCompose'
   $composition=New-Object Windows.Media.Editing.MediaComposition
   $script:stage='PosterClipsAdd'
-  $composition.Clips.Add($Clip)
+  Insert-Clip $composition $Clip
   $script:stage='PosterThumbnail'
   $stream=Await-Operation ($composition.GetThumbnailAsync([TimeSpan]::Zero,[int]320,[int]0,[Windows.Media.Editing.VideoFramePrecision]::NearestFrame)) ([Windows.Graphics.Imaging.ImageStream])
   try{
@@ -102,12 +116,14 @@ try{
     $clip.TrimTimeFromStart=[TimeSpan]::FromMilliseconds($start)
     $clip.TrimTimeFromEnd=[TimeSpan]::FromMilliseconds([Math]::Max(0,$original.durationMs-$end))
     $composition=New-Object Windows.Media.Editing.MediaComposition
-    $composition.Clips.Add($clip)
+    $stage='TrimClipsAdd';Insert-Clip $composition $clip
     $folder=Await-Operation ([Windows.Storage.StorageFolder]::GetFolderFromPathAsync($directory)) ([Windows.Storage.StorageFolder])
     $output=Await-Operation ($folder.CreateFileAsync('trimmed.mp4',[Windows.Storage.CreationCollisionOption]::FailIfExists)) ([Windows.Storage.StorageFile])
     # Use a real H.264/AAC MP4 output while preserving source dimensions/rate.
     # Never write MP4 bytes under a MOV name or silently shrink a recording.
     $profile=[Windows.Media.MediaProperties.MediaEncodingProfile]::CreateMp4([Windows.Media.MediaProperties.VideoEncodingQuality]::Auto)
+    # A video-only recording must remain video-only after trimming.
+    if($original.audioTracks -eq 0){$profile.Audio=$null}
     $video=$clip.GetVideoEncodingProperties()
     $profile.Video.Width=$video.Width;$profile.Video.Height=$video.Height
     $profile.Video.FrameRate.Numerator=$video.FrameRate.Numerator;$profile.Video.FrameRate.Denominator=$video.FrameRate.Denominator

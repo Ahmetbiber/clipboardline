@@ -72,11 +72,18 @@ single composite without your action.
 - Windows uses the same nine language catalogs as Mac, including system-language
   selection; CI checks that generated catalogs match. OCR languages remain
   English/Turkish and are separate from the interface language.
-- **OPEN functional gap:** Windows does not import/capture or play screen
-  recordings and has no video trimming workflow. Mac accepts `.mov`/`.mp4`
-  recordings in its Inbox, opens them with Quick Look and uses AVKit Trim to
-  replace the source recording. Opening a still image externally is not an
-  equivalent. This candidate does not claim complete feature parity.
+- **Screen recordings — 1.7.3 candidate, native acceptance pending.** Import
+  `.mp4`/`.mov` files or collect them from explicitly watched folders. Recordings
+  appear in Images with posters and duration, play inside preview, and use
+  **M** or **Actions → Trim video** for a start/end range. Enter saves; Esc cancels.
+  Copy, drag and export transfer the video file rather than its poster. Windows
+  uses its native WinRT media stack; no additional FFmpeg binary is downloaded.
+  Source files remain immutable; trims create a new managed MP4 and may re-encode.
+  Playback/decoding depends on installed Windows codecs. H.264/AAC MP4 and MOV
+  fixtures are the mandatory native acceptance target; HEVC/ProRes support is
+  not guaranteed. Mac instead uses Quick Look/AVKit windows and its current Trim
+  replaces the source file. These storage and native-control differences are
+  explicit; the candidate is not declared verified or published yet.
 - Windows uses Alt-drag for per-item text/link files while ordinary drag inserts
   text. Mac can advertise both text and files in a single drag. See the
   [native transfer contract](../docs/windows-native-transfer.md).
@@ -164,10 +171,17 @@ yakalama) olarak gelir; Ayarlar'dan değiştirilebilir. [Türkçe Windows kısay
 kütüphane kapsamını korur. Windows OCR’ı İngilizce/Türkçe Tesseract kullanır;
 arayüz Mac ile aynı dokuz dil kataloğunu ve sistem dili seçimini kullanır.
 İşaret/kırpma korunur; Bitti sonrasında aynı uygulama oturumunda geri alma sürer.
-**AÇIK işlev farkı:** Windows’ta ekran kaydı içe aktarma/yakalama, oynatma veya
-video kırpma yoktur. Mac, Inbox içindeki `.mov`/`.mp4` kayıtları Quick Look ile
-önizler ve AVKit Trim ile kaynak kaydı değiştirir. Tam özellik eşitliği henüz
-sağlanmış değildir.
+**Ekran kayıtları — 1.7.3 adayı, yerel kabul testi bekleniyor:** `.mp4`/`.mov`
+dosyalarını içe aktar veya açıkça seçtiğin izlenen klasörlerden topla. Kayıtlar
+küçük görsel ve süreyle Görseller’de görünür; önizlemede oynatılır. **M** veya
+**Eylemler → Videoyu kırp** ile aralık seç; Enter kaydeder, Esc iptal eder.
+Kopyalama/sürükleme/dışa aktarma küçük görsel yerine video dosyasını aktarır.
+Windows yerel WinRT medya altyapısını kullanır; ek FFmpeg dosyası indirilmez.
+Özgün dosya korunur; kırpılan sürüm gerektiğinde yeniden kodlanarak ayrı bir MP4
+olarak tutulur. Codec desteği Windows’ta kurulu bileşenlere bağlıdır. H.264/AAC
+MP4 ve MOV örnekleri zorunlu yerel kabul hedefidir; HEVC/ProRes garantisi yoktur.
+Mac’te Quick Look/AVKit pencereleri kullanılır ve mevcut Trim kaynak dosyayı
+değiştirir. Aday henüz doğrulanmış veya yayımlanmış sayılmaz.
 
 `npm start`, resmî uygulamadan ayrı ClipBoardLine Dev veri alanını kullanır ve
 resmî güncelleme kuramaz. `npm test` sentetik testleri çalıştırır. Gerçek Windows

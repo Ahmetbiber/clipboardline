@@ -36,6 +36,7 @@ Images, text and links, close at hand. Keep recent copies on three shelves, save
 | **Take down and recover** | S removes the selection and selects the next surviving item. Saved records remain in Library; temporary copies enter recoverable Trash. Backspace restores the latest shelf removal, including batches, during the current app session. External original files are preserved. |
 | **Keyboard-driven Actions** | Search the contextual Actions bar for organization, navigation, image editing, Library views, settings and updates. Commands show current shortcut assignments and operate on the item or ordered batch captured when the bar opened. |
 | **An interface you can tune** | Small, medium and large cards; soft shelf colors or neutral glass; configurable reveal behavior, full-screen-app visibility, sounds and login launch. Choose the app language independently of the system. Browsing bindings, selection keys and global shortcuts can be remapped or disabled. |
+| **Screen recordings — candidate** | MP4/MOV recordings stay in Images. Windows 1.7.3 adds file import/watching, playback, M/Actions Trim and file copy/drag/export through native Windows media APIs. Native acceptance is mandatory before publication; codec and trim differences are documented below. |
 | **Native signed updates** | Mac uses Sparkle; Windows uses its signed installer feed. Official public updates need no GitHub account or token. Automatic checks can be disabled; when enabled they run hourly while the app is running. Download and installation require your action. |
 
 ## macOS default keyboard shortcuts
@@ -190,7 +191,7 @@ These are the Windows defaults, separate from the macOS table. Control replaces 
 | `Ctrl+O` | Open selected link in browser | Selected link in Library or a link preview; Ctrl+Enter remains paste. |
 | `Ctrl+Shift+C` | Copy recognized image text | Selected image or image preview; local English/Turkish OCR. Keeps browsing open. |
 | `E` | Edit text | In a text preview. Enter adds a newline; Ctrl+Enter or Esc saves and finishes. |
-| `M` | Enter / finish image markup | Image preview. When markup is already open, saves and finishes it. |
+| `M` | Enter / finish image markup | Still-image preview: enter/finish markup. Recording preview: open Trim. Native recording acceptance is pending. |
 | `C` | Open image crop | Image preview or markup; original pixels remain available. |
 | `Enter / Esc in crop` | Apply / cancel crop | Enter applies and Esc cancels. Direct crop returns to preview browsing; crop entered from markup returns to markup. |
 | `Ctrl+Enter / Esc in markup` | Save and finish markup | Outside the Crop tool, either saves and finishes. Plain Enter does not copy while editing. Save failures keep the draft open. |
@@ -319,7 +320,7 @@ The historical 1.7.2 release was checked in actual Windows source, packaged and 
 | Image batches | Multiple image/file representations; destination app decides what to accept. | Native FileDrop list plus first-raster fallback. Destination support varies; items are not silently stitched together. |
 | Retention and recovery | Per-kind 1/3/7/15/30-day choices; retained items survive; Library Trash. | Separate per-kind history including Keep forever; saved items survive; recoverable Trash and session take-down undo. |
 | Link metadata | Optional public website/YouTube titles and thumbnails. | Optional public website/YouTube enrichment defaults on; can be disabled. Existing explicit opt-outs remain unchanged. |
-| Recordings and Quick Look | Quick Look previews .mov/.mp4 recordings; AVKit Trim edits the source recording. | OPEN functional gap: no recording import/capture, playback or Trim. Still-image Open file is not an equivalent. |
+| Recordings and Quick Look | Quick Look previews .mov/.mp4 recordings with native playback controls; AVKit Trim currently replaces the source recording. | Candidate: MP4/MOV import and watched-folder collection, playback, M/Actions Trim, file copy/drag/export. Native acceptance is mandatory before publication. Uses installed Windows codecs; keeps the original and renders trim output to MP4, possibly re-encoding. |
 | Languages | System language or one of nine shared language catalogs. | The same nine shared language catalogs and system-language selection. OCR languages are English/Turkish. |
 | Updates and OS trust | Sparkle signed public feed and archives. Project-signed Mac build is not Apple-notarized. | Windows signed feed in the shared public repository; configurable launch/hourly checks and five-minute failure retry. Update and reopen requires a click. The installer has no Authenticode publisher certificate. |
 

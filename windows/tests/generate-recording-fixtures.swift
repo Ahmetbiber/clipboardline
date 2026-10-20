@@ -79,5 +79,36 @@ func make(_ suffix: String, type: AVFileType) throws {
     guard writer.status == .completed else { throw writer.error! }
     print(file.lastPathComponent + " generated: 6 seconds, red/green/blue, 440 Hz AAC mono")
 }
-try make("mp4", type: .mp4)
-try make("mov", type: .mov)
+func makeSilent() throws {
+    let source = AVURLAsset(url: destination.appendingPathComponent("synthetic-rgb-tone.mp4"))
+    guard let sourceTrack = source.tracks(withMediaType: .video).first else {
+        throw NSError(domain: "SyntheticFixture", code: 1, userInfo: [NSLocalizedDescriptionKey: "Generated RGB video track is missing."])
+    }
+    let composition = AVMutableComposition()
+    guard let video = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+        throw NSError(domain: "SyntheticFixture", code: 2, userInfo: [NSLocalizedDescriptionKey: "Silent composition could not be created."])
+    }
+    try video.insertTimeRange(sourceTrack.timeRange, of: sourceTrack, at: .zero)
+    video.preferredTransform = sourceTrack.preferredTransform
+    let file = destination.appendingPathComponent("synthetic-rgb-silent.mp4")
+    try? FileManager.default.removeItem(at: file)
+    guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
+        throw NSError(domain: "SyntheticFixture", code: 3, userInfo: [NSLocalizedDescriptionKey: "Silent passthrough export is unavailable."])
+    }
+    export.outputURL = file; export.outputFileType = .mp4
+    export.shouldOptimizeForNetworkUse = true
+    let finished = DispatchSemaphore(value: 0)
+    export.exportAsynchronously { finished.signal() }
+    precondition(finished.wait(timeout: .now() + 30) == .success)
+    guard export.status == .completed else { throw export.error! }
+    let result = AVURLAsset(url: file)
+    precondition(result.tracks(withMediaType: .audio).isEmpty)
+    precondition(result.tracks(withMediaType: .video).count == 1)
+    print(file.lastPathComponent + " generated: original RGB H.264 track, no audio track")
+}
+
+if !CommandLine.arguments.contains("--silent-only") {
+    try make("mp4", type: .mp4)
+    try make("mov", type: .mov)
+}
+try makeSilent()

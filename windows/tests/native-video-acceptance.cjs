@@ -28,6 +28,18 @@ async function runNativeVideo({fixtureDirectory=path.join(__dirname,'fixtures','
     evidence.checks.push({extension,passed:true,sourceDurationMs:inspected.durationMs,trimmedDurationMs:trimmed.durationMs,sourcePoster:first,trimmedPoster:poster,originalAudio,trimmedAudio});
    }finally{if(inspected)jobs.release(inspected);if(trimmed)jobs.release(trimmed);}
   }
+  {
+   const source=path.join(fixtureDirectory,'synthetic-rgb-silent.mp4'),before=crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex');let inspected,trimmed;
+   try{
+    // This file has no audio track at all. WinRT's actual vector size must be
+    // zero; PowerShell's scalar RCW Count=1 cannot satisfy this assertion.
+    inspected=await jobs.probe(source);assert.ok(Math.abs(inspected.durationMs-6000)<200);assert.equal(inspected.width,160);assert.equal(inspected.height,120);assert.equal(inspected.audioTracks,0);assert.equal(inspected.audioFile,undefined);
+    const first=pngCenter(inspected.posterFile);assert.ok(first.rgb[0]>150&&first.rgb[1]<100&&first.rgb[2]<100,JSON.stringify(first));
+    trimmed=await jobs.trim(source,{startMs:2000,endMs:4000});assert.ok(Math.abs(trimmed.durationMs-2000)<150);assert.equal(trimmed.width,160);assert.equal(trimmed.height,120);assert.equal(trimmed.audioTracks,0);assert.equal(trimmed.audioFile,undefined);
+    const poster=pngCenter(trimmed.posterFile);assert.ok(poster.rgb[1]>100&&poster.rgb[0]<100&&poster.rgb[2]<100,JSON.stringify(poster));assert.equal(crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex'),before);
+    evidence.checks.push({fixture:'synthetic-rgb-silent.mp4',passed:true,sourceDurationMs:inspected.durationMs,trimmedDurationMs:trimmed.durationMs,sourceAudioTracks:inspected.audioTracks,trimmedAudioTracks:trimmed.audioTracks,sourcePoster:first,trimmedPoster:poster,originalPreserved:true});
+   }finally{if(inspected)jobs.release(inspected);if(trimmed)jobs.release(trimmed);}
+  }
   const source=path.join(fixtureDirectory,'synthetic-rgb-tone.mp4'),before=crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex'),controller=new AbortController(),pending=jobs.probe(source,{signal:controller.signal});setTimeout(()=>controller.abort(),10);
   await assert.rejects(pending,error=>error.name==='AbortError');assert.equal(crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex'),before);assert.equal(fs.readdirSync(jobs.directory).length,0);
   const unsupported=path.join(directory,'unsupported.mp4');fs.writeFileSync(unsupported,Buffer.from('00000000000000000000000066747970','hex'));await assert.rejects(jobs.probe(unsupported),/codec|incomplete|decode|process/i);assert.equal(fs.readdirSync(jobs.directory).length,0);assert.equal(crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex'),before);
