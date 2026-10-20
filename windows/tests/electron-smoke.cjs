@@ -142,7 +142,7 @@ async function main(){
   await page.evaluate(()=>window.clipboardLine.command('show'));await page.waitForTimeout(250);await page.screenshot({path:path.join(output,'shelves.png')});check('three kinds render in shelves and normal library window');
   await keyboardLibrary({page,application,textItem,folder,check,until,output});
   await shortcutParity({page,application,check,until,output});
-  await libraryPreview({page,application,check,until,output});
+  await libraryPreview({page,application,check,until,output,waitForCropBox});
   await textPreview({page,application,check,until,output});
   await libraryFolderDrag({page,application,check,until});
   await videoUI({page,application,check,until,output});
