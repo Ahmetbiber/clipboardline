@@ -1,6 +1,6 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
-const {mediaResponse,byteRange}=require('../lib/media-response.cjs');
+const {mediaResponse,byteRange,mediaGenerationMatches}=require('../lib/media-response.cjs');
 test('managed video responses stream exact ranges for playback and seeking',async()=>{
  const folder=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-ranges-'));const file=path.join(folder,'synthetic.mp4');fs.writeFileSync(file,'0123456789');
  try{
@@ -12,4 +12,13 @@ test('managed video responses stream exact ranges for playback and seeking',asyn
 });
 test('media range parsing rejects malformed values and supports bounded suffixes',()=>{
  assert.deepEqual(byteRange('bytes=-100',10),{start:0,end:9,partial:true});assert.equal(byteRange({},10),null);assert.equal(byteRange('bytes='+'1'.repeat(200)+'-',10),null);
+});
+
+test('only the exact active recording generation accepts a cache-busting query',()=>{
+ const hash='a'.repeat(64),file=path.join(os.tmpdir(),hash+'.mp4');
+ assert.equal(mediaGenerationMatches('?v='+hash,'/video',file),true);
+ for(const route of ['/video','/video/original','/original','/thumbnail',undefined])assert.equal(mediaGenerationMatches('',route,file),true);
+ for(const query of ['?v='+'b'.repeat(64),'?v='+hash+'&v='+hash,'?v='+hash+'&x=1','?v='+hash.toUpperCase(),'?v=%61'+hash.slice(1),'?x='+hash,'?v=','?'])assert.equal(mediaGenerationMatches(query,'/video',file),false);
+ for(const route of ['/video/original','/original','/thumbnail',undefined])assert.equal(mediaGenerationMatches('?v='+hash,route,file),false);
+ assert.equal(mediaGenerationMatches('?v='+hash,'/video',path.join(os.tmpdir(),hash+'.png')),false);
 });

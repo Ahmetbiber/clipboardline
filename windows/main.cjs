@@ -18,7 +18,7 @@ const {spawn} = require('node:child_process');
 const {Store,plainURL,ids} = require('./lib/model.cjs');
 const {privateClipboard}=require('./lib/clipboard-policy.cjs');
 const {mediaOrigin}=require('./lib/media-policy.cjs');
-const {mediaResponse}=require('./lib/media-response.cjs');
+const {mediaResponse,mediaGenerationMatches}=require('./lib/media-response.cjs');
 const {MediaJobs,MAXIMUM_VIDEO_BYTES}=require('./lib/media.cjs');
 const {copyFiles,cancelFileCopies}=require('./lib/native-files.cjs');
 const native = require('./lib/native.cjs');
@@ -359,11 +359,12 @@ else app.whenReady().then(async()=>{
       const corsOrigin=mediaOrigin({method:request.method,origin:request.headers.get('Origin'),initiator:request.initiatorOrigin});
       if(!corsOrigin)return new WebResponse('Not found',{status:404});
       const url=new URL(request.url);const match=/^\/([0-9a-f-]{36})(\/original|\/thumbnail|\/video(?:\/original)?)?$/.exec(url.pathname);
-      if(url.hostname!=='media'||!match||url.search||url.hash)return new WebResponse('Not found',{status:404});
+      if(url.hostname!=='media'||!match||url.hash)return new WebResponse('Not found',{status:404});
       let file,mime='image/png';
       if(match[2]==='/thumbnail'){const item=store.item(match[1]);if(!/^[a-f0-9]{64}\.png$/.test(item.thumbnailFile||''))return new WebResponse('Not found',{status:404});file=path.join(store.mediaDirectory,item.thumbnailFile);if(fs.lstatSync(file).isSymbolicLink())return new WebResponse('Not found',{status:404});}
       else if(match[2]?.startsWith('/video')){const item=store.item(match[1]);if(!item.recording)return new WebResponse('Not found',{status:404});file=store.mediaPath(item.id,match[2]==='/video/original');mime=path.extname(file)==='.mov'?'video/quicktime':'video/mp4';}
       else file=store.posterPath(match[1],match[2]==='/original');
+      if(!mediaGenerationMatches(url.search,match[2],file))return new WebResponse('Not found',{status:404});
       return mediaResponse(file,{mime,origin:corsOrigin,range:request.headers.get('Range'),Response:WebResponse});
     }catch{return new WebResponse('Not found',{status:404});}
   });

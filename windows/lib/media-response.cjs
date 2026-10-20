@@ -1,6 +1,14 @@
 'use strict';
 const fs=require('node:fs');
+const path=require('node:path');
 const {Readable}=require('node:stream');
+
+function mediaGenerationMatches(search,route,file){
+ if(!search)return true; // Existing unversioned media URLs remain compatible.
+ if(route!=='/video')return false;
+ const requested=/^\?v=([a-f0-9]{64})$/.exec(search),managed=/^([a-f0-9]{64})\.(mp4|mov)$/.exec(path.basename(file));
+ return !!(requested&&managed&&requested[1]===managed[1]);
+}
 
 function byteRange(value,size){
  if(value==null)return{start:0,end:size-1,partial:false};
@@ -23,4 +31,4 @@ function mediaResponse(file,{mime='image/png',origin='null',range=null,Response:
  if(partial)headers['Content-Range']=`bytes ${start}-${end}/${stat.size}`;
  return new ResponseClass(Readable.toWeb(fs.createReadStream(file,{start,end})),{status:partial?206:200,headers});
 }
-module.exports={byteRange,mediaResponse};
+module.exports={byteRange,mediaResponse,mediaGenerationMatches};

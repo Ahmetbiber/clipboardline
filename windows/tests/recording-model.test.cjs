@@ -9,7 +9,7 @@ const fingerprint=(store,id)=>store.publicState().items.find(item=>item.id===id)
 test('recordings stream into hashed private files, stay in Images and expose only safe media IDs',()=>fixture(async(store,directory)=>{
  const item=await store.insertRecording(imported(source)),original=store.mediaPath(item.id,true);assert.equal(item.kind,'image');assert.equal(item.recording,true);
  const digest=crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex');assert.equal(path.basename(original),digest+'.mp4');assert.equal(fs.readFileSync(original).equals(fs.readFileSync(source)),true);assert.equal(fingerprint(store,item.id),digest);
- assert.notEqual(store.posterPath(item.id),original);const state=store.publicState().items[0];assert.equal(state.videoFile,undefined);assert.equal(state.renderedVideoFile,undefined);assert.match(state.videoUrl,/^appmedia:\/\/media\/[a-f0-9-]+\/video$/);assert.match(state.originalVideoUrl,/\/video\/original$/);assert.ok(!JSON.stringify(state).includes(directory));
+ assert.notEqual(store.posterPath(item.id),original);const state=store.publicState().items[0];assert.equal(state.videoFile,undefined);assert.equal(state.renderedVideoFile,undefined);assert.equal(state.videoUrl,'appmedia://media/'+item.id+'/video?v='+digest);assert.match(state.originalVideoUrl,/\/video\/original$/);assert.ok(!JSON.stringify(state).includes(directory));
  assert.equal(new Store(directory).item(item.id).durationMs,6000);if(process.platform!=='win32')assert.equal(fs.statSync(original).mode&0o777,0o600);
  const still=store.insert('image',poster);assert.notEqual(still.id,item.id);assert.equal(still.recording,undefined);
 }));
@@ -19,12 +19,13 @@ test('recording recapture preserves names, pins, folders, tags and original medi
  const mov=await store.insertRecording(imported(path.join(fixtures,'synthetic-rgb-tone.mov')));assert.match(store.mediaPath(mov.id,true),/\.mov$/);
 }));
 test('trim transaction preserves original video and organization and rejects stale or trashed targets',()=>fixture(async(store,directory)=>{
- const item=await store.insertRecording(imported(source)),original=store.mediaPath(item.id,true),hash=fingerprint(store,item.id);store.modify('name',{id:item.id,name:'Kept name'});
+ const item=await store.insertRecording(imported(source)),original=store.mediaPath(item.id,true),hash=fingerprint(store,item.id),originalURL=store.publicState().items[0].videoUrl;store.modify('name',{id:item.id,name:'Kept name'});assert.equal(store.publicState().items[0].videoUrl,originalURL);
  // This test exercises storage transaction semantics; the separate native
  // suite verifies actual decoded duration, frame pixels and audio after trim.
  const rendered=path.join(directory,'rendered.mp4');fs.writeFileSync(rendered,Buffer.concat([fs.readFileSync(source),Buffer.from([0,0,0,8,102,114,101,101])]));
  await store.commitRecordingTrim({id:item.id,sourceFingerprint:hash,...imported(rendered),durationMs:2000});
  assert.equal(store.mediaPath(item.id,true),original);assert.notEqual(store.mediaPath(item.id),original);assert.equal(store.item(item.id).durationMs,2000);assert.equal(store.item(item.id).name,'Kept name');assert.equal(fs.readFileSync(original).equals(fs.readFileSync(source)),true);
+ const trimmed=store.publicState().items[0];assert.notEqual(trimmed.videoUrl,originalURL);assert.equal(trimmed.videoUrl,'appmedia://media/'+item.id+'/video?v='+trimmed.sourceFingerprint);assert.equal(new Store(directory).publicState().items[0].videoUrl,trimmed.videoUrl);
  await assert.rejects(store.commitRecordingTrim({id:item.id,sourceFingerprint:hash,...imported(rendered)}),/changed/);
  const active=fingerprint(store,item.id);store.modify('trash',{ids:[item.id]});await assert.rejects(store.commitRecordingTrim({id:item.id,sourceFingerprint:active,...imported(source)}),/changed/);
 }));

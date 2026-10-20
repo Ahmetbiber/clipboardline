@@ -359,7 +359,7 @@ class Store {
       items: this.data.items.map(({imageFile, renderedFile, thumbnailFile, videoFile, renderedVideoFile, ...item}) => ({...clone(item),
         ...(thumbnailFile ? {thumbnailUrl: `appmedia://media/${item.id}/thumbnail`} : {}),
         ...(item.kind === 'image' ? {mediaUrl: `appmedia://media/${item.id}`, originalMediaUrl: `appmedia://media/${item.id}/original`} : {}),
-        ...(item.recording?{videoUrl:`appmedia://media/${item.id}/video`,originalVideoUrl:`appmedia://media/${item.id}/video/original`,sourceFingerprint:(renderedVideoFile||videoFile).slice(0,64)}:{})})),
+        ...(item.recording?{videoUrl:`appmedia://media/${item.id}/video?v=${(renderedVideoFile||videoFile).slice(0,64)}`,originalVideoUrl:`appmedia://media/${item.id}/video/original`,sourceFingerprint:(renderedVideoFile||videoFile).slice(0,64)}:{})})),
       folders: clone(this.data.folders), settings: clone(this.data.settings), canUndo: this.undoStack.length > 0,
       needsDeletionCleanup:!!(this.data.pendingBackupRefresh||this.data.pendingDeletionFiles?.length)
     };

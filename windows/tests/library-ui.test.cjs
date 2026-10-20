@@ -249,10 +249,10 @@ test('background indexing broadcasts preserve the active canvas until the pointe
 });
 
 
-function asRecording(f){const video=f.state.items[0];Object.assign(video,{recording:true,videoUrl:'appmedia://media/'+video.id+'/video',originalVideoUrl:'appmedia://media/'+video.id+'/video/original',durationMs:6000,width:160,height:120,sourceFingerprint:'a'.repeat(64)});f.api.emit({items:f.state.items});return video;}
+function asRecording(f){const video=f.state.items[0];Object.assign(video,{recording:true,videoUrl:'appmedia://media/'+video.id+'/video?v='+'a'.repeat(64),originalVideoUrl:'appmedia://media/'+video.id+'/video/original',durationMs:6000,width:160,height:120,sourceFingerprint:'a'.repeat(64)});f.api.emit({items:f.state.items});return video;}
 
 test('recordings share image cards and open the managed video player without still crop or OCR commands',async()=>{
- const f=fixture();await f.ready();asRecording(f);await f.ready();assert.match(f.main,/recording-card/);assert.match(f.main,/recording-badge/);await f.key('Space');assert.match(f.overlay,/id="preview-video" data-video-id=/);assert.match(f.overlay,/crossorigin="anonymous" src="appmedia:\/\/media\/[^"/]+\/video"/);assert.doesNotMatch(f.overlay,/<canvas|data-action="crop"/);await f.key('KeyC');assert.doesNotMatch(f.overlay,/<canvas|trim-start-range/);await f.key('KeyK',{ctrl:true});assert.match(f.overlay,/Trim video/);assert.match(f.overlay,/data-command="crop" disabled/);assert.match(f.overlay,/data-command="copyOCR" disabled/);await f.key('Escape');
+ const f=fixture();await f.ready();asRecording(f);await f.ready();assert.match(f.main,/recording-card/);assert.match(f.main,/recording-badge/);await f.key('Space');assert.match(f.overlay,/id="preview-video" data-video-id=/);assert.match(f.overlay,/crossorigin="anonymous" src="appmedia:\/\/media\/[^"/]+\/video\?v=[a-f0-9]{64}"/);assert.doesNotMatch(f.overlay,/<canvas|data-action="crop"/);await f.key('KeyC');assert.doesNotMatch(f.overlay,/<canvas|trim-start-range/);await f.key('KeyK',{ctrl:true});assert.match(f.overlay,/Trim video/);assert.match(f.overlay,/data-command="crop" disabled/);assert.match(f.overlay,/data-command="copyOCR" disabled/);await f.key('Escape');
 });
 
 test('M opens recording trim, editable bounds preserve 100ms minimum and Enter saves the exact source generation',async()=>{
