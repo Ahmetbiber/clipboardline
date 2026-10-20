@@ -4,11 +4,11 @@
 
 Images, text and links, close at hand. Keep recent copies on three shelves, save what matters in a local Library, and move through it all with your keyboard.
 
-[Türkçe README](README.tr.md) · [Download for Mac](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/clipboardline-1.7.2-build66/ClipboardLine-1.7.2-build66.zip) · [Download for Windows x64](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe) · [Explore source](https://github.com/orkunisitmak/clipboardline-desktop) · [Screenshots and demos](https://orkunisitmak.github.io/clipboardline-desktop/#demo)
+[Türkçe README](README.tr.md) · [Download for Mac](https://github.com/orkunisitmak/clipboardline-desktop/releases/latest) · [Download for Windows x64](https://github.com/orkunisitmak/clipboardline-desktop/releases/latest) · [Explore source](https://github.com/orkunisitmak/clipboardline-desktop) · [Screenshots and demos](https://orkunisitmak.github.io/clipboardline-desktop/#demo)
 
 > The macOS edition uses Swift, AppKit, SwiftUI, Vision and Core ML on macOS 14 or later, for Apple silicon and Intel. The separate Electron edition is available for Windows x64; see the platform matrix for differences and native validation evidence.
 
-**1.7.3 candidate:** the source and feature reference include the current cross-platform work. Publication is pending both native platform suites; see the [parity scope and verification requirements](docs/parity-1.7.3.md). The download links still point to published 1.7.2 packages.
+**Feature reference — 1.7.3:** this page describes the implementation in this source tree. The [latest release](https://github.com/orkunisitmak/clipboardline-desktop/releases/latest) lists available packages; every new release requires both native platform suites. See the [parity scope and verification requirements](docs/parity-1.7.3.md).
 
 ## Your first five minutes
 
@@ -36,7 +36,7 @@ Images, text and links, close at hand. Keep recent copies on three shelves, save
 | **Take down and recover** | S removes the selection and selects the next surviving item. Saved records remain in Library; temporary copies enter recoverable Trash. Backspace restores the latest shelf removal, including batches, during the current app session. External original files are preserved. |
 | **Keyboard-driven Actions** | Search the contextual Actions bar for organization, navigation, image editing, Library views, settings and updates. Commands show current shortcut assignments and operate on the item or ordered batch captured when the bar opened. |
 | **An interface you can tune** | Small, medium and large cards; soft shelf colors or neutral glass; configurable reveal behavior, full-screen-app visibility, sounds and login launch. Choose the app language independently of the system. Browsing bindings, selection keys and global shortcuts can be remapped or disabled. |
-| **Screen recordings — candidate** | MP4/MOV recordings stay in Images. Windows 1.7.3 adds file import/watching, playback, M/Actions Trim and file copy/drag/export through native Windows media APIs. Native acceptance is mandatory before publication; codec and trim differences are documented below. |
+| **Screen recordings** | MP4/MOV recordings stay in Images. Windows 1.7.3 adds file import/watching, playback, M/Actions Trim and file copy/drag/export through native Windows media APIs. Native acceptance is mandatory before publication; codec and trim differences are documented below. |
 | **Native signed updates** | Mac uses Sparkle; Windows uses its signed installer feed. Official public updates need no GitHub account or token. Automatic checks can be disabled; when enabled they run hourly while the app is running. Download and installation require your action. |
 
 ## macOS default keyboard shortcuts
@@ -222,7 +222,7 @@ These are the Windows defaults, separate from the macOS table. Control replaces 
 
 Global Library and copy-latest-image shortcuts are off by default and can be recorded or disabled in Settings, alongside shelf toggle, search and screen capture. See the Windows native guide for collection defaults, platform gaps, build commands and native acceptance evidence.
 
-## Windows interface and updates — 1.7.3 candidate
+## Windows interface and updates — 1.7.3
 
 ### Hanging shelves over your desktop
 
@@ -296,11 +296,11 @@ Sparkle provides the updater. Apple Vision and the original MobileCLIP-S2 models
 
 **One public repository.** `orkunisitmak/clipboardline-desktop` now contains the source and Mac/Windows releases. Each platform keeps its own signed feed; every release designated Latest carries both current `appcast.xml` and `windows-update.json`. Old Mac `clipboardline-app` update addresses continue through verified compatibility redirects, so existing Mac installations keep updating without reinstalling. Both signed feeds and all three previous Mac ZIPs were verified through the old addresses without authentication, with identical bytes and archive hashes.
 
-Windows [1.7.2 build 64](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.2-build64) is released: [download the x64 installer](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe).
+Historical release: Windows [1.7.2 build 64](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.2-build64) is released: [download the x64 installer](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe).
 
 **Historical 1.7.2 verification:** for source revision [`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd), [Windows CI run 39296605977](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) passed **65 Node tests, 146 native acceptance checks** (48 source, 49 packaged, 49 installed) and **7 isolated upgrade checks**.
 
-**Published version:** the download links above are for macOS and Windows **1.7.2**; the **1.7.3 candidate** is not published yet. Future normal updates use the same product version on both platforms; platform build counters remain independent.
+**Current downloads:** the links above follow the latest coordinated release. macOS and Windows use the same product version; platform build counters remain independent. Release notes identify the packages and their validation evidence.
 
 **Historical consolidation checks (1.7.1–1.7.2):** macOS 1.7.0 → 1.7.1 and Windows 1.7.1 → 1.7.2 installed from the application and reopened automatically, retaining history and settings. The [real Windows update run](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39309767453) used unchanged production binaries, feed and key. Current updates need no GitHub token. Build64’s [exact-source native checks](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39307655801) also passed (48 source, 49 packaged, 49 installed and seven candidate upgrade checks); application code is unchanged from build63.
 
@@ -320,7 +320,7 @@ The historical 1.7.2 release was checked in actual Windows source, packaged and 
 | Image batches | Multiple image/file representations; destination app decides what to accept. | Native FileDrop list plus first-raster fallback. Destination support varies; items are not silently stitched together. |
 | Retention and recovery | Per-kind 1/3/7/15/30-day choices; retained items survive; Library Trash. | Separate per-kind history including Keep forever; saved items survive; recoverable Trash and session take-down undo. |
 | Link metadata | Optional public website/YouTube titles and thumbnails. | Optional public website/YouTube enrichment defaults on; can be disabled. Existing explicit opt-outs remain unchanged. |
-| Recordings and Quick Look | Quick Look previews .mov/.mp4 recordings with native playback controls; AVKit Trim currently replaces the source recording. | Candidate: MP4/MOV import and watched-folder collection, playback, M/Actions Trim, file copy/drag/export. Native acceptance is mandatory before publication. Uses installed Windows codecs; keeps the original and renders trim output to MP4, possibly re-encoding. |
+| Recordings and Quick Look | Quick Look and AVKit preview .mov/.mp4 recordings with native controls. Trim keeps the original and saves a managed derivative while preserving item identity and organization. | MP4/MOV import and watched-folder collection, playback, M/Actions Trim, file copy/drag/export. Native acceptance is mandatory before publication. Uses installed Windows codecs; keeps the original and renders trim output to MP4, possibly re-encoding. |
 | Languages | System language or one of nine shared language catalogs. | The same nine shared language catalogs and system-language selection. OCR languages are English/Turkish. |
 | Updates and OS trust | Sparkle signed public feed and archives. Project-signed Mac build is not Apple-notarized. | Windows signed feed in the shared public repository; configurable launch/hourly checks and five-minute failure retry. Update and reopen requires a click. The installer has no Authenticode publisher certificate. |
 
