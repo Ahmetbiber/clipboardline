@@ -344,7 +344,14 @@ async function command(action,payload={}) {
   broadcast();return state(result);
 }
 
-function appIcon(){const bitmap=Buffer.alloc(16*16*4);for(let y=2;y<14;y++)for(let x=3;x<13;x++){const at=(y*16+x)*4;bitmap[at]=245;bitmap[at+1]=137;bitmap[at+2]=61;bitmap[at+3]=255;if(x>5&&x<10&&y<5){bitmap[at]=255;bitmap[at+1]=255;bitmap[at+2]=255;}}return nativeImage.createFromBitmap(bitmap,{width:16,height:16});}
+let applicationIcon;
+function appIcon(){
+  if(!applicationIcon){
+    applicationIcon=nativeImage.createFromPath(path.join(__dirname,'assets','clipboardline.png'));
+    if(applicationIcon.isEmpty())throw new Error('The ClipBoardLine application icon is missing.');
+  }
+  return applicationIcon;
+}
 if(!app.requestSingleInstanceLock())app.quit();
 else app.whenReady().then(async()=>{
   store=new Store(app.getPath('userData'));mediaJobs=new MediaJobs({directory:path.join(store.directory,'media-jobs')});try{dragFiles=new DragFiles(store.directory);}catch{}updates=new Updates(path.join(store.directory,'updates'),{build:BUILD_NUMBER,version:app.getVersion(),changed:()=>{broadcast();refreshTray();},available:updateAvailable});

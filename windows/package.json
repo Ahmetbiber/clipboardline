@@ -87,6 +87,7 @@
       }
     ],
     "win": {
+      "icon": "assets/clipboardline.ico",
       "target": [
         {
           "target": "nsis",
@@ -98,6 +99,8 @@
       "artifactName": "ClipBoardLine-Setup-${version}-${arch}.${ext}"
     },
     "nsis": {
+      "installerIcon": "assets/clipboardline.ico",
+      "uninstallerIcon": "assets/clipboardline.ico",
       "oneClick": true,
       "perMachine": false,
       "allowElevation": false,
