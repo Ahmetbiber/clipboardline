@@ -28,7 +28,7 @@ module.exports=async function semanticImages({page,application,check,until,outpu
   const scoped=await query('a red circle',[ids[1]]);assert.ok(scoped.ids.every(id=>id===ids[1]));assert.ok(scoped.scores.every(value=>value.id===ids[1]));
   await page.evaluate(()=>window.clipboardLine.command('library'));await page.locator('[data-action="scope"][data-scope="recent"]').click();await page.keyboard.press('Control+1');await page.locator('#search-input').fill('a red circle');
   await until(()=>page.locator('.library-grid .card').getAttribute('data-item-id'),id=>id===ids[0],30000);assert.equal(await page.locator(`[data-item-id="${ids[1]}"]`).count(),0);
-  await page.locator('[data-action="toggle-filters"]').click();await page.locator('#search-mode-filter').selectOption('text');await until(()=>page.locator('.library-grid .card').count(),count=>count===0);await page.locator('#search-mode-filter').selectOption('visual');await page.locator(`[data-item-id="${ids[0]}"]`).waitFor({state:'visible'});
+  if(!await page.locator('#search-mode-filter').count())await page.locator('[data-action="toggle-filters"]').click();await page.locator('#search-mode-filter').selectOption('text');await until(()=>page.locator('.library-grid .card').count(),count=>count===0);await page.locator('#search-mode-filter').selectOption('visual');await page.locator(`[data-item-id="${ids[0]}"]`).waitFor({state:'visible'});
   check('Library uses real semantic results, keeps Text-only independent, and ranks only the current eligible image scope');
 
   await page.evaluate(id=>window.clipboardLine.command('trash',{ids:[id]}),ids[0]);
