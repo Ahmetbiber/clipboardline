@@ -7,6 +7,7 @@ const {execFileSync,spawn}=require('node:child_process');
 const {_electron:electron}=require('playwright');
 const {boundedFetch}=require('../lib/network.cjs');
 const {windowsEnvironment}=require('../lib/windows-environment.cjs');
+const {collectUpgradeFailure,observeInstallRequest}=require('./upgrade-failure-diagnostics.cjs');
 const pkg=require('../package.json');
 if(process.platform!=='win32'||process.env.GITHUB_ACTIONS!=='true')throw new Error('Run upgrade acceptance only on the disposable Windows GitHub runner.');
 const output=path.resolve(process.env.CLIPBOARDLINE_VALIDATION||'validation/upgrade');fs.mkdirSync(output,{recursive:true});
@@ -22,6 +23,7 @@ const previousSHA=previousProfile.sha256;
 const powershell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
 const report={sourceRevision:process.env.GITHUB_SHA,platform:process.platform,arch:process.arch,version:pkg.version,build:pkg.clipboardLineBuild||63,previousVersion,previousBuild,scope:'real-old-install-and-data -> corrected-client isolated signed fixture -> actual candidate NSIS replacement and automatic reopen',oldClientCodeModified:false,publicFeedChanged:false,productionKeyChanged:false,checks:[],startedAt:new Date().toISOString()};
 let application,installerObserver,observerOutput;
+let candidatePID=null,installRequestState={status:'not-requested'},candidatePhaseFile;
 const check=(name,details={})=>{report.checks.push({name,passed:true,...details});console.log('PASS '+name);};
 const hash=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 async function until(reader,predicate,timeout=120000){const end=Date.now()+timeout;let last;while(Date.now()<end){try{last=await reader();if(predicate(last))return last;}catch{}await new Promise(resolve=>setTimeout(resolve,300));}throw new Error('Timed out waiting for upgrade state: '+JSON.stringify(last));}
@@ -79,9 +81,15 @@ async function main(){
   const offer=await page.evaluate(()=>window.clipboardLine.command('checkUpdates'));assert.equal(offer.update.availableBuild,manifest.build);assert.equal(offer.update.availableVersion,pkg.version);assert.equal(offer.update.canInstall,true);
   report.fixture={actualClientVersion:pkg.version,actualClientBuild:pkg.clipboardLineBuild||63,simulatedInstalledVersion:previousVersion,simulatedInstalledBuild:previousBuild,testKeyInjectedOnlyIntoIsolatedMain:true,installerSHA256:candidateSHA,installerBytes:candidateSize};
   check('corrected candidate client verifies a dedicated local signed fixture and offers the exact candidate installer');
-  report.beforeInstallation=installDiagnostics();await startInstallerObserver(await application.evaluate(()=>process.pid),userdata);
+  candidatePhaseFile=path.join(temporary,'candidate-quit-phase.json');
+  candidatePID=await application.evaluate(({app},file)=>{
+    const fs=process.getBuiltinModule('node:fs'),h=global.__clipboardLineTest,phase={pid:process.pid,executable:process.execPath,argv:process.argv,events:[],startedAt:new Date().toISOString()};
+    const record=event=>{phase.events.push({event,at:new Date().toISOString(),updateStatus:h.getUpdates().state.status});try{fs.writeFileSync(file,JSON.stringify(phase));}catch{}};
+    record('observer-attached');app.on('before-quit',()=>record('before-quit'));app.on('will-quit',()=>record('will-quit'));h.getWindow().on('close',()=>record('window-close'));return process.pid;
+  },candidatePhaseFile);
+  report.candidateProcess={pid:candidatePID,executable:candidate};report.beforeInstallation=installDiagnostics();await startInstallerObserver(candidatePID,userdata);
   const closed=application.waitForEvent('close',{timeout:60000});
-  const request=page.evaluate(()=>window.clipboardLine.command('installUpdate')).then(result=>{if(result?.result?.error)throw new Error(result.result.error);return closed;}).catch(error=>{if(/closed|Target|destroyed/i.test(error.message))return closed;throw error;});
+  const request=observeInstallRequest(page.evaluate(()=>window.clipboardLine.command('installUpdate')),value=>installRequestState=value).then(result=>{if(result?.result?.error)throw new Error(result.result.error);return closed;}).catch(error=>{if(/closed|Target|destroyed/i.test(error.message))return closed;throw error;});
   await Promise.race([closed,request]);application=null;
   let reopened;try{reopened=await until(processInfo,rows=>rows.some(row=>row.commandLine?.includes('--updated')&&row.window&&String(row.version).startsWith(pkg.version)),180000);}finally{
     report.afterInstallation=installDiagnostics();try{report.installerProcess=JSON.parse(fs.readFileSync(observerOutput,'utf8'));}catch(error){report.installerProcess={error:String(error.message).slice(0,300)};}
@@ -99,6 +107,15 @@ async function main(){
   report.completedAt=new Date().toISOString();report.passed=true;
 }
 main().catch(error=>{report.passed=false;report.error=String(error.stack||error.message);console.error(report.error);process.exitCode=1;}).finally(async()=>{
+  report.installRequest=structuredClone(installRequestState);
+  fs.writeFileSync(path.join(output,'windows-upgrade.json'),JSON.stringify(report,null,2));
+  if(report.passed===false&&candidatePID){
+    report.failureDiagnostics=await collectUpgradeFailure({requestState:()=>installRequestState,
+      readMain:()=>application?application.evaluate(()=>{const fs=process.getBuiltinModule('node:fs'),h=global.__clipboardLineTest,u=h.getUpdates(),w=h.getWindow();let installer={path:u.installer,verifiedByClient:!!u.installer};if(u.installer)try{installer={...installer,exists:fs.existsSync(u.installer),bytes:fs.statSync(u.installer).size};}catch(error){installer.error=String(error.message).slice(0,500);}const destroyed=w.isDestroyed();return{pid:process.pid,executable:process.execPath,argv:process.argv,update:u.state,installer,window:{visible:!destroyed&&w.isVisible(),destroyed}};}):{error:'Candidate application is already closed'},
+      readPhase:()=>JSON.parse(fs.readFileSync(candidatePhaseFile,'utf8')),readObserver:()=>JSON.parse(fs.readFileSync(observerOutput,'utf8')),readInstallation:installDiagnostics,readProcesses:processInfo});
+    console.log('Upgrade failure phase diagnostics '+JSON.stringify(report.failureDiagnostics));
+    fs.writeFileSync(path.join(output,'windows-upgrade.json'),JSON.stringify(report,null,2));
+  }
   if(application)await application.close().catch(()=>{});
   if(installerObserver&&!installerObserver.killed)installerObserver.kill();
   // Stop only this fixture's installed process tree. Never target other paths.
