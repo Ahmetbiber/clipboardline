@@ -139,7 +139,7 @@ async function main(){
   await libraryPreview({page,application,check,until,output});
   await semanticImages({page,application,check,until,output});
   await nativeDrag({page,application,check});
-  await edgeConsumer({page,application,textItem,imageItem,check,until,report});
+  await edgeConsumer({page,application,textItem,imageItem,check,until,report,output});
   // An actual separate WinForms process owns the destination, so focus/paste
   // cannot pass by sending synthetic keys back to the Electron test window.
   await page.evaluate(()=>window.clipboardLine.command('hide'));

@@ -1,4 +1,4 @@
-param([ValidateSet('Capture','Restore','PreparePaste','ValidatePaste','Paste','Monitor','CopyImages')][string]$Mode)
+param([ValidateSet('Capture','CaptureDiagnostics','Restore','PreparePaste','ValidatePaste','Paste','Monitor','CopyImages')][string]$Mode)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -23,6 +23,26 @@ public static class ClipBoardLineNative {
   private static string lastFocus;
   private static AutomationFocusChangedEventHandler focusHandler;
   public static string FocusSnapshot() { return DescribeFocus(AutomationElement.FocusedElement,false); }
+  public static string FocusDiagnostics() {
+    var window=GetForegroundWindow();uint owner=0;GetWindowThreadProcessId(window,out owner);
+    var element=AutomationElement.FocusedElement;var entries=new System.Collections.Generic.List<string>();
+    // Capability metadata only: never Name, Value, text, selection or ranges.
+    for(int depth=0;element!=null&&depth<5;depth++) {
+      var current=element.Current;object value;bool hasValue=false,hasText=false,hasLegacy=false;string valueReadOnly="null",textReadOnly="null",legacyRole="null",legacyState="null";
+      if(current.IsEnabled&&!current.IsPassword) {
+        hasValue=element.TryGetCurrentPattern(ValuePattern.Pattern,out value);
+        if(hasValue)valueReadOnly=((ValuePattern)value).Current.IsReadOnly?"true":"false";
+        hasText=element.TryGetCurrentPattern(TextPattern.Pattern,out value);
+        if(hasText) { var readOnly=((TextPattern)value).DocumentRange.GetAttributeValue(TextPattern.IsReadOnlyAttribute);if(readOnly is bool)textReadOnly=(bool)readOnly?"true":"false"; }
+        hasLegacy=element.TryGetCurrentPattern(LegacyIAccessiblePattern.Pattern,out value);
+        if(hasLegacy) { var legacy=((LegacyIAccessiblePattern)value).Current;legacyRole=legacy.Role.ToString();legacyState=legacy.State.ToString(); }
+      }
+      entries.Add("{\"processId\":"+current.ProcessId+",\"runtime\":\""+String.Join(".",element.GetRuntimeId())+"\",\"controlType\":"+current.ControlType.Id+",\"nativeHandle\":"+current.NativeWindowHandle+",\"enabled\":"+(current.IsEnabled?"true":"false")+",\"secure\":"+(current.IsPassword?"true":"false")+",\"keyboardFocusable\":"+(current.IsKeyboardFocusable?"true":"false")+",\"keyboardFocused\":"+(current.HasKeyboardFocus?"true":"false")+",\"valuePattern\":"+(hasValue?"true":"false")+",\"valueReadOnly\":"+valueReadOnly+",\"textPattern\":"+(hasText?"true":"false")+",\"textReadOnly\":"+textReadOnly+",\"legacyPattern\":"+(hasLegacy?"true":"false")+",\"legacyRole\":"+legacyRole+",\"legacyState\":"+legacyState+"}");
+      element=TreeWalker.RawViewWalker.GetParent(element);
+    }
+    return "{\"ok\":true,\"handle\":\""+window.ToInt64()+"\",\"processId\":"+owner+",\"chain\":["+String.Join(",",entries)+"]}";
+  }
+
   private static string DescribeFocus(AutomationElement element,bool fromEvent) {
     var window=GetForegroundWindow(); uint owner=0; GetWindowThreadProcessId(window,out owner);
     bool editable=false,secure=false; string runtime="";
@@ -124,6 +144,8 @@ try {
       [ClipBoardLineNative]::EmitCurrentFocus()
       Start-Sleep -Milliseconds 250
     }
+  } elseif ($Mode -eq 'CaptureDiagnostics') {
+    [ClipBoardLineNative]::FocusDiagnostics()
   } elseif ($Mode -eq 'Capture') {
     FocusInfo | ConvertTo-Json -Compress
   } else {
