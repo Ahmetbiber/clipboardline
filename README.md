@@ -56,7 +56,7 @@ This table lists macOS defaults. The complete [Windows keymap](#windows-default-
 | `L` | Open Library | While shelves are focused. |
 | `Tab / ⇧Tab` | Switch active shelf | Shelves; both cycle the active row. |
 | `← / →` | Previous / next item | Shelves, Library and previews. |
-| `↑ / ↓` | Navigate rows or results | Shelf search: previous/next visible nonempty row. Shelf preview: switch row. Library: previous/next grid row (list: item); Library preview: previous/next result. Outside shelf search: previous/next item. |
+| `↑ / ↓` | Navigate rows or results | Shelves, with or without search or preview: previous/next visible nonempty row, preserving the item column and clamping to shorter rows. Library: previous/next grid row (list: item); Library preview: previous/next result. |
 | `⌘← / ⌘→` | First / last shelf item | Shelves and shelf-origin previews. |
 | `⌥← / ⌥→` | Previous / next shelf page | Moves between visible numbered pages; also in shelf previews. |
 | `1–9` | Select numbered visible card | Active shelf; numbers follow the viewport and filters. |
@@ -139,7 +139,7 @@ These are the Windows defaults, separate from the macOS table. Control replaces 
 | --- | --- | --- |
 | `L` | Open Library | From focused shelves or a shelf-origin preview. |
 | `← / →` | Previous / next item | Shelves, Library and previews; the preview changes in place. |
-| `↑ / ↓` | Move between rows or items | Shelf search / shelf preview: previous or next visible nonempty shelf. Library and its previews: grid row (list: item). Shelves outside search: previous / next item. |
+| `↑ / ↓` | Move between rows or items | Shelves, with or without search or preview: previous/next visible nonempty row, preserving the item column and clamping to shorter rows. Library and its previews: grid row (list: item). |
 | `Ctrl+← / Ctrl+→` | First / last result | Current shelf or Library result set, including previews. |
 | `Alt+← / Alt+→` | Previous / next page | Moves by the active shelf’s visible page size, up to nine cards, based on window width and card size. Library still jumps nine results. Works in previews. |
 | `Tab / Shift+Tab` | Cycle active shelf | Both cycle in the same direction. Shelves only; dialogs use normal focus traversal. |

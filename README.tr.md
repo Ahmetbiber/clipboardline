@@ -56,7 +56,7 @@ Bu tablo macOS varsayılanlarını gösterir. Aşağıdaki [Windows kısayol tab
 | `L` | Kütüphaneyi aç | Askılar odaktayken. |
 | `Tab / ⇧Tab` | Etkin askıyı değiştir | Askılarda; ikisi de etkin satırı döndürür. |
 | `← / →` | Önceki / sonraki öğe | Askılar, kütüphane ve önizlemeler. |
-| `↑ / ↓` | Satırlar veya sonuçlar arasında gezin | Askı aramasında önceki/sonraki görünür dolu satır. Askı önizlemesinde satır değiştirir. Kütüphanede ızgara satırı (listede öğe), kütüphane önizlemesinde önceki/sonraki sonuç. Askıda arama dışında önceki/sonraki öğe. |
+| `↑ / ↓` | Satırlar veya sonuçlar arasında gezin | Askılarda arama veya önizleme açıkken de kapalıyken de önceki/sonraki görünür dolu satıra geçer; öğe sütununu korur ve kısa satırın son öğesinde sınırlar. Kütüphanede ızgara satırı (listede öğe), kütüphane önizlemesinde önceki/sonraki sonuç. |
 | `⌘← / ⌘→` | Askıdaki ilk / son öğe | Askılar ve askıdan açılan önizlemeler. |
 | `⌥← / ⌥→` | Önceki / sonraki askı sayfası | Numaralı görünür sayfalar arasında geçer; askı önizlemesinde de çalışır. |
 | `1–9` | Numaralı görünür kartı seç | Etkin askı; numaralar görünür alanı ve filtreleri izler. |
@@ -139,7 +139,7 @@ Bunlar macOS tablosundan ayrı Windows varsayılanlarıdır. Command yerine Cont
 | --- | --- | --- |
 | `L` | Kütüphaneyi aç | Odaklı askılardan veya askıdan açılmış önizlemeden. |
 | `← / →` | Önceki / sonraki öğe | Askılar, kütüphane ve önizlemeler; önizleme yerinde değişir. |
-| `↑ / ↓` | Satırlar veya öğeler arasında gezin | Askı araması / askı önizlemesi: önceki veya sonraki görünür dolu askı. Kütüphane ve önizlemesi: ızgara satırı (listede öğe). Askıda arama dışında: önceki / sonraki öğe. |
+| `↑ / ↓` | Satırlar veya öğeler arasında gezin | Askılarda arama veya önizleme açıkken de kapalıyken de önceki/sonraki görünür dolu satıra geçer; öğe sütununu korur ve kısa satırın son öğesinde sınırlar. Kütüphane ve önizlemesi: ızgara satırı (listede öğe). |
 | `Ctrl+← / Ctrl+→` | İlk / son sonuç | Geçerli askı veya kütüphane sonuçları; önizlemeler dahil. |
 | `Alt+← / Alt+→` | Önceki / sonraki sayfa | Etkin askıda pencere genişliği ve kart boyutuna göre görünür sayfa kadar, en fazla dokuz kart ilerler. Kütüphanede dokuz sonuç atlar. Önizlemede çalışır. |
 | `Tab / Shift+Tab` | Etkin askıyı değiştir | İkisi de aynı yönde döner. Yalnızca askılar; pencerelerde normal odak geçişi kullanılır. |

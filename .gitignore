@@ -20,3 +20,6 @@ __pycache__/
 *.log
 test-results/
 playwright-report/
+
+# Generated acceptance evidence is local, never public source.
+validation/

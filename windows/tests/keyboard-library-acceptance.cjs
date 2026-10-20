@@ -11,11 +11,64 @@ module.exports=async function keyboardLibrary({page,application,textItem,folder,
     const text=h.store.insert('text','Shared search fixture result');ids.push(text.id);
     const link=h.store.insert('link','https://example.com/shared-search-fixture');ids.push(link.id);
     const width=240,height=140,bitmap=Buffer.alloc(width*height*4);for(let y=0;y<height;y++)for(let x=0;x<width;x++){const offset=(y*width+x)*4,accent=x>22&&x<218&&y>24&&y<116;bitmap[offset]=accent?130+Math.round(x/4):70;bitmap[offset+1]=accent?100+Math.round(y/2):150;bitmap[offset+2]=accent?90:90;bitmap[offset+3]=255;}
-    const image=h.store.insert('image',nativeImage.createFromBitmap(bitmap,{width,height}).toPNG());image.ocrText='Shared search fixture result';h.store.persist();ids.push(image.id);
+    for(let index=0;index<12;index++){const pixels=Buffer.from(bitmap);pixels[0]=index+1;const value=h.store.insert('image',nativeImage.createFromBitmap(pixels,{width,height}).toPNG());value.name='Navigation image '+index;ids.push(value.id);}
+    for(let index=0;index<10;index++)ids.push(h.store.insert('link','https://example.com/navigation-link/'+index).id);
+    const image=h.store.insert('image',nativeImage.createFromBitmap(bitmap,{width,height}).toPNG());image.ocrText='Shared search fixture result';image.note='Vertical-only fixture';link.note='Vertical-only fixture';h.store.persist();ids.push(image.id);
     return{ids,image:image.id,text:text.id,link:link.id};
   });
   const focus=()=>page.locator('[data-shelf="text"] .card.focused').getAttribute('data-item-id');
   await page.evaluate(()=>window.clipboardLine.command('show'));
+  const shelfSnapshot=()=>page.locator('.shelves').evaluate(node=>({active:node.querySelector('.active-shelf')?.dataset.shelf,focus:node.querySelector('.card.focused')?.dataset.itemId||null,selected:[...node.querySelectorAll('.card.selected')].map(card=>card.dataset.itemId),kinds:[...node.querySelectorAll('[data-shelf]')].map(row=>row.dataset.shelf)}));
+  const expectShelf=async(kind,id)=>{const snapshot=await until(shelfSnapshot,value=>value.active===kind&&value.focus===id&&value.selected.length===1&&value.selected[0]===id);assert.deepEqual(snapshot.selected,[id]);return snapshot;};
+  const reopen=async()=>{await page.evaluate(()=>window.clipboardLine.command('hide'));await page.evaluate(()=>window.clipboardLine.command('show'));};
+  const current=await page.evaluate(()=>window.clipboardLine.state()),orderedByKind=Object.fromEntries(['image','text','link'].map(kind=>[kind,current.items.filter(value=>value.kind===kind&&!value.trashedAt&&!value.hiddenFromShelf).sort((a,b)=>b.createdAt-a.createdAt)]));
+  await reopen();await expectShelf('image',orderedByKind.image[0].id);
+  check('fresh shelf reveal selects only the first image across all three visible rows');
+
+  await page.keyboard.press('Control+ArrowRight');const imageColumn=orderedByKind.image.length-1;await expectShelf('image',orderedByKind.image[imageColumn].id);
+  assert.ok(imageColumn>=9,'The native column check must cross the first numbered page');
+  await page.keyboard.press('ArrowDown');const textColumn=Math.min(imageColumn,orderedByKind.text.length-1);await expectShelf('text',orderedByKind.text[textColumn].id);
+  await page.keyboard.press('ArrowDown');const linkColumn=Math.min(textColumn,orderedByKind.link.length-1);await expectShelf('link',orderedByKind.link[linkColumn].id);
+  await page.keyboard.press('ArrowDown');await expectShelf('link',orderedByKind.link[linkColumn].id);
+  await page.keyboard.press('ArrowUp');await expectShelf('text',orderedByKind.text[linkColumn].id);
+  await page.keyboard.press('ArrowUp');await expectShelf('image',orderedByKind.image[linkColumn].id);
+  await page.keyboard.press('ArrowUp');await expectShelf('image',orderedByKind.image[linkColumn].id);
+  await page.keyboard.press('ArrowLeft');await expectShelf('image',orderedByKind.image[linkColumn-1].id);
+  await page.keyboard.press('ArrowRight');await expectShelf('image',orderedByKind.image[linkColumn].id);
+  check('closed-preview Up/Down cross visible rows by full filtered column, clamp without wrap and keep Left/Right in the row',{imageColumn,textColumn,linkColumn});
+
+  await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});
+  await page.keyboard.press('ArrowDown');await expectShelf('text',orderedByKind.text[linkColumn].id);
+  assert.equal(await page.locator('#preview-dialog .preview-text').textContent(),orderedByKind.text[linkColumn].text);
+  await page.keyboard.press('Enter');await until(()=>application.evaluate(()=>global.__clipboardLineTest.getWindow().isVisible()),visible=>!visible);
+  assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),orderedByKind.text[linkColumn].text);
+  await page.evaluate(()=>window.clipboardLine.command('show'));await expectShelf('image',orderedByKind.image[0].id);
+  await page.keyboard.press('Enter');await until(()=>application.evaluate(()=>global.__clipboardLineTest.getWindow().isVisible()),visible=>!visible);
+  assert.equal(await application.evaluate(async({clipboard})=>(await clipboard.read()).some(entry=>entry.types.includes('image/png'))),true);
+  await page.evaluate(()=>window.clipboardLine.command('show'));await expectShelf('image',orderedByKind.image[0].id);
+  check('Space preview follows the selected shelf and Enter copies actual text/image then reopening resets to the first image');
+
+  await page.keyboard.press('ArrowDown');await page.keyboard.press('ArrowRight');const kept=orderedByKind.text[1].id;await expectShelf('text',kept);
+  for(const key of ['Shift+i','Shift+i','Shift+l','Shift+l']){await page.keyboard.press(key);await expectShelf('text',kept);}
+  await page.keyboard.press('Shift+t');await expectShelf('image',orderedByKind.image[0].id);await page.keyboard.press('Shift+t');await expectShelf('image',orderedByKind.image[0].id);
+  check('enabling a shelf preserves the active item without adding another row selection; hiding its row chooses the first image');
+
+  await page.keyboard.press('Shift+s');await page.locator('#search-input').fill('vertical-only');await page.keyboard.press('ArrowLeft');assert.equal(await page.locator('#search-input').evaluate(element=>element===document.activeElement),true);
+  await page.keyboard.press('ArrowDown');await expectShelf('image',fixtures.image);
+  await page.keyboard.press('ArrowDown');await expectShelf('link',fixtures.link);await page.keyboard.press('ArrowUp');await expectShelf('image',fixtures.image);
+  await page.keyboard.press('Escape');await page.keyboard.press('Shift+t');await page.keyboard.press('ArrowDown');await expectShelf('link',orderedByKind.link[0].id);
+  await page.keyboard.press('Shift+t');await expectShelf('link',orderedByKind.link[0].id);
+  check('row arrows skip empty search results and hidden shelves while native search caret keys retain editor focus');
+
+  await reopen();await expectShelf('image',orderedByKind.image[0].id);await page.keyboard.press('Alt+ArrowRight');
+  await page.keyboard.press('Shift+s');await page.locator('#search-input').fill('Navigation fixture 00');
+  await reopen();await expectShelf('image',orderedByKind.image[0].id);assert.equal(await page.locator('.search-hud,.search-summary').count(),0);
+  await page.keyboard.press('1');await expectShelf('image',orderedByKind.image[0].id);
+  await page.keyboard.press('Shift+i');await reopen();await expectShelf('text',orderedByKind.text[0].id);
+  await page.keyboard.press('Shift+i');await expectShelf('text',orderedByKind.text[0].id);await reopen();await expectShelf('image',orderedByKind.image[0].id);
+  await page.locator('[data-action="pinned-kind"][data-kind="image"]').click();await reopen();await expectShelf('text',orderedByKind.text[0].id);
+  await page.locator('[data-action="pinned-kind"][data-kind="image"]').click();await reopen();await expectShelf('image',orderedByKind.image[0].id);
+  check('fresh reopen clears stale search/pages and uses the first visible nonempty shelf when images are hidden or filtered empty');
   const geometry=await page.evaluate(()=>({height:innerHeight,width:innerWidth,rows:[...document.querySelectorAll('[data-shelf]')].map(row=>{const box=row.getBoundingClientRect(),cards=row.querySelector('.cards').getBoundingClientRect();return{kind:row.dataset.shelf,top:box.top,bottom:box.bottom,numbers:[...row.querySelectorAll('.card-number')].map(number=>{const rect=number.getBoundingClientRect();return{left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,within:rect.left>=cards.left-2&&rect.right<=cards.right+2&&rect.top>=cards.top-2&&rect.bottom<=cards.bottom+2};})};})}));
   assert.equal(geometry.rows.length,3);for(const row of geometry.rows){assert.ok(row.top>=-1&&row.bottom<=geometry.height+1,JSON.stringify(geometry));assert.ok(row.numbers.every(number=>number.within),JSON.stringify(row));}
   await page.screenshot({path:path.join(output,'shelves-all-kinds.png')});

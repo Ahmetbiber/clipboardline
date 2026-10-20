@@ -13,9 +13,12 @@ const output=path.resolve(process.env.CLIPBOARDLINE_VALIDATION||'validation/upgr
 const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-upgrade-'));
 const installer=path.resolve('dist',`ClipBoardLine-Setup-${pkg.version}-x64.exe`),candidate=path.resolve('dist/win-unpacked/ClipBoardLine.exe');
 const installedDirectory=path.join(temporary,'installed'),installed=path.join(installedDirectory,'ClipBoardLine.exe');
-const previousVersion=pkg.version==='1.7.2'?'1.7.1':'1.7.0',previousBuild=pkg.version==='1.7.2'?63:62;
+const upgradeProfiles={63:{version:'1.7.0',build:62,sha256:'0f6f1aa59a406b5d7d2e2a64eb1dc1797fde4fc205e8781eb381645137923541'},64:{version:'1.7.1',build:63,sha256:'f8e45afd1ce3ae4d5bbe1c6f355697cbe9f258e5297685a49d94cd05644631b1'},65:{version:'1.7.2',build:64,sha256:'6bd6d9cb53efbb343e35e59206ee220166fc0c8838811cd03c241a340c3e583b'}};
+const previousProfile=upgradeProfiles[pkg.clipboardLineBuild];
+assert.ok(previousProfile,'The candidate needs a reviewed, pinned previous-installation profile.');
+const previousVersion=previousProfile.version,previousBuild=previousProfile.build;
 const previousURL=`https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-${previousVersion}-build${previousBuild}/ClipBoardLine-Setup-${previousVersion}-x64.exe`;
-const previousSHA=previousBuild===63?'f8e45afd1ce3ae4d5bbe1c6f355697cbe9f258e5297685a49d94cd05644631b1':'0f6f1aa59a406b5d7d2e2a64eb1dc1797fde4fc205e8781eb381645137923541';
+const previousSHA=previousProfile.sha256;
 const powershell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
 const report={sourceRevision:process.env.GITHUB_SHA,platform:process.platform,arch:process.arch,version:pkg.version,build:pkg.clipboardLineBuild||63,previousVersion,previousBuild,scope:'real-old-install-and-data -> corrected-client isolated signed fixture -> actual candidate NSIS replacement and automatic reopen',oldClientCodeModified:false,publicFeedChanged:false,productionKeyChanged:false,checks:[],startedAt:new Date().toISOString()};
 let application,installerObserver,observerOutput;

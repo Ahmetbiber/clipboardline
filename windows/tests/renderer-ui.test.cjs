@@ -6,6 +6,8 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
+const crypto=require('node:crypto');
+const {execFileSync}=require('node:child_process');
 
 function fixture(){
  const listeners=new Map(),nodes=new Map(),commands=[],imageLoads=[];let exportFailures=0;
@@ -33,6 +35,7 @@ function fixture(){
  const api={emit(patch){Object.assign(state,patch);subscriber?.(clone(state));},state:async()=>clone(state),subscribe(fn){subscriber=fn;return()=>{};},async command(action,payload={}){commands.push({action,payload:clone(payload)});const selected=state.items.filter(item=>(payload.ids||[payload.id]).includes(item.id));
   let cleanupError;if(action==='cleanup'){if(cleanupFailures){cleanupFailures--;cleanupError='Permanent deletion cleanup is still pending.';}else state.needsDeletionCleanup=false;}
   if(action==='editText'){if(editFailures){editFailures--;cleanupError='Synthetic draft write failure';}else selected.forEach(item=>item.text=payload.text);}
+  if(action==='setSettings'){const patch=payload.patch||{};state.settings={...state.settings,...patch,localShortcuts:{...state.settings.localShortcuts,...patch.localShortcuts}};}
   if(action==='saveImage')selected.forEach(item=>{item.crop=clone(payload.crop);item.annotations=clone(payload.annotations);});
   if(action==='pin')selected.forEach(item=>item.pinned=typeof payload.value==='boolean'?payload.value:!item.pinned);
   if(action==='name')selected.forEach(item=>{item.name=payload.name;item.pinned=true;});
@@ -46,14 +49,19 @@ function fixture(){
  const context={window:{clipboardLine:api,addEventListener(){}},document,HTMLElement:Element,HTMLTextAreaElement:TextArea,Image:FixtureImage,console,structuredClone,URL,Set,Date,JSON,Math,Number,String,requestAnimationFrame:fn=>fn(),setTimeout:fn=>{queueMicrotask(fn);return 1;},clearTimeout(){}};
  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../renderer.js'),'utf8'),context,{filename:'renderer.js'});
  async function ready(){await new Promise(setImmediate);}
- async function key(code,{ctrl=false,alt=false,shift=false,key}={}){const event={code,key:key||(/^Key/.test(code)?code.slice(3).toLowerCase():code==='Space'?' ':code),ctrlKey:ctrl,metaKey:false,altKey:alt,shiftKey:shift,repeat:false,target:new Element(),preventDefault(){this.prevented=true;}};for(const listener of listeners.get('keydown')||[])await listener(event);await ready();return event;}
+ async function key(code,{ctrl=false,alt=false,shift=false,key,target}={}){const event={code,key:key||(/^Key/.test(code)?code.slice(3).toLowerCase():code==='Space'?' ':code),ctrlKey:ctrl,metaKey:false,altKey:alt,shiftKey:shift,repeat:false,target:target||new Element(),preventDefault(){this.prevented=true;}};for(const listener of listeners.get('keydown')||[])await listener(event);await ready();return event;}
  async function click(action,extra={}){const target=new Element();target.dataset.action=action;Object.assign(target.dataset,extra);target.closest=selector=>selector==='[data-action]'?target:null;for(const listener of listeners.get('click')||[])listener({target,stopPropagation(){}});await ready();}
  async function pointer(type,x,y){const target=document.getElementById('markup-canvas');for(const listener of listeners.get(type)||[])listener({target,clientX:x,clientY:y,pointerId:1,shiftKey:false,preventDefault(){}});await ready();}
  async function input(id,value){const target=document.getElementById(id);target.value=value;target.selectionStart=value.length;for(const listener of listeners.get('input')||[])await listener({target});await ready();}
  return{ready,key,input,click,pointer,imageLoads,failExportOnce(){exportFailures++;},failCleanupOnce(){cleanupFailures++;},failEditOnce(){editFailures++;},state,commands,nodes,image,text1,text2,link,api,get main(){return nodes.get('app').innerHTML;},get overlay(){return nodes.get('overlay-root').innerHTML;}};
 }
 
-test('fresh shelves select the first item; P pins it; Space previews it',async()=>{const f=fixture();await f.ready();assert.match(f.main,/card kind-image focused selected/);await f.key('KeyP');assert.equal(f.state.items[0].pinned,true);await f.key('Space');assert.match(f.overlay,/id="preview-dialog"/);assert.match(f.overlay,/aria-label="Synthetic image"/);});
+function selectedCards(f){return [...f.main.matchAll(/<article class="([^"]*)"[^>]*data-item-id="([^"]+)"/g)].filter(match=>match[1].split(' ').includes('selected')).map(match=>match[2]);}
+function activeKind(f){return f.main.match(/class="shelf active-shelf" data-shelf="([^"]+)"/)?.[1];}
+function focusedCard(f){return [...f.main.matchAll(/<article class="([^"]*)"[^>]*data-item-id="([^"]+)"/g)].find(match=>match[1].split(' ').includes('focused'))?.[2];}
+function navigationItems(f,{image=13,text=11,link=10}={}){let serial=0;const values={};for(const [kind,count]of Object.entries({image,text,link})){const source=f.state.items.find(value=>value.kind===kind);values[kind]=Array.from({length:count},(_,index)=>({...structuredClone(source),id:'10000000-0000-4000-8000-'+String(++serial).padStart(12,'0'),createdAt:10000-index,name:kind==='image'?'Navigation image '+index:'',text:kind==='text'?'Navigation text '+index:'',title:kind==='link'?'Navigation link '+index:'',url:kind==='link'?'https://example.com/navigation/'+index:''}));}return values;}
+
+test('fresh shelves select only the first image; P pins it; Space previews it',async()=>{const f=fixture();await f.ready();assert.match(f.main,/card kind-image focused selected/);assert.deepEqual(selectedCards(f),[f.image]);await f.key('KeyP');assert.equal(f.state.items[0].pinned,true);await f.key('Space');assert.match(f.overlay,/id="preview-dialog"/);assert.match(f.overlay,/aria-label="Synthetic image"/);});
 
 test('preview arrows move across shelf kinds, S keeps preview on neighbor, Backspace restores',async()=>{const f=fixture();await f.ready();await f.key('Space');await f.key('ArrowDown');assert.match(f.overlay,/aria-label="Text one"/);await f.key('KeyS');assert.match(f.overlay,/aria-label="Text two"/);assert.ok(f.state.items.find(item=>item.id===f.text1).trashedAt);await f.key('Backspace');assert.match(f.overlay,/aria-label="Text one"/);assert.equal(f.state.items.find(item=>item.id===f.text1).trashedAt,null);});
 
@@ -63,7 +71,7 @@ test('L opens Library; CtrlK action search closes with Escape',async()=>{const f
 
 test('AltP sequential naming saves one then advances and Escape leaves remaining item unchanged',async()=>{const f=fixture();await f.ready();await f.key('Tab');await f.key('KeyA',{ctrl:true});await f.key('KeyP',{alt:true});assert.match(f.overlay,/1 \/ 2/);await f.input('name-input','First named note');await f.key('Enter');assert.equal(f.state.items.find(item=>item.id===f.text1).name,'First named note');assert.equal(f.state.items.find(item=>item.id===f.text1).pinned,true);assert.match(f.overlay,/2 \/ 2/);await f.key('Escape');assert.equal(f.state.items.find(item=>item.id===f.text2).name,'');assert.equal(f.state.items.find(item=>item.id===f.text2).pinned,false);});
 
-test('ShiftS searches enabled rows and native show reselects first item',async()=>{const f=fixture();await f.ready();await f.key('KeyS',{shift:true});await f.input('search-input','Text two');assert.match(f.main,/Text two/);assert.doesNotMatch(f.main,/Text one/);await f.key('Escape');await f.key('Tab');await f.key('ArrowRight');assert.match(f.main,/card kind-text focused selected[^>]*data-item-id="00000000-0000-4000-8000-000000000003"/);await f.key('Enter');await f.api.command('show');await f.ready();assert.match(f.main,/card kind-text focused selected[^>]*data-item-id="00000000-0000-4000-8000-000000000002"/);});
+test('ShiftS searches enabled rows and native reopen resets to only the first image',async()=>{const f=fixture();await f.ready();await f.key('KeyS',{shift:true});await f.input('search-input','Text two');assert.match(f.main,/Text two/);assert.doesNotMatch(f.main,/Text one/);await f.key('Escape');await f.key('Tab');await f.key('ArrowRight');assert.match(f.main,/card kind-text focused selected[^>]*data-item-id="00000000-0000-4000-8000-000000000003"/);await f.key('Enter');await f.api.command('show');await f.ready();assert.equal(activeKind(f),'image');assert.deepEqual(selectedCards(f),[f.image]);});
 
 
 test('Settings retries pending deletion cleanup without clearing failure or deleting another record',async()=>{const f=fixture();await f.ready();await f.api.command('settings');await f.ready();assert.doesNotMatch(f.main,/data-action="retry-cleanup"/);const original=f.state.items.map(item=>item.id);f.state.needsDeletionCleanup=true;await f.api.command('settings');await f.ready();assert.match(f.main,/data-action="retry-cleanup"/);f.failCleanupOnce();await f.click('retry-cleanup');assert.equal(f.commands.at(-1).action,'cleanup');assert.deepEqual(f.commands.at(-1).payload,{});assert.equal(f.state.needsDeletionCleanup,true);assert.match(f.main,/data-action="retry-cleanup"/);assert.deepEqual(f.state.items.map(item=>item.id),original);await f.click('retry-cleanup');assert.equal(f.state.needsDeletionCleanup,false);assert.doesNotMatch(f.main,/data-action="retry-cleanup"/);assert.deepEqual(f.state.items.map(item=>item.id),original);});
@@ -147,6 +155,102 @@ test('fresh focus skips empty or disabled kinds and safely handles every shelf e
  f.api.emit({items:[]});await f.api.command('show');await f.ready();
  const commands=f.commands.length;await f.key('Space');await f.key('Enter');
  assert.equal(f.overlay,'');assert.equal(f.commands.length,commands);
+});
+
+test('closed preview arrows cross shelves by full item column, clamp without wrapping, and keep Left/Right horizontal',async()=>{
+ const f=fixture();await f.ready();const values=navigationItems(f);f.api.emit({items:Object.values(values).flat()});await f.ready();
+ await f.key('ArrowRight',{ctrl:true});assert.equal(focusedCard(f),values.image[12].id);
+ await f.key('ArrowDown');assert.equal(activeKind(f),'text');assert.deepEqual(selectedCards(f),[values.text[10].id]);
+ await f.key('ArrowDown');assert.equal(activeKind(f),'link');assert.deepEqual(selectedCards(f),[values.link[9].id]);
+ await f.key('ArrowDown');assert.equal(focusedCard(f),values.link[9].id);
+ await f.key('ArrowUp');assert.equal(activeKind(f),'text');assert.deepEqual(selectedCards(f),[values.text[9].id]);
+ await f.key('ArrowUp');assert.equal(activeKind(f),'image');assert.deepEqual(selectedCards(f),[values.image[9].id]);
+ await f.key('ArrowUp');assert.equal(focusedCard(f),values.image[9].id);
+ await f.key('ArrowLeft');assert.equal(activeKind(f),'image');assert.equal(focusedCard(f),values.image[8].id);
+ await f.key('ArrowRight');assert.equal(focusedCard(f),values.image[9].id);assert.equal(f.overlay,'');
+});
+
+test('vertical navigation skips filtered empty and hidden shelves and Space/Enter use the destination',async()=>{
+ const f=fixture();await f.ready();await f.click('pinned-kind',{kind:'text'});await f.click('activate-shelf',{kind:'image'});
+ await f.key('ArrowDown');assert.equal(activeKind(f),'link');assert.deepEqual(selectedCards(f),[f.link]);
+ await f.key('Space');assert.match(f.overlay,/aria-label="Reference link"/);
+ await f.key('ArrowUp');assert.match(f.overlay,/aria-label="Synthetic image"/);assert.deepEqual(selectedCards(f),[f.image]);
+ await f.key('Escape');await f.key('KeyL',{shift:true});await f.key('ArrowDown');assert.equal(activeKind(f),'image');assert.deepEqual(selectedCards(f),[f.image]);
+ assert.doesNotMatch(f.main,/data-shelf="link"/);await f.key('Enter');assert.deepEqual(f.commands.at(-1).payload.ids,[f.image]);assert.equal(f.state.windowVisible,false);
+});
+
+test('row toggles preserve the active batch and enabling other shelves adds no selection',async()=>{
+ const f=fixture();await f.ready();await f.key('ArrowDown');await f.key('ArrowRight');await f.key('KeyA',{ctrl:true});
+ assert.deepEqual(selectedCards(f),[f.text1,f.text2]);
+ for(const action of ['KeyL','KeyL','KeyI','KeyI']){await f.key(action,{shift:true});assert.equal(activeKind(f),'text');assert.equal(focusedCard(f),f.text2);assert.deepEqual(selectedCards(f),[f.text1,f.text2]);}
+ await f.key('KeyT',{shift:true});assert.equal(activeKind(f),'image');assert.deepEqual(selectedCards(f),[f.image]);
+ await f.key('KeyT',{shift:true});assert.deepEqual(selectedCards(f),[f.image]);assert.equal(activeKind(f),'image');
+});
+
+test('fresh native reveal clears stale search, quick pages and selection then prefers images',async()=>{
+ const f=fixture();await f.ready();const values=navigationItems(f);f.api.emit({items:Object.values(values).flat()});await f.ready();
+ await f.key('ArrowRight',{alt:true});assert.notEqual(focusedCard(f),values.image[0].id);
+ await f.key('KeyS',{shift:true});await f.input('search-input','Navigation text 10');assert.match(f.main,/Navigation text 10/);
+ await f.api.command('hide');await f.api.command('show');await f.ready();
+ assert.equal(activeKind(f),'image');assert.deepEqual(selectedCards(f),[values.image[0].id]);assert.doesNotMatch(f.main,/search-hud|search-summary/);
+ await f.key('Digit1');assert.equal(focusedCard(f),values.image[0].id);
+ await f.key('ArrowDown');assert.deepEqual(selectedCards(f),[values.text[0].id]);
+ await f.key('Space');assert.match(f.overlay,/aria-label="Navigation text 0"/);await f.key('Enter');assert.deepEqual(f.commands.at(-1).payload.ids,[values.text[0].id]);
+});
+
+test('hidden or filtered images use first visible nonempty shelf and reopening never keeps a text default when images return',async()=>{
+ const f=fixture();await f.ready();await f.key('KeyI',{shift:true});assert.equal(activeKind(f),'text');assert.deepEqual(selectedCards(f),[f.text1]);
+ await f.api.command('hide');await f.api.command('show');await f.ready();assert.equal(activeKind(f),'text');assert.deepEqual(selectedCards(f),[f.text1]);
+ await f.key('KeyI',{shift:true});assert.equal(activeKind(f),'text');assert.deepEqual(selectedCards(f),[f.text1]);
+ await f.api.command('hide');await f.api.command('show');await f.ready();assert.equal(activeKind(f),'image');assert.deepEqual(selectedCards(f),[f.image]);
+ await f.click('pinned-kind',{kind:'image'});await f.api.command('hide');await f.api.command('show');await f.ready();assert.equal(activeKind(f),'text');assert.deepEqual(selectedCards(f),[f.text1]);
+});
+
+test('native search typing stays in its editor and Shift arrows extend only the current row',async()=>{
+ const f=fixture();await f.ready();await f.key('ArrowDown');await f.key('ArrowDown',{shift:true});assert.equal(activeKind(f),'text');assert.deepEqual(selectedCards(f),[f.text1,f.text2]);
+ await f.key('KeyS',{shift:true});const editor=f.nodes.get('search-input');editor.matches=selector=>selector.includes('input');
+ const before=f.commands.length;for(const code of ['Space','ArrowLeft','ArrowRight'])assert.equal((await f.key(code,{target:editor})).prevented,undefined);
+ assert.equal(f.commands.length,before);assert.equal(activeKind(f),'text');assert.equal(f.overlay,'');
+ await f.input('search-input','Text');await f.key('Enter',{target:editor});assert.equal(activeKind(f),'text');assert.deepEqual(selectedCards(f),[f.text1]);
+ await f.key('ArrowDown');assert.equal(activeKind(f),'text','Empty result shelves do not wrap');
+});
+
+test('shared macOS/Windows shelf contract runs through actual renderer handlers',async()=>{
+ const contractFile=path.resolve(__dirname,'../../contracts/shelf-behavior.json'),raw=fs.readFileSync(contractFile),contract=JSON.parse(raw);
+ assert.equal(contract.schemaVersion,1);assert.equal(contract.contractId,'clipboardline.shelves.v1');
+ const observations=[],errors=[];
+ for(const scenario of contract.scenarios){
+  const f=fixture();await f.ready();const aliases=new Map(),values=contract.itemSets[scenario.itemSet].map((entry,index)=>{
+   const id='20000000-0000-4000-8000-'+String(index+1).padStart(12,'0');aliases.set(id,entry.id);
+   const source=f.state.items.find(value=>value.kind===entry.kind);
+   return{...structuredClone(source),id,createdAt:10000-index,name:entry.kind==='image'?entry.text:'',text:entry.kind==='text'?entry.text:'',title:entry.kind==='link'?entry.text:'',url:entry.kind==='link'?'https://example.com/contract/'+entry.id:''};
+  });
+  f.api.emit({items:values,settings:{...f.state.settings,visibleKinds:scenario.visibleKinds}});await f.ready();
+  for(const kind of scenario.pinnedOnlyKinds||[])await f.click('pinned-kind',{kind});
+  await f.api.command('hide');await f.ready();
+  for(let index=0;index<scenario.steps.length;index++){
+   const step=scenario.steps[index];const editor=f.nodes.get('search-input');if(editor)editor.matches=selector=>selector.includes('input');
+   const searchEditing=/class="search-hud"/.test(f.main);
+   if(step.action==='open')await f.api.command('show');
+   else if(step.action==='close')await f.api.command('hide');
+   else if(['up','down','left','right'].includes(step.action))await f.key({up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight'}[step.action],searchEditing?{target:editor}:{});
+   else if(step.action==='toggle')await f.key({image:'KeyI',text:'KeyT',link:'KeyL'}[step.kind],{shift:true});
+   else if(step.action==='openSearch')await f.key('KeyS',{shift:true});
+   else if(step.action==='finishSearch')await f.key('Enter',{target:editor});
+   else throw new Error('Unsupported shared contract action: '+step.action);
+   await f.ready();
+   const actual={activeKind:activeKind(f),focused:aliases.get(focusedCard(f))||null,selected:selectedCards(f).map(id=>aliases.get(id)||id).sort(),visibleKinds:[...f.main.matchAll(/<section class="shelf(?: active-shelf)?\s*" data-shelf="([^"]+)"/g)].map(match=>match[1]),searchEditing:/class="search-hud"/.test(f.main)};
+   observations.push({scenarioId:scenario.id,step:index,actual});
+   try{assert.deepEqual(actual,step.expect);}catch(error){errors.push(scenario.id+' step '+index+': '+error.message);}
+  }
+ }
+ if(process.env.CLIPBOARDLINE_PARITY_REPORT){
+  const revision=process.env.GITHUB_SHA||execFileSync('git',['rev-parse','HEAD'],{cwd:path.resolve(__dirname,'../..'),encoding:'utf8'}).trim();
+  const implementationSHA256=crypto.createHash('sha256').update(fs.readFileSync(path.resolve(__dirname,'../renderer.js'))).digest('hex');
+  const report={schemaVersion:1,contractId:contract.contractId,platform:'windows',hostPlatform:process.platform,mode:'renderer',sourceRevision:revision,contractSHA256:crypto.createHash('sha256').update(raw).digest('hex'),implementationSHA256,implementationFiles:{'windows/renderer.js':implementationSHA256},observations,passed:errors.length===0,errors};
+  fs.mkdirSync(path.dirname(path.resolve(process.env.CLIPBOARDLINE_PARITY_REPORT)),{recursive:true});fs.writeFileSync(process.env.CLIPBOARDLINE_PARITY_REPORT,JSON.stringify(report,null,2)+'\n');
+ }
+ assert.deepEqual(errors,[]);
 });
 
 test('folder menu arrows retain folder operations and Enter creates a subfolder under the chosen folder',async()=>{

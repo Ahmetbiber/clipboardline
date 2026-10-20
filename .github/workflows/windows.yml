@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['windows/**', '.github/workflows/windows.yml']
+    paths: ['windows/**', 'Sources/**', 'Tests/**', 'contracts/**', 'scripts/check-cross-platform-parity.py', 'scripts/test-cross-platform-parity.py', '.github/workflows/macos.yml', '.github/workflows/windows.yml']
   pull_request:
-    paths: ['windows/**', '.github/workflows/windows.yml']
+    paths: ['windows/**', 'Sources/**', 'Tests/**', 'contracts/**', 'scripts/check-cross-platform-parity.py', 'scripts/test-cross-platform-parity.py', '.github/workflows/macos.yml', '.github/workflows/windows.yml']
 permissions:
   contents: read
 jobs:
@@ -27,10 +27,16 @@ jobs:
           cache-dependency-path: windows/package-lock.json
       - name: Install pinned dependencies
         run: npm ci --no-fund
+      - name: Shared version and parity guard tests
+        run: |
+          python ../scripts/check-release-version.py --require-windows
+          python ../scripts/test-cross-platform-parity.py
       - name: Audit dependencies and run model/security tests
         run: |
           npm audit --audit-level=moderate
           npm test
+        env:
+          CLIPBOARDLINE_PARITY_REPORT: validation/parity/windows.json
       - name: Real Windows Electron runtime acceptance
         run: npm run test:electron
         env:
