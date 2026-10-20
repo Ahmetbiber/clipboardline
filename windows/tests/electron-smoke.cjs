@@ -92,12 +92,19 @@ async function main(){
   // redrawn from the original before measuring or sending a crop gesture.
   await page.waitForFunction(()=>{const canvas=document.getElementById('markup-canvas');return canvas?.width===900&&canvas.height===220;});check('narrow preview keeps navigation and close controls visible and hit-testable');
   const box=await waitForCropBox(page,previewBounds);assert.ok(box.width>100&&box.height>30,JSON.stringify(box));
-  await page.mouse.move(box.x+box.width*.60,box.y+box.height*.20);await page.mouse.down();await page.mouse.move(box.x+box.width*.90,box.y+box.height*.80,{steps:6});await page.mouse.up();
+  await page.evaluate(()=>{window.__cropPointerDiagnostics=[];window.__nativeCropCanvas=null;for(const type of ['pointerdown','pointermove','pointerup'])document.addEventListener(type,event=>{if(type==='pointerdown'&&event.target.id==='markup-canvas')window.__nativeCropCanvas=event.target;if(!window.__nativeCropCanvas)return;const canvas=document.getElementById('markup-canvas'),rect=canvas?.getBoundingClientRect();window.__cropPointerDiagnostics.push({type,x:event.clientX,y:event.clientY,sameCanvas:canvas===window.__nativeCropCanvas,raster:canvas?{width:canvas.width,height:canvas.height}:null,box:rect?{x:rect.x,y:rect.y,width:rect.width,height:rect.height}:null,viewport:{width:innerWidth,height:innerHeight}});},{capture:true});});
+  await page.mouse.move(box.x+box.width*.60,box.y+box.height*.20);await page.mouse.down();
+  // Semantic indexing and OCR can emit state while a real gesture is in flight.
+  // Deliberately deliver one; the editor must retain its live canvas and size.
+  await page.evaluate(()=>window.clipboardLine.command('setSettings',{patch:{captureText:true}}));
+  assert.equal(await page.evaluate(()=>document.getElementById('markup-canvas')===window.__nativeCropCanvas),true,'State broadcasts must not replace a canvas during its pointer gesture');
+  await page.mouse.move(box.x+box.width*.90,box.y+box.height*.80,{steps:6});await page.mouse.up();
+  const cropPointerDiagnostics=await page.evaluate(()=>{const events=window.__cropPointerDiagnostics;window.__nativeCropCanvas=null;return events;});
   const exportable=await canvas.evaluate(element=>{try{return{png:element.toDataURL('image/png').startsWith('data:image/png;base64,')};}catch(error){return{error:error.name+': '+error.message};}});assert.equal(exportable.png,true,JSON.stringify(exportable));
   await page.screenshot({path:path.join(output,'synthetic-crop.png')});
   await page.keyboard.press('Enter');await canvas.waitFor({state:'hidden'});
   const cropped=(await page.evaluate(()=>window.clipboardLine.state())).items.find(value=>value.id===imageItem.id);assert.ok(cropped.crop);
-  for(const [key,expected]of Object.entries({x:540,y:44,width:270,height:132}))assert.ok(Math.abs(cropped.crop[key]-expected)<=2,JSON.stringify(cropped.crop));
+  for(const [key,expected]of Object.entries({x:540,y:44,width:270,height:132}))assert.ok(Math.abs(cropped.crop[key]-expected)<=2,JSON.stringify({crop:cropped.crop,box,events:cropPointerDiagnostics}));
   const raster=await application.evaluate(async({net,nativeImage},{current,original})=>{const read=async url=>nativeImage.createFromBuffer(Buffer.from(await(await net.fetch(url)).arrayBuffer())).getSize();return{current:await read(current),original:await read(original)};},{current:cropped.mediaUrl,original:cropped.originalMediaUrl});
   assert.deepEqual(raster.current,{width:cropped.crop.width,height:cropped.crop.height});assert.deepEqual(raster.original,{width:900,height:220});
   await page.keyboard.press('Escape');await page.locator('#preview-dialog').waitFor({state:'hidden'});check('real crop canvas drag saves original-coordinate bounds and cropped raster');

@@ -13,6 +13,7 @@ function fixture({deferInitialState=false,initialVisible=true}={}){
  const listeners=new Map(),nodes=new Map(),commands=[],imageLoads=[];let exportFailures=0;
  class Element{
   constructor(id=''){this.id=id;this.innerHTML='';this.textContent='';this.dataset={};this.style={};this.className='';this.value='';this.selectionStart=0;this.selectionEnd=0;this.classList={add(){},remove(){},contains(){return false;}};}
+  set innerHTML(value){this.htmlWrites=(this.htmlWrites||0)+1;this._innerHTML=value;}get innerHTML(){return this._innerHTML;}
   setAttribute(){}querySelector(){return null;}querySelectorAll(){return [];}focus(){}blur(){}select(){}setSelectionRange(){}scrollIntoView(){}matches(){return false;}closest(){return null;}
  }
  class TextArea extends Element{}
@@ -206,4 +207,10 @@ test('canceling multiple crop gestures restores the previous markup undo history
 
 test('failed crop apply retries do not duplicate the crop undo transaction',async()=>{
  const f=fixture();await f.ready();await f.key('Space');await f.key('KeyC');await f.pointer('pointerdown',60,30);await f.pointer('pointermove',500,150);await f.pointer('pointerup',500,150);f.failExportOnce();await f.key('Enter');assert.match(f.overlay,/markup-canvas/);await f.key('Enter');assert.deepEqual(f.state.items[0].crop,{x:60,y:30,width:440,height:120});await f.key('KeyZ',{ctrl:true});assert.equal(f.state.items[0].crop,null);const saved=f.commands.filter(value=>value.action==='saveImage').length;await f.key('KeyZ',{ctrl:true});assert.equal(f.commands.filter(value=>value.action==='saveImage').length,saved,'A failed apply must not leave another crop checkpoint');
+});
+
+
+test('background indexing broadcasts preserve the active canvas until the pointer transaction ends',async()=>{
+ const f=fixture();await f.ready();await f.key('Space');await f.key('KeyC');assert.match(f.overlay,/id="markup-canvas" width="900" height="220"/);await f.pointer('pointerdown',540,44);const overlay=f.nodes.get('overlay-root'),writes=overlay.htmlWrites;f.api.emit({imageSearch:{available:true,indexing:true,revision:10}});await f.ready();assert.equal(overlay.htmlWrites,writes,'A background state packet must not replace the canvas during its gesture');await f.pointer('pointermove',810,176);await f.pointer('pointerup',810,176);assert.ok(overlay.htmlWrites>writes,'The toolbar receives deferred updates after the gesture');await f.key('Enter');assert.deepEqual(f.state.items[0].crop,{x:540,y:44,width:270,height:132});
+ await f.key('KeyM');await f.key('KeyR');await f.pointer('pointerdown',20,20);const drawingWrites=overlay.htmlWrites;f.api.emit({imageSearch:{available:true,indexing:false,revision:11}});await f.ready();assert.equal(overlay.htmlWrites,drawingWrites);await f.pointer('pointermove',120,80);await f.pointer('pointerup',120,80);await f.click('save-image');assert.equal(f.state.items[0].annotations.length,1);assert.equal(f.state.items[0].annotations[0].width,100);
 });
