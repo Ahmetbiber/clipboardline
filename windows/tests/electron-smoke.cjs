@@ -135,6 +135,25 @@ async function main(){
   await until(fixtureState,s=>s.ready);
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const target=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(target?.editable&&!target?.secure,JSON.stringify(target));
+  // Hold a real native restore in flight so reopening races with Enter in a
+  // deterministic way. No fake focus result or timeout can satisfy this case.
+  await application.evaluate(()=>{const h=global.__clipboardLineTest,original=h.native.restore;let release;const gate=new Promise(resolve=>{release=resolve;});global.__rapidReopen={started:false,settled:false,original,release};h.native.restore=async target=>{global.__rapidReopen.started=true;await gate;return original(target);};});
+  try{
+    await page.keyboard.press('ArrowDown');await until(()=>page.locator('[data-shelf="text"] .card.focused').getAttribute('data-item-id'),id=>id===textItem.id);
+    await page.keyboard.press('Enter');
+    await until(()=>application.evaluate(()=>({started:global.__rapidReopen.started,visible:global.__clipboardLineTest.getWindow().isVisible()})),value=>value.started&&!value.visible);
+    const blocked=await application.evaluate(()=>{const h=global.__clipboardLineTest;global.__rapidReopen.reopen=h.command('show').then(value=>{global.__rapidReopen.settled=true;return value;});return{visible:h.getWindow().isVisible(),settled:global.__rapidReopen.settled};});
+    assert.deepEqual(blocked,{visible:false,settled:false});
+    await application.evaluate(async()=>{global.__rapidReopen.release();await global.__rapidReopen.reopen;});
+    await until(()=>application.evaluate(()=>({visible:global.__clipboardLineTest.getWindow().isVisible(),focused:global.__clipboardLineTest.getWindow().isFocused()})),value=>value.visible&&value.focused);
+    await until(()=>page.evaluate(()=>document.hasFocus()),Boolean);
+    assert.equal(await page.locator('.card.selected').count(),1);assert.equal(await page.locator('[data-shelf="image"] .card.selected').count(),1);
+    await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});
+    await page.keyboard.press('ArrowDown');await until(()=>page.locator('#preview-dialog').getAttribute('aria-label'),value=>value==='Named synthetic key');
+    assert.equal(await page.locator('[data-shelf="text"] .card.focused').getAttribute('data-item-id'),textItem.id);
+    await page.keyboard.press('Escape');
+    check('rapid Enter close and reopen waits for native restoration and retains focus, selection and arrow navigation');
+  }finally{await application.evaluate(()=>{const pending=global.__rapidReopen;if(pending){pending.release();global.__clipboardLineTest.native.restore=pending.original;delete global.__rapidReopen;}});}
   await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');
   await until(fixtureState,s=>s.text.includes('Windows clipboard text acceptance'));check('CtrlEnter text paste restores prior external editable field');
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
@@ -235,8 +254,8 @@ async function main(){
   report.completedAt=new Date().toISOString();report.passed=true;
 }
 main().catch(async error=>{report.passed=false;report.error=error.stack;console.error(error.stack);process.exitCode=1;
-  if(application)report.mediaRequests=await application.evaluate(()=>global.__clipboardLineTest?.getMediaDiagnostics?.()||[]).catch(()=>[]);
-  if(activePage&&!activePage.isClosed())report.failureUI=await activePage.evaluate(()=>({toast:document.getElementById('toast')?.textContent||'',preview:!!document.getElementById('preview-dialog'),canvas:!!document.getElementById('markup-canvas'),viewport:{width:innerWidth,height:innerHeight},geometry:[...document.querySelectorAll('#markup-canvas,.image-document,.image-stage,.preview-body,.preview-toolbar,.preview-dialog')].map(node=>{const r=node.getBoundingClientRect(),s=getComputedStyle(node);return{node:node.id||node.className,x:r.x,y:r.y,width:r.width,height:r.height,display:s.display,flex:s.flex,heightStyle:s.height,minHeight:s.minHeight,maxHeight:s.maxHeight};})})).catch(()=>null);
+  if(application){report.mediaRequests=await application.evaluate(()=>global.__clipboardLineTest?.getMediaDiagnostics?.()||[]).catch(()=>[]);report.failureWindow=await application.evaluate(()=>{const h=global.__clipboardLineTest,w=h?.getWindow();return w?{visible:w.isVisible(),focused:w.isFocused(),view:h.state().view}:null;}).catch(()=>null);}
+  if(activePage&&!activePage.isClosed())report.failureUI=await activePage.evaluate(()=>({toast:document.getElementById('toast')?.textContent||'',preview:!!document.getElementById('preview-dialog'),canvas:!!document.getElementById('markup-canvas'),documentFocused:document.hasFocus(),activeElement:{tag:document.activeElement?.tagName,id:document.activeElement?.id},activeShelf:document.querySelector('.active-shelf')?.dataset.shelf,selected:[...document.querySelectorAll('.card.selected')].map(node=>node.dataset.itemId),focused:[...document.querySelectorAll('.card.focused')].map(node=>node.dataset.itemId),visibleShelves:[...document.querySelectorAll('[data-shelf]')].map(node=>({kind:node.dataset.shelf,count:node.querySelectorAll('.card').length})),viewport:{width:innerWidth,height:innerHeight},geometry:[...document.querySelectorAll('#markup-canvas,.image-document,.image-stage,.preview-body,.preview-toolbar,.preview-dialog')].map(node=>{const r=node.getBoundingClientRect(),s=getComputedStyle(node);return{node:node.id||node.className,x:r.x,y:r.y,width:r.width,height:r.height,display:s.display,flex:s.flex,heightStyle:s.height,minHeight:s.minHeight,maxHeight:s.maxHeight};})})).catch(()=>null);
   if(activePage&&!activePage.isClosed()&&!report.checks.some(value=>value.name==='actual Windows desktop capture produces a managed image'))await activePage.screenshot({path:path.join(output,'failure.png')}).catch(()=>{});
-  console.error('Native failure diagnostics: '+JSON.stringify({mediaRequests:report.mediaRequests,rendererErrors:report.rendererErrors,rendererConsole:report.rendererConsole,failureUI:report.failureUI}));
+  console.error('Native failure diagnostics: '+JSON.stringify({mediaRequests:report.mediaRequests,rendererErrors:report.rendererErrors,rendererConsole:report.rendererConsole,failureWindow:report.failureWindow,failureUI:report.failureUI}));
 }).finally(async()=>{if(fixture)fixture.kill();if(otherFixture)otherFixture.kill();if(application)await application.close().catch(()=>{});fs.writeFileSync(path.join(output,'windows-runtime.json'),JSON.stringify(report,null,2));fs.rmSync(data,{recursive:true,force:true,maxRetries:4});});

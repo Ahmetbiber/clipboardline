@@ -31,7 +31,7 @@ app.setName(development?'ClipBoardLine Dev':'ClipBoardLine');
 protocol.registerSchemesAsPrivileged([{scheme:'appmedia',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}}]);
 let window,store,tray,updates,updateScheduler,monitor,clipboardTimer,retentionTimer,updateTimer,updateLaunchTimer,previous=null,view='shelves',message='',viewEvent=null;
 let lastFingerprint='',ownFingerprint='',capturing=false,pendingClipboard=false,showing=false,closing=false,watchers=[],normalBounds=null,normalMaximized=false,applyingBounds=false;
-let pastePromise=null;
+let pastePromise=null,hidePromise=null;
 const entry = pathToFileURL(path.join(__dirname,'index.html')).href;
 const copyMarker = crypto.randomBytes(16);
 const pending = new Set();
@@ -61,6 +61,9 @@ function fitNormalBounds(area){const width=Math.min(area.width,normalBounds?.wid
 async function show(next='shelves',event=null) {
   if(showing)return; showing=true;
   try {
+    // A hidden window can still be restoring its previous native field.
+    // Complete that operation before a rapid reopen captures and takes focus.
+    if(hidePromise)await hidePromise;
     if(!window.isVisible() || !window.isFocused()) {
       const target=await native.capture().catch(()=>null);
       if(target && target.processId!==process.pid)previous=target;
@@ -77,8 +80,13 @@ async function show(next='shelves',event=null) {
   }finally{showing=false;}
 }
 async function hide(restore=true) {
-  rememberNormalBounds();const target=previous;previous=null;window.hide();viewEvent=null;broadcast();
-  if(restore&&target)await native.restore(target).catch(()=>{});
+  if(hidePromise)return hidePromise;
+  const operation=(async()=>{
+    rememberNormalBounds();const target=previous;previous=null;window.hide();viewEvent=null;broadcast();
+    if(restore&&target)await native.restore(target).catch(()=>{});
+  })();
+  hidePromise=operation;
+  try{await operation;}finally{if(hidePromise===operation)hidePromise=null;}
 }
 async function clipboardContent() {
   const entries=await clipboard.read(),formats=entries.flatMap(item=>item.types);if(privateClipboard(formats))return null;

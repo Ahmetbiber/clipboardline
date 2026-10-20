@@ -9,7 +9,7 @@ const vm=require('node:vm');
 const crypto=require('node:crypto');
 const {execFileSync}=require('node:child_process');
 
-function fixture(){
+function fixture({deferInitialState=false,initialVisible=true}={}){
  const listeners=new Map(),nodes=new Map(),commands=[],imageLoads=[];let exportFailures=0;
  class Element{
   constructor(id=''){this.id=id;this.innerHTML='';this.textContent='';this.dataset={};this.style={};this.className='';this.value='';this.selectionStart=0;this.selectionEnd=0;this.classList={add(){},remove(){},contains(){return false;}};}
@@ -29,10 +29,10 @@ function fixture(){
  const document={body:new Element('body'),activeElement:null,getElementById(id){if(!nodes.has(id))nodes.set(id,id==='markup-canvas'?new Canvas(id):new Element(id));return nodes.get(id);},createElement(tag){return tag==='canvas'?new Canvas():new Element();},querySelector(){return null;},addEventListener(name,listener){if(!listeners.has(name))listeners.set(name,[]);listeners.get(name).push(listener);}};
  const image='00000000-0000-4000-8000-000000000001',text1='00000000-0000-4000-8000-000000000002',text2='00000000-0000-4000-8000-000000000003',link='00000000-0000-4000-8000-000000000004';
  const base=(id,kind,createdAt,extra)=>({id,kind,createdAt,updatedAt:createdAt,name:'',title:'',text:'',url:'',pinned:false,folderIds:[],tags:[],trashedAt:null,hiddenFromShelf:false,...extra});
- const state={items:[base(image,'image',1000,{name:'Synthetic image',mediaUrl:'appmedia://media/'+image,originalMediaUrl:'appmedia://media/'+image+'/original'}),base(text1,'text',900,{text:'Text one'}),base(text2,'text',800,{text:'Text two'}),base(link,'link',700,{url:'https://example.com/reference',title:'Reference link'})],folders:[],settings:{visibleKinds:['image','text','link'],retentionDays:{image:30,text:30,link:30},shortcuts:{toggle:'Control+Alt+Space',search:'Control+Alt+S'},localShortcuts:{},language:'en',theme:'soft',cardSize:'medium'},view:'shelves',version:'1.7.0',windowVisible:true,canUndo:false};
- let subscriber,removed=[],cleanupFailures=0,editFailures=0;
+ const state={items:[base(image,'image',1000,{name:'Synthetic image',mediaUrl:'appmedia://media/'+image,originalMediaUrl:'appmedia://media/'+image+'/original'}),base(text1,'text',900,{text:'Text one'}),base(text2,'text',800,{text:'Text two'}),base(link,'link',700,{url:'https://example.com/reference',title:'Reference link'})],folders:[],settings:{visibleKinds:['image','text','link'],retentionDays:{image:30,text:30,link:30},shortcuts:{toggle:'Control+Alt+Space',search:'Control+Alt+S'},localShortcuts:{},language:'en',theme:'soft',cardSize:'medium'},view:'shelves',version:'1.7.0',windowVisible:initialVisible,canUndo:false};
+ let subscriber,removed=[],cleanupFailures=0,editFailures=0,delayedReply=null,releaseInitialState;
  const clone=value=>structuredClone(value);
- const api={emit(patch){Object.assign(state,patch);subscriber?.(clone(state));},state:async()=>clone(state),subscribe(fn){subscriber=fn;return()=>{};},async command(action,payload={}){commands.push({action,payload:clone(payload)});const selected=state.items.filter(item=>(payload.ids||[payload.id]).includes(item.id));
+ const api={emit(patch){Object.assign(state,patch);subscriber?.(clone(state));},state:async()=>{const initial=clone(state);if(deferInitialState)await new Promise(resolve=>{releaseInitialState=resolve;});return initial;},subscribe(fn){subscriber=fn;return()=>{};},async command(action,payload={}){commands.push({action,payload:clone(payload)});const selected=state.items.filter(item=>(payload.ids||[payload.id]).includes(item.id));
   let cleanupError;if(action==='cleanup'){if(cleanupFailures){cleanupFailures--;cleanupError='Permanent deletion cleanup is still pending.';}else state.needsDeletionCleanup=false;}
   if(action==='editText'){if(editFailures){editFailures--;cleanupError='Synthetic draft write failure';}else selected.forEach(item=>item.text=payload.text);}
   if(action==='setSettings'){const patch=payload.patch||{};state.settings={...state.settings,...patch,localShortcuts:{...state.settings.localShortcuts,...patch.localShortcuts}};}
@@ -44,7 +44,9 @@ function fixture(){
   if(action==='copy'&&!payload.keepOpen||action==='paste'||action==='hide')state.windowVisible=false;
   if(action==='show'){state.view='shelves';state.windowVisible=true;state.viewEvent={serial:String(commands.length)};}
   if(action==='library'||action==='settings'){state.view=action;state.windowVisible=true;}
-  const output=clone(state);if(cleanupError)output.result={error:cleanupError};subscriber?.(output);return output;
+  const output=clone(state);if(cleanupError)output.result={error:cleanupError};subscriber?.(output);
+  if(delayedReply?.action===action){const pending=delayedReply;delayedReply=null;await pending.promise;}
+  return output;
  }};
  const context={window:{clipboardLine:api,addEventListener(){}},document,HTMLElement:Element,HTMLTextAreaElement:TextArea,Image:FixtureImage,console,structuredClone,URL,Set,Date,JSON,Math,Number,String,requestAnimationFrame:fn=>fn(),setTimeout:fn=>{queueMicrotask(fn);return 1;},clearTimeout(){}};
  vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../renderer.js'),'utf8'),context,{filename:'renderer.js'});
@@ -53,7 +55,7 @@ function fixture(){
  async function click(action,extra={}){const target=new Element();target.dataset.action=action;Object.assign(target.dataset,extra);target.closest=selector=>selector==='[data-action]'?target:null;for(const listener of listeners.get('click')||[])listener({target,stopPropagation(){}});await ready();}
  async function pointer(type,x,y){const target=document.getElementById('markup-canvas');for(const listener of listeners.get(type)||[])listener({target,clientX:x,clientY:y,pointerId:1,shiftKey:false,preventDefault(){}});await ready();}
  async function input(id,value){const target=document.getElementById(id);target.value=value;target.selectionStart=value.length;for(const listener of listeners.get('input')||[])await listener({target});await ready();}
- return{ready,key,input,click,pointer,imageLoads,failExportOnce(){exportFailures++;},failCleanupOnce(){cleanupFailures++;},failEditOnce(){editFailures++;},state,commands,nodes,image,text1,text2,link,api,get main(){return nodes.get('app').innerHTML;},get overlay(){return nodes.get('overlay-root').innerHTML;}};
+ return{ready,key,input,click,pointer,imageLoads,releaseInitialState(){releaseInitialState?.();},deferReply(action){let release;const promise=new Promise(resolve=>{release=resolve;});delayedReply={action,promise};return release;},failExportOnce(){exportFailures++;},failCleanupOnce(){cleanupFailures++;},failEditOnce(){editFailures++;},state,commands,nodes,image,text1,text2,link,api,get main(){return nodes.get('app').innerHTML;},get overlay(){return nodes.get('overlay-root').innerHTML;}};
 }
 
 function selectedCards(f){return [...f.main.matchAll(/<article class="([^"]*)"[^>]*data-item-id="([^"]+)"/g)].filter(match=>match[1].split(' ').includes('selected')).map(match=>match[2]);}
@@ -237,6 +239,25 @@ test('native image preview and crop event wait until the hidden window is shown'
  f.api.emit({windowVisible:true,viewEvent});await f.ready();assert.equal(f.imageLoads.length,1,'The same event must not recreate its editor');
 });
 
+test('late Enter-copy response cannot clear the reopened selection or preview',async()=>{
+ const f=fixture();await f.ready();await f.key('ArrowDown');await f.key('Space');assert.match(f.overlay,/aria-label="Text one"/);
+ const release=f.deferReply('copy'),copying=f.key('Enter');await f.ready();
+ assert.equal(f.state.windowVisible,false);assert.equal(f.overlay,'');
+ await f.api.command('show');await f.ready();assert.deepEqual(selectedCards(f),[f.image]);
+ await f.key('ArrowDown');await f.key('Space');assert.match(f.overlay,/aria-label="Text one"/);
+ release();await copying;
+ assert.equal(f.state.windowVisible,true);assert.deepEqual(selectedCards(f),[f.text1]);assert.match(f.overlay,/aria-label="Text one"/);
+ await f.key('ArrowDown');assert.match(f.overlay,/aria-label="Reference link"/);assert.deepEqual(selectedCards(f),[f.link]);
+});
+
+test('late Hide response cannot replace a newer native global search opening',async()=>{
+ const f=fixture();await f.ready();const release=f.deferReply('hide'),hiding=f.key('Escape');await f.ready();
+ assert.equal(f.state.windowVisible,false);
+ f.api.emit({windowVisible:true,viewEvent:{search:true,serial:'search-after-pending-hide'}});await f.ready();assert.match(f.main,/class="search-hud"/);
+ release();await hiding;
+ assert.match(f.main,/class="search-hud"/);assert.deepEqual(selectedCards(f),[f.image]);
+});
+
 test('shared macOS/Windows shelf contract runs through actual renderer handlers',async()=>{
  const contractFile=path.resolve(__dirname,'../../contracts/shelf-behavior.json'),raw=fs.readFileSync(contractFile),contract=JSON.parse(raw);
  assert.equal(contract.schemaVersion,1);assert.equal(contract.contractId,'clipboardline.shelves.v1');
@@ -314,4 +335,13 @@ test('folder menu removal requires its confirmation and never removes an item in
  await f.key('Enter');assert.equal(f.commands.at(-1).action,'removeFolder');
  assert.deepEqual(f.commands.at(-1).payload,{id:folderId});
  assert.equal(f.commands.filter(command=>['copy','paste','pin','remove','trash'].includes(command.action)).length,0);
+});
+
+
+test('late initial hidden state cannot replace a newer visible global search',async()=>{
+ const f=fixture({deferInitialState:true,initialVisible:false});
+ f.api.emit({windowVisible:true,viewEvent:{serial:'initial-global-search',search:true}});await f.ready();
+ assert.match(f.main,/id="search-input"/);assert.deepEqual(selectedCards(f),[f.image]);
+ f.releaseInitialState();await f.ready();
+ assert.match(f.main,/id="search-input"/);assert.deepEqual(selectedCards(f),[f.image]);
 });
