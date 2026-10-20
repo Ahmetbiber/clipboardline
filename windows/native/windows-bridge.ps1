@@ -246,8 +246,11 @@ try {
     [void][ClipBoardLineNative]::GetWindowThreadProcessId($window,[ref]$owner)
     if (-not [ClipBoardLineNative]::IsWindow($window) -or $owner -ne $expected.processId) { throw 'The previous application has closed.' }
     [uint32]$frontOwner = 0
-    [void][ClipBoardLineNative]::GetWindowThreadProcessId([ClipBoardLineNative]::GetForegroundWindow(),[ref]$frontOwner)
-    if ($frontOwner -ne $expected.processId -and $frontOwner -ne $expected.sourceProcessId) { throw 'Another application became active. Reopen the shelves from the intended field.' }
+    $frontWindow=[ClipBoardLineNative]::GetForegroundWindow()
+    [void][ClipBoardLineNative]::GetWindowThreadProcessId($frontWindow,[ref]$frontOwner)
+    # Another top-level window in the same app is a different destination.
+    # Never activate the captured HWND over that newer user choice.
+    if ($frontWindow -ne $window -and $frontOwner -ne $expected.sourceProcessId) { throw 'Another window became active. Reopen the shelves from the intended field.' }
     if ($Mode -ne 'Restore' -and -not $expected.prepared) {
       # Keep the source focused until the invoking shortcut is fully released.
       # A held Enter must never start repeating inside the destination app.
@@ -255,8 +258,9 @@ try {
       $releasedSince=$null
       do {
         [uint32]$releaseOwner=0
-        [void][ClipBoardLineNative]::GetWindowThreadProcessId([ClipBoardLineNative]::GetForegroundWindow(),[ref]$releaseOwner)
-        if ($releaseOwner -ne $expected.processId -and $releaseOwner -ne $expected.sourceProcessId) { throw 'Another application became active while the shortcut was held.' }
+        $releaseWindow=[ClipBoardLineNative]::GetForegroundWindow()
+        [void][ClipBoardLineNative]::GetWindowThreadProcessId($releaseWindow,[ref]$releaseOwner)
+        if ($releaseWindow -ne $window -and $releaseOwner -ne $expected.sourceProcessId) { throw 'Another window became active while the shortcut was held.' }
         $held=@(HeldShortcutKeys)
         if ($held.Count -eq 0) {
           if ($null -eq $releasedSince) { $releasedSince=[DateTime]::UtcNow }
@@ -275,8 +279,9 @@ try {
     [void][ClipBoardLineNative]::GetWindowThreadProcessId($window,[ref]$readyOwner)
     if (-not [ClipBoardLineNative]::IsWindow($window) -or $readyOwner -ne $expected.processId) { throw 'The previous application has closed.' }
     [uint32]$readyForeground=0
-    [void][ClipBoardLineNative]::GetWindowThreadProcessId([ClipBoardLineNative]::GetForegroundWindow(),[ref]$readyForeground)
-    if ($readyForeground -ne $expected.processId -and $readyForeground -ne $expected.sourceProcessId) { throw 'Another application became active. No focus was changed.' }
+    $readyWindow=[ClipBoardLineNative]::GetForegroundWindow()
+    [void][ClipBoardLineNative]::GetWindowThreadProcessId($readyWindow,[ref]$readyForeground)
+    if ($readyWindow -ne $window -and $readyForeground -ne $expected.sourceProcessId) { throw 'Another window became active. No focus was changed.' }
     if ($Mode -in @('Paste','ValidatePaste') -and $expected.prepared) {
       if ([ClipBoardLineNative]::GetForegroundWindow() -ne $window) { throw 'Focus changed before paste. No keys were sent.' }
     } else {

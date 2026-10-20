@@ -26,6 +26,14 @@ public static class FixtureFocus {
 $form=New-Object System.Windows.Forms.Form
 $form.Text='ClipBoardLine native paste acceptance fixture'
 $form.Size=New-Object System.Drawing.Size(850,650)
+$secondForm=New-Object System.Windows.Forms.Form
+$secondForm.Text='ClipBoardLine same-process second-window fixture'
+$secondForm.Size=New-Object System.Drawing.Size(650,250)
+$secondInput=New-Object System.Windows.Forms.TextBox
+$secondInput.Name='fixture-second-window';$secondInput.Multiline=$true;$secondInput.Dock='Fill'
+$secondForm.Controls.Add($secondInput)
+$script:primaryActivations=0
+$form.Add_Activated({$script:primaryActivations++})
 $layout=New-Object System.Windows.Forms.TableLayoutPanel
 $layout.Dock='Fill';$layout.ColumnCount=1;$layout.RowCount=8
 $form.Controls.Add($layout)
@@ -70,6 +78,10 @@ $timer.Add_Tick({
           if ($command.seed -ne $null) { $control.Text=[string]$command.seed }
           $form.Activate();$form.ActiveControl=$control;[void]$control.Focus()
           if ($command.selectAll) { $control.SelectAll() }
+        } elseif ($command.action -eq 'focus-second') {
+          if ($command.seed -ne $null) { $secondInput.Text=[string]$command.seed }
+          $secondForm.Show();$secondForm.Activate();$secondForm.ActiveControl=$secondInput;[void]$secondInput.Focus()
+          if ($command.selectAll) { $secondInput.SelectAll() }
         } elseif ($command.action -eq 'keys') { [System.Windows.Forms.SendKeys]::SendWait([string]$command.keys) }
         elseif ($command.action -eq 'hold-paste') { if($command.duration -lt 100 -or $command.duration -gt 1800){throw 'Invalid fixture key duration.'};if(-not $command.expectedForeground -or [FixtureFocus]::GetForegroundWindow().ToInt64().ToString() -ne [string]$command.expectedForeground){throw 'The source host is not the actual Win32 foreground; no test keys were sent.'};$script:keyDeadline=[DateTime]::UtcNow.AddMilliseconds($command.duration);[FixtureFocus]::PasteShortcut($false) }
         elseif ($command.action -eq 'release-keys') { [FixtureFocus]::PasteShortcut($true);$script:keyDeadline=$null }
@@ -80,12 +92,12 @@ $timer.Add_Tick({
   try {
     $files=[System.Windows.Forms.Clipboard]::GetFileDropList()
     $focused=(@($controls.Keys|Where-Object {$controls[$_].Focused})|Select-Object -First 1)
-    $value=@{ready=$true;handle=$form.Handle.ToInt64().ToString();foreground=[FixtureFocus]::GetForegroundWindow().ToInt64().ToString();processId=$PID;text=$controls.rich.Text;plainText=$controls.plain.Text;readOnlyText=$controls.readonly.Text;passwordLength=$controls.password.Text.Length;hasImage=$controls.rich.Rtf.Contains('\pict');dropCount=$files.Count;pngAvailable=[System.Windows.Forms.Clipboard]::ContainsData('PNG');focused=$focused;lastSerial=$script:lastSerial;commandError=$script:commandError;inputEvents=@($script:inputEvents.ToArray());shortcutHeld=([FixtureFocus]::GetAsyncKeyState(0x11) -lt 0 -and [FixtureFocus]::GetAsyncKeyState(0x0D) -lt 0)}
+    $value=@{ready=$true;handle=$form.Handle.ToInt64().ToString();secondHandle=$secondForm.Handle.ToInt64().ToString();secondText=$secondInput.Text;secondFocused=$secondInput.Focused;primaryActivations=$script:primaryActivations;foreground=[FixtureFocus]::GetForegroundWindow().ToInt64().ToString();processId=$PID;text=$controls.rich.Text;plainText=$controls.plain.Text;readOnlyText=$controls.readonly.Text;passwordLength=$controls.password.Text.Length;hasImage=$controls.rich.Rtf.Contains('\pict');dropCount=$files.Count;pngAvailable=[System.Windows.Forms.Clipboard]::ContainsData('PNG');focused=$focused;lastSerial=$script:lastSerial;commandError=$script:commandError;inputEvents=@($script:inputEvents.ToArray());shortcutHeld=([FixtureFocus]::GetAsyncKeyState(0x11) -lt 0 -and [FixtureFocus]::GetAsyncKeyState(0x0D) -lt 0)}
     $temporary=$Output+'.tmp'
     [System.IO.File]::WriteAllText($temporary,($value|ConvertTo-Json -Compress))
     [System.IO.File]::Copy($temporary,$Output,$true)
   }catch{}
 })
 $form.Add_Shown({$form.Activate();$form.ActiveControl=$controls.rich;[void]$controls.rich.Focus();$timer.Start()})
-$form.Add_FormClosing({[FixtureFocus]::PasteShortcut($true)})
+$form.Add_FormClosing({[FixtureFocus]::PasteShortcut($true);$secondForm.Close()})
 [System.Windows.Forms.Application]::Run($form)

@@ -6,6 +6,21 @@ Mac shortcuts use Command. These transfers retain batch order and release focus
 back to the intended application. Secure, read-only, closed or changed targets
 are rejected before the clipboard is written.
 
+Some Chrome releases expose generic panes to the managed UI Automation client
+even while a browser editor has keyboard focus. Only when UIA has no editable
+capability or explicit denial, the Windows helper follows the native MSAA
+`accFocus` chain and checks IAccessible2's editable state. It retains the exact
+native window, owner process and IA2 field identity, then revalidates them before
+clipboard replacement and input dispatch. A different window in the same target
+process also cancels preparation; it cannot reactivate the earlier window.
+
+The ABI follows the published [IAccessible2 interface](https://github.com/LinuxA11y/IAccessible2/blob/master/api/Accessible2.idl).
+An explicit UIA disabled, password or read-only verdict is never overridden.
+MSAA's read-only flag also rejects a target even if IA2 reports editable, as
+specified by the [IA2 state definitions](https://accessibility.linuxfoundation.org/a11yspecs/ia2/docs/html/_accessible_states_8idl.html).
+These checks inspect capability and identity metadata without reading field
+values, names, selections or text.
+
 For drag and drop, Windows keeps ordinary text/link dragging as text insertion.
 **Alt+drag** offers one exported file per selected text/link instead. A tooltip
 on these cards exposes the gesture. Images and mixed batches containing an image

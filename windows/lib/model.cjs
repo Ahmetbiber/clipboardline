@@ -5,6 +5,8 @@ const crypto = require('node:crypto');
 const {execFileSync}=require('node:child_process');
 const {windowsEnvironment}=require('./windows-environment.cjs');
 const {textIdentity}=require('./text-identity.cjs');
+const {metadata:recordingMetadata,MAXIMUM_VIDEO_BYTES}=require('./media.cjs');
+const MANAGED_MEDIA=/^[a-f0-9]{64}\.(png|mp4|mov)$/;
 
 const KINDS = ['image', 'text', 'link'];
 const DEFAULTS = Object.freeze({
@@ -103,7 +105,7 @@ class Store {
       if (parsed.schema !== 1 || !Array.isArray(parsed.items) || parsed.items.length > 20000 || !Array.isArray(parsed.folders)) fail('Unsupported library format');
       this.data = {...parsed, settings: settings(parsed.settings)};
       for (const item of this.data.items) this.validateStored(item);
-      if(this.data.pendingDeletionFiles&&(!Array.isArray(this.data.pendingDeletionFiles)||this.data.pendingDeletionFiles.length>200000||this.data.pendingDeletionFiles.some(name=>typeof name!=='string'||!/^[a-f0-9]{64}\.png$/.test(name))))fail('Invalid pending deletion state.');
+      if(this.data.pendingDeletionFiles&&(!Array.isArray(this.data.pendingDeletionFiles)||this.data.pendingDeletionFiles.length>200000||this.data.pendingDeletionFiles.some(name=>typeof name!=='string'||!MANAGED_MEDIA.test(name))))fail('Invalid pending deletion state.');
     }
     this.privacyWarning='';
     if(this.data.pendingBackupRefresh||this.data.pendingDeletionFiles?.length)try{this.finishPermanentDeletion();}catch(error){this.privacyWarning=error.message;}
@@ -117,6 +119,9 @@ class Store {
     if(item.lastCopiedAt!=null&&(!Number.isFinite(item.lastCopiedAt)||item.lastCopiedAt<0))fail('Invalid copy timestamp');
     if(item.retainedAt==null&&(item.pinned||item.folderIds.length||item.tags.length))item.retainedAt=item.updatedAt||item.createdAt||this.clock();
     for (const key of ['imageFile', 'renderedFile','thumbnailFile']) if (item[key] && !/^[a-f0-9]{64}\.png$/.test(item[key])) fail('Unsafe managed media path');
+    if(item.recording!==undefined&&typeof item.recording!=='boolean')fail('Invalid recording record');
+    if(item.recording){if(item.kind!=='image'||!item.videoFile||!item.imageFile)fail('Invalid recording record');recordingMetadata(item);}
+    for(const key of ['videoFile','renderedVideoFile'])if(item[key]&&(!item.recording||!/^[a-f0-9]{64}\.(mov|mp4)$/.test(item[key])))fail('Unsafe recording path');
   }
   persist() {
     for(const destination of [this.file,this.file+'.backup'])if(fs.existsSync(destination)&&fs.lstatSync(destination).isSymbolicLink())fail('Library files must not be symlinks.');
@@ -128,10 +133,10 @@ class Store {
       fs.renameSync(temporary, this.file);
     } finally { if (descriptor != null) fs.closeSync(descriptor); if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
   }
-  mediaReferences(){return new Set(this.data.items.flatMap(item=>[item.imageFile,item.renderedFile,item.thumbnailFile]).filter(Boolean));}
+  mediaReferences(){return new Set(this.data.items.flatMap(item=>[item.imageFile,item.renderedFile,item.thumbnailFile,item.videoFile,item.renderedVideoFile]).filter(Boolean));}
   preparePermanentDeletion(){
     if(fs.lstatSync(this.mediaDirectory).isSymbolicLink())fail('Managed media must not be a symlink.');
-    const referenced=this.mediaReferences(),files=fs.readdirSync(this.mediaDirectory).filter(name=>/^[a-f0-9]{64}\.png$/.test(name)&&!referenced.has(name));
+    const referenced=this.mediaReferences(),files=fs.readdirSync(this.mediaDirectory).filter(name=>MANAGED_MEDIA.test(name)&&!referenced.has(name));
     this.data.pendingDeletionFiles=[...new Set([...(this.data.pendingDeletionFiles||[]),...files])];
     this.data.pendingBackupRefresh=true;
   }
@@ -151,7 +156,7 @@ class Store {
       this.refreshPrivateBackup();
       if(fs.lstatSync(this.mediaDirectory).isSymbolicLink())throw new Error('Managed media directory changed.');
       const referenced=this.mediaReferences();
-      for(const name of pending){if(!/^[a-f0-9]{64}\.png$/.test(name))throw new Error('Invalid managed filename.');if(referenced.has(name))continue;try{fs.unlinkSync(path.join(this.mediaDirectory,name));}catch(error){if(error.code!=='ENOENT')throw error;}}
+      for(const name of pending){if(!MANAGED_MEDIA.test(name))throw new Error('Invalid managed filename.');if(referenced.has(name))continue;try{fs.unlinkSync(path.join(this.mediaDirectory,name));}catch(error){if(error.code!=='ENOENT')throw error;}}
       this.data.pendingDeletionFiles=[];this.data.pendingBackupRefresh=false;
       try{this.persist();}catch(error){this.data.pendingDeletionFiles=pending;this.data.pendingBackupRefresh=true;throw error;}
       this.privacyWarning='';
@@ -170,11 +175,54 @@ class Store {
     return filename;
   }
   mediaPath(id, original = false) {
-    const item = this.item(id); const filename = original ? item.imageFile : (item.renderedFile || item.imageFile);
-    if (item.kind !== 'image' || !filename || !/^[a-f0-9]{64}\.png$/.test(filename)) fail('Image unavailable');
+    const item = this.item(id); const filename = item.recording?(original?item.videoFile:(item.renderedVideoFile||item.videoFile)):(original ? item.imageFile : (item.renderedFile || item.imageFile));
+    if (item.kind !== 'image' || !filename || !(item.recording?/^[a-f0-9]{64}\.(mp4|mov)$/:/^[a-f0-9]{64}\.png$/).test(filename)) fail('Media unavailable');
     const result = path.join(this.mediaDirectory, filename);
     if (!fs.existsSync(result) || fs.lstatSync(result).isSymbolicLink()) fail('Image unavailable');
     return result;
+  }
+  posterPath(id,original=false){
+    const item=this.item(id),filename=original?item.imageFile:(item.renderedFile||item.imageFile);
+    if(item.kind!=='image'||!filename||!/^[a-f0-9]{64}\.png$/.test(filename))fail('Image poster unavailable');
+    const file=path.join(this.mediaDirectory,filename);if(!fs.existsSync(file)||!fs.lstatSync(file).isFile()||fs.lstatSync(file).isSymbolicLink())fail('Image poster unavailable');return file;
+  }
+  async putVideo(source,{signal}={}){
+    if(typeof source!=='string'||!path.isAbsolute(source)||!['.mp4','.mov'].includes(path.extname(source).toLowerCase()))fail('Invalid recording file');
+    if(fs.lstatSync(this.mediaDirectory).isSymbolicLink())fail('Unsafe managed media directory');
+    const before=await fs.promises.lstat(source);if(!before.isFile()||before.isSymbolicLink()||before.size<12||before.size>MAXIMUM_VIDEO_BYTES)fail('Recording exceeds the 2 GB limit or is unavailable');
+    const temporary=path.join(this.mediaDirectory,'.video-'+crypto.randomUUID());let input,output;
+    try{
+      input=await fs.promises.open(source,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0));const opened=await input.stat();if(opened.ino!==before.ino||opened.size!==before.size||opened.mtimeMs!==before.mtimeMs)fail('Recording changed while importing');
+      output=await fs.promises.open(temporary,'wx',0o600);const hash=crypto.createHash('sha256'),buffer=Buffer.allocUnsafe(1024*1024);let total=0;
+      for(;;){if(signal?.aborted)fail('Video operation canceled');const {bytesRead}=await input.read(buffer,0,buffer.length,null);if(!bytesRead)break;total+=bytesRead;if(total>MAXIMUM_VIDEO_BYTES)fail('Recording exceeds the 2 GB limit');const bytes=buffer.subarray(0,bytesRead);hash.update(bytes);let written=0;while(written<bytesRead){const result=await output.write(bytes,written,bytesRead-written,null);if(!result.bytesWritten)fail('Recording could not be saved');written+=result.bytesWritten;}}
+      const after=await input.stat(),pathAfter=await fs.promises.lstat(source);if(total!==before.size||after.size!==before.size||after.mtimeMs!==before.mtimeMs||pathAfter.isSymbolicLink()||pathAfter.ino!==before.ino||pathAfter.mtimeMs!==before.mtimeMs)fail('Recording changed while importing');
+      await output.sync();await output.close();output=null;if(signal?.aborted)fail('Video operation canceled');const filename=hash.digest('hex')+path.extname(source).toLowerCase(),destination=path.join(this.mediaDirectory,filename);
+      try{await fs.promises.link(temporary,destination);}catch(error){if(error.code!=='EEXIST')throw error;const existing=await fs.promises.lstat(destination);if(!existing.isFile()||existing.isSymbolicLink()||existing.size!==total)fail('Managed recording is unsafe');}
+      if(signal?.aborted)fail('Video operation canceled');return filename;
+    }finally{await input?.close();await output?.close();try{await fs.promises.unlink(temporary);}catch(error){if(error.code!=='ENOENT')throw error;}}
+  }
+  async recordingAssets(value){
+    const details=recordingMetadata(value),videoFile=await this.putVideo(value.file,{signal:value.signal});
+    let poster=value.posterPNG;
+    if(!poster){if(typeof value.posterFile!=='string'||!path.isAbsolute(value.posterFile))fail('Recording poster unavailable');const stat=await fs.promises.lstat(value.posterFile);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>4*1024*1024)fail('Recording poster unavailable');poster=await fs.promises.readFile(value.posterFile);}
+    if(!Buffer.isBuffer(poster)||poster.length>4*1024*1024)fail('Invalid recording poster');
+    if(value.signal?.aborted)fail('Video operation canceled');return{details,videoFile,posterFile:this.putPNG(poster)};
+  }
+  async insertRecording(value){
+    const assets=await this.recordingAssets(value),matching=this.data.items.filter(item=>item.recording&&!item.trashedAt&&item.videoFile===assets.videoFile),prior=matching.sort((a,b)=>b.createdAt-a.createdAt)[0];
+    if(value.signal?.aborted)fail('Video operation canceled');
+    if(!prior&&this.data.items.length>=20000)fail('Library item limit reached');const before=clone(this.data),now=this.clock();
+    try{
+      const item=prior||{id:crypto.randomUUID(),kind:'image',recording:true,text:'',url:'',title:'',name:'',pinned:false,folderIds:[],tags:[],note:'',retainedAt:null,lastCopiedAt:null,createdAt:now,updatedAt:now,trashedAt:null,hiddenFromShelf:false,annotations:[],crop:null,ocrText:'',imageFile:assets.posterFile,renderedFile:'',videoFile:assets.videoFile,renderedVideoFile:'',...assets.details};
+      item.createdAt=now;item.updatedAt=now;item.hiddenFromShelf=false;
+      this.data.items=[item,...this.data.items.filter(entry=>entry.id!==item.id)];this.expire(false);this.persist();return item;
+    }catch(error){this.data=before;throw error;}
+  }
+  async commitRecordingTrim(value){
+    const expected=this.item(value.id);if(!expected.recording||expected.trashedAt||typeof value.sourceFingerprint!=='string'||(expected.renderedVideoFile||expected.videoFile).slice(0,64)!==value.sourceFingerprint)fail('The recording changed before trimming');
+    const assets=await this.recordingAssets(value),item=this.item(value.id);if(!item.recording||item.trashedAt||(item.renderedVideoFile||item.videoFile).slice(0,64)!==value.sourceFingerprint)fail('The recording changed while trimming');
+    if(value.signal?.aborted)fail('Video operation canceled');
+    const before=clone(this.data);try{Object.assign(item,assets.details,{renderedVideoFile:assets.videoFile,renderedFile:assets.posterFile,updatedAt:this.clock()});this.persist();return item;}catch(error){this.data=before;throw error;}
   }
   insert(kind, value, extra = {}) {
     if (!KINDS.includes(kind)) fail('Invalid content kind');
@@ -184,7 +232,7 @@ class Store {
     else textValue = text(value);
     const identity=kind==='text'?textIdentity(textValue):null;
     const matching = this.data.items.filter(i => i.kind === kind && !i.trashedAt &&
-      (kind === 'text' ? this.textIdentity(i) === identity : kind === 'link' ? i.url === url : i.imageFile === imageFile));
+      (kind === 'text' ? this.textIdentity(i) === identity : kind === 'link' ? i.url === url : !i.recording&&i.imageFile === imageFile));
     const prior = matching.sort((a, b) => b.updatedAt - a.updatedAt)[0];
     if(!prior&&this.data.items.length>=20000)fail('Library item limit reached');
     const now = this.clock();
@@ -277,7 +325,7 @@ class Store {
       else if (action === 'restore') { item.trashedAt = null; item.hiddenFromShelf = false; }
       else if (action === 'editText') { if (item.kind !== 'text') fail('Only text can be edited'); item.text = text(payload.text, 1024 * 1024, true); }
       else if (action === 'saveImage') {
-        if (item.kind !== 'image' || typeof payload.dataUrl !== 'string' || !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(payload.dataUrl) || payload.dataUrl.length > 90_000_000) fail('Invalid image edit');
+        if (item.kind !== 'image' || item.recording || typeof payload.dataUrl !== 'string' || !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(payload.dataUrl) || payload.dataUrl.length > 90_000_000) fail('Invalid image edit');
         const annotations = payload.annotations ?? []; const crop = payload.crop ?? null;
         if (!Array.isArray(annotations) || annotations.length > 2000 || JSON.stringify(annotations).length > 2_000_000 || (crop !== null && (typeof crop !== 'object' || ['x','y','width','height'].some(k => !Number.isFinite(crop[k])) || crop.x<0 || crop.y<0 || crop.width<=0 || crop.height<=0))) fail('Invalid image edit metadata');
         if(crop){const original=fs.readFileSync(this.mediaPath(item.id,true));if(crop.x+crop.width>original.readUInt32BE(16)||crop.y+crop.height>original.readUInt32BE(20))fail('Crop is outside the original image');}
@@ -294,9 +342,10 @@ class Store {
   }
   publicState() {
     return {
-      items: this.data.items.map(({imageFile, renderedFile, thumbnailFile, ...item}) => ({...clone(item),
+      items: this.data.items.map(({imageFile, renderedFile, thumbnailFile, videoFile, renderedVideoFile, ...item}) => ({...clone(item),
         ...(thumbnailFile ? {thumbnailUrl: `appmedia://media/${item.id}/thumbnail`} : {}),
-        ...(item.kind === 'image' ? {mediaUrl: `appmedia://media/${item.id}`, originalMediaUrl: `appmedia://media/${item.id}/original`} : {})})),
+        ...(item.kind === 'image' ? {mediaUrl: `appmedia://media/${item.id}`, originalMediaUrl: `appmedia://media/${item.id}/original`} : {}),
+        ...(item.recording?{videoUrl:`appmedia://media/${item.id}/video`,originalVideoUrl:`appmedia://media/${item.id}/video/original`,sourceFingerprint:(renderedVideoFile||videoFile).slice(0,64)}:{})})),
       folders: clone(this.data.folders), settings: clone(this.data.settings), canUndo: this.undoStack.length > 0,
       needsDeletionCleanup:!!(this.data.pendingBackupRefresh||this.data.pendingDeletionFiles?.length)
     };

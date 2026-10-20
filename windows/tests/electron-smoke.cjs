@@ -9,6 +9,8 @@ const expectedVersion=require('../package.json').version;
 const keyboardLibrary=require('./keyboard-library-acceptance.cjs');
 const shortcutParity=require('./shortcut-parity-acceptance.cjs');
 const libraryPreview=require('./library-preview-acceptance.cjs');
+const nativeVideo=require('./native-video-acceptance.cjs');
+const videoUI=require('./video-ui-acceptance.cjs');
 const semanticImages=require('./semantic-image-acceptance.cjs');
 const nativeDrag=require('./native-drag-acceptance.cjs');
 const edgeConsumer=require('./consumer-edge-acceptance.cjs');
@@ -45,6 +47,7 @@ async function main(){
   await until(()=>application.evaluate(()=>!!global.__clipboardLineTest),Boolean);
   const nativeInitialization=await application.evaluate(async()=>{try{return{focus:await global.__clipboardLineTest.native.capture()};}catch(error){return{error:error.message};}});assert.ok(!nativeInitialization.error,JSON.stringify(nativeInitialization));check('native UIA focus bridge initializes Microsoft system providers');
   const nativeFocusPolicy=await application.evaluate(()=>global.__clipboardLineTest.native.selfTestFocusPolicy());assert.equal(nativeFocusPolicy.ok,true);assert.equal(nativeFocusPolicy.passed,12);check('native IA2 policy rejects readonly/protected/disabled/defunct and preserves known UIA rejection');
+  await nativeVideo.runNativeVideo({outputDirectory:path.join(output,'video-native')});check('native Windows MP4/MOV probe, precise trim, decoded audio, cancellation and unsupported-codec rejection preserve original recordings');
   const preferences=await page.evaluate(()=>window.clipboardLine.diagnostics());
   assert.equal(preferences.contextIsolated,true);assert.equal(preferences.sandboxed,true);
   assert.equal(await page.evaluate(()=>typeof require),'undefined');assert.equal(await page.evaluate(()=>typeof process),'undefined');check('sandbox and isolated, typed preload only');
@@ -138,6 +141,7 @@ async function main(){
   await keyboardLibrary({page,application,textItem,folder,check,until,output});
   await shortcutParity({page,application,check,until,output});
   await libraryPreview({page,application,check,until,output});
+  await videoUI({page,application,check,until,output});
   await semanticImages({page,application,check,until,output});
   await nativeDrag({page,application,check});
   await edgeConsumer({page,application,textItem,imageItem,check,until,report,output});
@@ -156,6 +160,35 @@ async function main(){
   assert.deepEqual(await application.evaluate(()=>({visible:global.__clipboardLineTest.getWindow().isVisible(),focused:global.__clipboardLineTest.getWindow().isFocused()})),{visible:true,focused:true});
   assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before empty selection');
   check('empty paste selection leaves clipboard and source focus unchanged');
+
+  // A second window owned by the same target process is still a new user
+  // destination. Let the real helper inspect that HWND before any activation.
+  {
+    const captured=await application.evaluate(()=>global.__clipboardLineTest.getTarget());
+    assert.equal(captured.processId,fixtureState().processId);assert.equal(captured.handle,fixtureState().handle);
+    await application.evaluate(()=>{const native=global.__clipboardLineTest.native;let release;const gate=new Promise(resolve=>{release=resolve;});global.__differentWindowPreparation={original:native.preparePaste,release,waiting:false};native.preparePaste=async target=>{global.__differentWindowPreparation.waiting=true;await gate;return global.__differentWindowPreparation.original(target);};});
+    await application.evaluate(async({clipboard})=>clipboard.writeText('Clipboard before same-process different-window race'));
+    const request=page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id);
+    try{
+      await until(()=>application.evaluate(()=>global.__differentWindowPreparation.waiting),Boolean);
+      await fixtureCommand({action:'focus-second',seed:'Second same-process editor stays unchanged',selectAll:true});
+      const second=await until(fixtureState,value=>value.secondFocused&&value.foreground===value.secondHandle&&value.secondHandle!==value.handle);
+      const secondFocus=await application.evaluate(()=>global.__clipboardLineTest.native.capture());
+      assert.equal(secondFocus.processId,captured.processId);assert.equal(secondFocus.handle,second.secondHandle);assert.ok(secondFocus.editable&&!secondFocus.secure,JSON.stringify(secondFocus));
+      await application.evaluate(()=>global.__differentWindowPreparation.release());
+      const rejected=await request;assert.ok(rejected.result?.error,JSON.stringify(rejected.result));assert.match(rejected.result.error,/another window became active/i);
+      assert.equal(await application.evaluate(async({clipboard})=>clipboard.readText()),'Clipboard before same-process different-window race');
+      // ClipboardLine may show its error UI, but it must never activate the
+      // obsolete first Form or mutate either destination along the way.
+      const sourceHandle=await application.evaluate(()=>global.__clipboardLineTest.getWindow().getNativeWindowHandle().readBigUInt64LE().toString());
+      const after=await until(fixtureState,value=>value.foreground===sourceHandle);
+      assert.equal(after.primaryActivations,second.primaryActivations);assert.equal(after.text,second.text);assert.equal(after.plainText,second.plainText);assert.equal(after.secondText,second.secondText);
+      check('same-process different-window preparation rejects without activating the captured HWND or changing clipboard and editors');
+    }finally{
+      await application.evaluate(()=>{const value=global.__differentWindowPreparation;if(value){value.release();global.__clipboardLineTest.native.preparePaste=value.original;delete global.__differentWindowPreparation;}});
+      await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'rich'});await application.evaluate(()=>global.__clipboardLineTest.command('show'));
+    }
+  }
 
   // Hold a real native restore in flight so reopening races with Enter in a
   // deterministic way. No fake focus result or timeout can satisfy this case.
@@ -182,7 +215,7 @@ async function main(){
   await page.locator(`[data-shelf="image"] [data-item-id="${imageItem.id}"]`).click();await page.keyboard.press('Control+Enter');
   await until(fixtureState,s=>s.hasImage);await fixtureCommand({action:'keys',keys:' IMAGE_FOCUS_OK'});await until(fixtureState,s=>s.text.endsWith(' IMAGE_FOCUS_OK')&&s.focused==='rich'&&s.foreground===s.handle);check('CtrlEnter image paste works in separate native rich-text editor and keeps typing focus');
   await application.evaluate(()=>global.__clipboardLineTest.enableShortcuts());await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'plain',seed:'Held shortcut fixture selection',selectAll:true});
-  await fixtureCommand({action:'keys',keys:'^% '});await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===true);
+  await fixtureCommand({action:'keys',keys:'^%t'});await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===true);
   const hostHandle=await application.evaluate(()=>global.__clipboardLineTest.getWindow().getNativeWindowHandle().readBigUInt64LE().toString());await until(fixtureState,value=>value.foreground===hostHandle);
   const physicalHost=await application.evaluate(async()=>({focus:await global.__clipboardLineTest.native.capture(),processId:process.pid}));assert.equal(physicalHost.focus.processId,physicalHost.processId);assert.equal(physicalHost.focus.handle,hostHandle);
   await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click({modifiers:['Control']});
