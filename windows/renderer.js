@@ -90,7 +90,10 @@ function applyState(next) {
  else if(fresh&&!ui.preview){if(ui.view==='shelves')resetShelfSession();else focusFirst();}
  else if(JSON.stringify(previousKinds)!==JSON.stringify(visibleKinds()))reconcileVisibleShelves(previousKinds);
  const signature=next.viewEvent?JSON.stringify(next.viewEvent):'';
- if(signature&&signature!==ui.lastEvent){ui.lastEvent=signature;const event=next.viewEvent;if(event.settingsTab)ui.settingsTab=event.settingsTab;if(event.selectId){ui.active=event.kind||item(event.selectId)?.kind||ui.active;ui.focus=event.selectId;ui.selected=new Set([event.selectId]);ui.preview=event.preview?event.selectId:null;ui.editingText=false;ui.editor=null;ui.zoom=1;ui.pan={x:0,y:0};if(event.crop)setTimeout(()=>beginImageEdit('crop'),0);}if(event.search){ui.searchOpen=true;ui.searchEditing=true;setTimeout(()=>document.getElementById('search-input')?.focus(),0);}}
+ // Showing a hidden native window can broadcast resize before it is visible.
+ // Leave its search/capture event pending until the visible packet arrives;
+ // otherwise the fresh-reveal reset would erase an already-consumed event.
+ if(lastVisibility!==false&&signature&&signature!==ui.lastEvent){ui.lastEvent=signature;const event=next.viewEvent;if(event.settingsTab)ui.settingsTab=event.settingsTab;if(event.selectId){ui.active=event.kind||item(event.selectId)?.kind||ui.active;ui.focus=event.selectId;ui.selected=new Set([event.selectId]);ui.preview=event.preview?event.selectId:null;ui.editingText=false;ui.editor=null;ui.zoom=1;ui.pan={x:0,y:0};if(event.crop)setTimeout(()=>beginImageEdit('crop'),0);}if(event.search){ui.searchOpen=true;ui.searchEditing=true;setTimeout(()=>document.getElementById('search-input')?.focus(),0);}}
  if(ui.focus&&!item(ui.focus))ui.focus=null;
  if(!ui.focus&&!ui.preview&&lastVisibility!==false)focusFirst();
  render();

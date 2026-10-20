@@ -215,6 +215,28 @@ test('native search typing stays in its editor and Shift arrows extend only the 
  await f.key('ArrowDown');assert.equal(activeKind(f),'text','Empty result shelves do not wrap');
 });
 
+test('global native search survives a hidden resize broadcast before the same event becomes visible',async()=>{
+ const f=fixture();await f.ready();await f.api.command('hide');await f.ready();
+ const viewEvent={search:true,serial:'global-search-before-window-show'};
+ f.api.emit({windowVisible:false,viewEvent});await f.ready();
+ assert.doesNotMatch(f.main,/class="search-hud"/);assert.deepEqual(selectedCards(f),[]);
+ f.api.emit({windowVisible:true,viewEvent});await f.ready();
+ assert.match(f.main,/class="search-hud"/);assert.deepEqual(selectedCards(f),[f.image]);
+ f.api.emit({windowVisible:true,viewEvent});await f.ready();assert.match(f.main,/class="search-hud"/);
+ await f.key('Escape');assert.doesNotMatch(f.main,/class="search-hud"/);
+ f.api.emit({windowVisible:true,viewEvent});await f.ready();
+ assert.doesNotMatch(f.main,/class="search-hud"/,'An unchanged broadcast must not reopen a dismissed search');
+});
+
+test('native image preview and crop event wait until the hidden window is shown',async()=>{
+ const f=fixture();await f.ready();await f.api.command('hide');await f.ready();
+ const viewEvent={selectId:f.image,kind:'image',preview:true,crop:true,serial:'capture-before-window-show'};
+ f.api.emit({windowVisible:false,viewEvent});await f.ready();assert.equal(f.overlay,'');assert.equal(f.imageLoads.length,0);
+ f.api.emit({windowVisible:true,viewEvent});await f.ready();
+ assert.match(f.overlay,/id="preview-dialog"/);assert.match(f.overlay,/id="markup-canvas"/);assert.equal(f.imageLoads.length,1);
+ f.api.emit({windowVisible:true,viewEvent});await f.ready();assert.equal(f.imageLoads.length,1,'The same event must not recreate its editor');
+});
+
 test('shared macOS/Windows shelf contract runs through actual renderer handlers',async()=>{
  const contractFile=path.resolve(__dirname,'../../contracts/shelf-behavior.json'),raw=fs.readFileSync(contractFile),contract=JSON.parse(raw);
  assert.equal(contract.schemaVersion,1);assert.equal(contract.contractId,'clipboardline.shelves.v1');
