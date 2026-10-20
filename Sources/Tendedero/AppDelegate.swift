@@ -502,9 +502,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // new first card when this capture opened the line, without replacing
         // the user's selection on a line that was already open.
         if !wasRevealed {
-            line.selectFirstShelfItems([.images])
+            line.selectFirstShelfItems(line.presentation.shelves)
             if isRevealed && !ownsKeyboardFocus() && !isPasting {
-                line.focusShelf(.images, requestFocus: false)
                 focusLine()
                 // Keep the timed peek until a browsing key is used. Enter or
                 // Space then promotes it to the normal keyboard session.

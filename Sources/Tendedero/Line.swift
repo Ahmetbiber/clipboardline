@@ -93,6 +93,7 @@ final class Line: ObservableObject {
     func setPresentation(_ value: ShelfPresentation, requestFocus: Bool = true) {
         let editing = searchEditingShelf
         let previousShelves = Set(presentation.shelves)
+        let previousActiveShelf = activeShelf
         presentation = value
         if !value.shelves.contains(activeShelf) { activeShelf = value.shelves[0] }
         synchronizeShelfSearchScope()
@@ -101,7 +102,16 @@ final class Line: ObservableObject {
             searchFocusRequests[activeShelf, default: 0] += 1
         }
         if revealed && !isShelfSearchActive {
-            selectFirstShelfItems(value.shelves.filter { !previousShelves.contains($0) })
+            for shelf in value.shelves where !previousShelves.contains(shelf) { resetShelfStart(shelf) }
+            // Showing another row must not create another selection. Keep the
+            // current row/column until it is hidden or has no selectable focus.
+            if !value.shelves.contains(previousActiveShelf) || focusedItemID(for: activeShelf) == nil {
+                selectFirstShelfItems(value.shelves)
+            } else {
+                if activeShelf != .images { cancelSelection() }
+                if activeShelf != .texts { texts.cancelSelection() }
+                if activeShelf != .links { links.cancelSelection() }
+            }
         }
         defaults.set(value.rawValue, forKey: "shelfPresentation")
         if requestFocus { onFocusRequested?() }
@@ -156,25 +166,29 @@ final class Line: ObservableObject {
         case .links: links.select(id, width: viewportWidth)
         }
     }
-    /// A fresh reveal starts each visible row at its first displayed item.
+    private func resetShelfStart(_ shelf: Shelf) {
+        quickPages.removeValue(forKey: shelf)
+        switch shelf {
+        case .images: cancelSelection(); setScrollOffset(0)
+        case .texts: texts.cancelSelection(); texts.scroll(texts.scrollOffset, width: viewportWidth)
+        case .links: links.cancelSelection(); links.scroll(links.scrollOffset, width: viewportWidth)
+        }
+    }
+    /// A fresh reveal starts the rows at the beginning with one selection:
+    /// images first, or the first nonempty visible row when images are absent.
     /// Do not request keyboard focus: automatic capture peeks share this path.
     func selectFirstShelfItems(_ shelves: [Shelf]) {
         guard revealed else { return }
-        for shelf in shelves where presentation.shelves.contains(shelf) {
-            quickPages.removeValue(forKey: shelf)
-            switch shelf {
-            case .images:
-                cancelSelection()
-                setScrollOffset(0)
-            case .texts:
-                texts.cancelSelection()
-                texts.scroll(texts.scrollOffset, width: viewportWidth)
-            case .links:
-                links.cancelSelection()
-                links.scroll(links.scrollOffset, width: viewportWidth)
-            }
-            if let id = selectableIDs(for: shelf).first { selectItem(id, on: shelf) }
+        cancelSelection(); texts.cancelSelection(); links.cancelSelection()
+        let visible = presentation.shelves.filter(shelves.contains)
+        for shelf in visible { resetShelfStart(shelf) }
+        let preferred = visible.contains(.images) ? [.images] + visible.filter { $0 != .images } : visible
+        guard let shelf = preferred.first(where: { !selectableIDs(for: $0).isEmpty }) else {
+            if let shelf = visible.first { focusShelf(shelf, requestFocus: false) }
+            return
         }
+        focusShelf(shelf, requestFocus: false)
+        if let id = selectableIDs(for: shelf).first { selectItem(id, on: shelf) }
     }
     /// The naming queue owns its own immutable IDs. Only move the visual focus;
     /// never replace the selection as Enter advances through that queue.
@@ -358,38 +372,25 @@ final class Line: ObservableObject {
     private func searchResultCount(for shelf: Shelf) -> Int {
         switch shelf { case .images: displayItems.count; case .texts: texts.displayEntries.count; case .links: links.displayEntries.count }
     }
-    /// Vertical result browsing follows the rows on screen, preserving the
-    /// filtered column where possible. Empty and hidden rows are skipped.
+    /// Search and ordinary browsing share vertical row navigation. A native
+    /// search editor keeps its arrows; empty and hidden rows are skipped.
     @discardableResult func moveSearchResultShelf(_ delta: Int) -> Bool {
-        guard isShelfSearchActive, searchEditingShelf == nil, delta != 0,
+        guard isShelfSearchActive else { return false }
+        return moveSelectionShelf(delta)
+    }
+    @discardableResult func moveSelectionShelf(_ delta: Int) -> Bool {
+        guard searchEditingShelf == nil, delta != 0,
               let currentRow = presentation.shelves.firstIndex(of: activeShelf) else { return false }
-        func ids(_ shelf: Shelf) -> [UUID] {
-            switch shelf {
-            case .images: displayItems.filter { !$0.falling }.map(\.id)
-            case .texts: texts.displayEntries.map(\.id)
-            case .links: links.displayEntries.map(\.id)
-            }
-        }
-        let focused: UUID?
-        switch activeShelf {
-        case .images: focused = focusedID
-        case .texts: focused = texts.focusedID
-        case .links: focused = links.focusedID
-        }
-        let column = focused.flatMap { ids(activeShelf).firstIndex(of: $0) } ?? 0
+        let column = focusedItemID(for: activeShelf).flatMap { selectableIDs(for: activeShelf).firstIndex(of: $0) } ?? 0
         let step = delta < 0 ? -1 : 1
         var row = currentRow + step
         while presentation.shelves.indices.contains(row) {
-            let shelf = presentation.shelves[row], results = ids(shelf)
+            let shelf = presentation.shelves[row], results = selectableIDs(for: shelf)
             if !results.isEmpty {
                 let target = results[min(column, results.count - 1)]
                 cancelSelection(); texts.cancelSelection(); links.cancelSelection()
                 focusShelf(shelf, requestFocus: false)
-                switch shelf {
-                case .images: select(target)
-                case .texts: texts.select(target, width: viewportWidth)
-                case .links: links.select(target, width: viewportWidth)
-                }
+                selectItem(target, on: shelf)
                 return true
             }
             row += step

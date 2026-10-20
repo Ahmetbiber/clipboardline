@@ -106,12 +106,9 @@ final class LineKeyboard {
             else { line.cancelSelection() }; onClose()
         case .first, .last: line.moveToShelfBoundary(last: action == .last)
         case .previousPage, .nextPage: line.moveShelfPage(action == .previousPage ? -1 : 1)
-        case .previous, .up, .next, .down, .extendPrevious, .extendUp, .extendNext, .extendDown:
-            let delta = [.previous, .up, .extendPrevious, .extendUp].contains(action) ? -1 : 1
-            if line.isShelfSearchActive, action == .up || action == .down {
-                line.moveSearchResultShelf(delta)
-                return true
-            }
+        case .up, .down: line.moveSelectionShelf(action == .up ? -1 : 1)
+        case .previous, .next, .extendPrevious, .extendUp, .extendNext, .extendDown:
+            let delta = [.previous, .extendPrevious, .extendUp].contains(action) ? -1 : 1
             let extending = [.extendPrevious, .extendUp, .extendNext, .extendDown].contains(action)
             if line.activeShelf == .links { line.links.moveSelection(delta, width: line.viewportWidth, extending: extending) }
             else if line.activeShelf == .texts { line.texts.moveSelection(delta, width: line.viewportWidth, extending: extending) }

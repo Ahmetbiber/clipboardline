@@ -148,7 +148,7 @@ import XCTest
         var focusRequests = 0; line.onFocusRequested = { focusRequests += 1 }
         line.revealed = true
         for shelf in Shelf.allCases {
-            XCTAssertEqual(shelfSelection(line, shelf), [try XCTUnwrap(shelfIDs(line, shelf).first)])
+            XCTAssertEqual(shelfSelection(line, shelf), shelf == .images ? [try XCTUnwrap(shelfIDs(line, shelf).first)] : [])
             line.focusShelf(shelf, requestFocus: false)
             XCTAssertNotNil(line.moveShelfPage(1)); XCTAssertTrue(shelfOffset(line, shelf) > 0)
             line.selectAllActive()
@@ -160,10 +160,11 @@ import XCTest
         // must not leak into the next shelf session either.
         line.selectAll(); line.texts.selectAll(); line.links.selectAll()
         line.revealed = true
-        XCTAssertEqual(line.activeShelf, .texts); XCTAssertEqual(line.presentation, .all)
+        XCTAssertEqual(line.activeShelf, .images); XCTAssertEqual(line.presentation, .all)
         for shelf in Shelf.allCases {
             let first = try XCTUnwrap(shelfIDs(line, shelf).first)
-            XCTAssertEqual(shelfSelection(line, shelf), [first]); XCTAssertEqual(shelfFocus(line, shelf), first)
+            XCTAssertEqual(shelfSelection(line, shelf), shelf == .images ? [first] : [])
+            XCTAssertEqual(shelfFocus(line, shelf), shelf == .images ? first : nil)
             XCTAssertEqual(shelfOffset(line, shelf), 0)
             line.focusShelf(shelf, requestFocus: false)
             XCTAssertEqual(line.quickSelectionIDs.first, first, "Reopening discards the previous numbered page")
@@ -206,12 +207,12 @@ import XCTest
         line.setPresentation(.all, requestFocus: false)
         line.setFavoritesOnly(true); line.texts.setFavoritesOnly(true); line.links.setFavoritesOnly(true)
         line.focusShelf(.links, requestFocus: false); line.revealed = true
-        XCTAssertEqual(line.selectedIDs, [image.id]); XCTAssertEqual(line.texts.selectedIDs, [text.id])
+        XCTAssertEqual(line.selectedIDs, [image.id]); XCTAssertTrue(line.texts.selectedIDs.isEmpty)
         XCTAssertTrue(line.links.selectedIDs.isEmpty); XCTAssertNil(line.links.focusedID)
-        XCTAssertEqual(line.activeShelf, .links, "An empty row keeps the user's chosen shelf active")
+        XCTAssertEqual(line.activeShelf, .images, "A fresh reveal prefers the first available image")
         XCTAssertTrue(line.favoritesOnly); XCTAssertTrue(line.texts.favoritesOnly); XCTAssertTrue(line.links.favoritesOnly)
         line.revealed = false; line.revealed = true
-        XCTAssertEqual(line.selectedIDs, [image.id]); XCTAssertEqual(line.texts.selectedIDs, [text.id])
+        XCTAssertEqual(line.selectedIDs, [image.id]); XCTAssertTrue(line.texts.selectedIDs.isEmpty)
         XCTAssertTrue(line.links.selectedIDs.isEmpty)
     }
     func testEnablingShelfSelectsItsFirstItemWithoutResettingAlreadyVisibleRows() throws {
@@ -226,12 +227,12 @@ import XCTest
         line.links.select(try XCTUnwrap(line.links.displayEntries.last).id, width: line.viewportWidth)
         var focusRequests = 0; line.onFocusRequested = { focusRequests += 1 }
         line.setPresentation(.both, requestFocus: false)
-        XCTAssertEqual(line.texts.selectedIDs, [try XCTUnwrap(line.texts.displayEntries.first).id])
+        XCTAssertTrue(line.texts.selectedIDs.isEmpty); XCTAssertNil(line.texts.focusedID)
         XCTAssertEqual(line.texts.scrollOffset, 0)
         XCTAssertEqual(line.selectedIDs, imageSelection); XCTAssertEqual(line.focusedID, imageFocus); XCTAssertEqual(line.scrollOffset, imageOffset)
         let textFocus = line.texts.focusedID
         line.setPresentation(.all, requestFocus: false)
-        XCTAssertEqual(line.links.selectedIDs, [try XCTUnwrap(line.links.displayEntries.first).id]); XCTAssertEqual(line.links.scrollOffset, 0)
+        XCTAssertTrue(line.links.selectedIDs.isEmpty); XCTAssertNil(line.links.focusedID); XCTAssertEqual(line.links.scrollOffset, 0)
         XCTAssertEqual(line.texts.focusedID, textFocus)
         XCTAssertEqual(line.selectedIDs, imageSelection); XCTAssertEqual(line.scrollOffset, imageOffset)
         XCTAssertEqual(line.activeShelf, .images); XCTAssertEqual(focusRequests, 0)

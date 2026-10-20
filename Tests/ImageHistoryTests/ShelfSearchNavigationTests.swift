@@ -193,10 +193,10 @@ import XCTest
         XCTAssertTrue(line.closeShelfSearch(requestFocus: false))
         line.cancelSelection(); line.moveSelection(1)
         let rawImages = line.displayItems.map(\.id)
+        let rawTexts = line.texts.displayEntries.map(\.id)
         XCTAssertTrue(keyboard.handle(key(40, [], "k")))
-        XCTAssertEqual(line.activeShelf, .images)
-        XCTAssertEqual(line.focusedID, rawImages[1], "Outside search, Down keeps the existing one-dimensional item navigation")
+        assertSingleSelection(line, shelf: .texts, id: rawTexts[0])
         XCTAssertTrue(keyboard.handle(key(38, [], "j")))
-        XCTAssertEqual(line.activeShelf, .images); XCTAssertEqual(line.focusedID, rawImages[0])
+        assertSingleSelection(line, shelf: .images, id: rawImages[0])
     }
 }

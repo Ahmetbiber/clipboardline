@@ -90,6 +90,7 @@ enum HistoryTestRunner {
         let merge = UpstreamMergeTests()
         let imageTextCopyTests = ImageTextCopyTests()
         let directPasteCoordinatorTests = DirectPasteCoordinatorTests()
+        let shelfDefaultNavigation = ShelfDefaultNavigationTests()
         let mainWindowPasteFocusTests = MainWindowPasteFocusTests()
         let pasteAccessibility = DirectPasteAccessibilityTests()
         let commandPaletteTests = CommandPaletteTests()
@@ -114,6 +115,14 @@ enum HistoryTestRunner {
         let namedShelfLabel = NamedShelfLabelTests()
         let publicUpdates = PublicUpdateChannelTests()
         let cases: [(String, () throws -> Void)] = [
+            ("testOpeningAllShelvesPrefersOnlyFirstImageAndReopeningResets", shelfDefaultNavigation.testOpeningAllShelvesPrefersOnlyFirstImageAndReopeningResets),
+            ("testOpeningWithImagesHiddenSelectsFirstNonemptyVisibleShelf", shelfDefaultNavigation.testOpeningWithImagesHiddenSelectsFirstNonemptyVisibleShelf),
+            ("testOpeningSkipsEmptyAndFilteredShelvesWithoutInventingSelection", shelfDefaultNavigation.testOpeningSkipsEmptyAndFilteredShelvesWithoutInventingSelection),
+            ("testClosedPreviewVerticalArrowsPreserveColumnClampAndClearOtherSelections", shelfDefaultNavigation.testClosedPreviewVerticalArrowsPreserveColumnClampAndClearOtherSelections),
+            ("testClosedPreviewVerticalArrowsSkipEmptyAndHiddenShelves", shelfDefaultNavigation.testClosedPreviewVerticalArrowsSkipEmptyAndHiddenShelves),
+            ("testClosedPreviewSpaceAndEnterRouteNewActiveShelfWithoutClipboardAccess", shelfDefaultNavigation.testClosedPreviewSpaceAndEnterRouteNewActiveShelfWithoutClipboardAccess),
+            ("testSearchEditingKeepsVerticalAndPreviewCopyKeysNative", shelfDefaultNavigation.testSearchEditingKeepsVerticalAndPreviewCopyKeysNative),
+            ("testFilteredIncomingScreenshotKeepsFirstTextFallbackSelected", shelfDefaultNavigation.testFilteredIncomingScreenshotKeepsFirstTextFallbackSelected),
             ("testBrowsingPresentationKeepsPreBlurFieldBeforeOwnKeyWindowExists", directPasteCoordinatorTests.testBrowsingPresentationKeepsPreBlurFieldBeforeOwnKeyWindowExists),
             ("testBrowsingPresentationScopeDoesNotRetainStaleFieldOnLaterExternalEntry", directPasteCoordinatorTests.testBrowsingPresentationScopeDoesNotRetainStaleFieldOnLaterExternalEntry),
             ("testBrowsingPresentationStillRejectsFieldChangedAfterCapture", directPasteCoordinatorTests.testBrowsingPresentationStillRejectsFieldChangedAfterCapture),

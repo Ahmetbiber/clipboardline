@@ -124,7 +124,9 @@ import XCTest
         XCTAssertNil(line.searchEditingShelf); XCTAssertTrue(line.shelfSearch?.states.isEmpty ?? false)
         XCTAssertFalse(line.isShelfSearchActive); XCTAssertEqual(line.shelfSearchQuery, "")
         XCTAssertNil(line.texts.searchMatchingIDs); XCTAssertNil(line.links.searchMatchingIDs)
-        line.revealed = true; XCTAssertEqual(line.texts.selectedIDs, [a.id])
+        line.revealed = true
+        XCTAssertEqual(line.activeShelf, .images); XCTAssertEqual(line.selectedIDs, [image.id])
+        XCTAssertTrue(line.texts.selectedIDs.isEmpty); XCTAssertTrue(line.links.selectedIDs.isEmpty)
         XCTAssertEqual(line.texts.displayEntries.map(\.id), [a.id], "Pinned filtering survives closing search")
     }
     func testNativeSearchEditorKeepsTypingKeysAndReturnsFocusForBrowsing() throws {
