@@ -164,10 +164,10 @@ import XCTest
         let line = line(fixture, store)
         line.setPresentation(.all, requestFocus: false); line.revealed = true
         let image = try XCTUnwrap(line.displayItems.first?.id), text = line.texts.displayEntries[1].id, link = line.links.displayEntries[1].id
-        var previews = [String](), copiedIDs = [[UUID]]()
-        let keyboard = LineKeyboard(line: line, onCopy: { _ in XCTFail("Use the shared copy-and-close route") },
+        var previews = [String](), copiedIDs = [[UUID]](), legacyCopies = 0
+        let keyboard = LineKeyboard(line: line, onCopy: { _ in legacyCopies += 1 },
             onPreview: { previews.append("images:\($0)") }, onClose: {},
-            onTextCopy: { _ in XCTFail("Use the shared copy-and-close route") },
+            onTextCopy: { _ in legacyCopies += 1 },
             onTextPreview: { previews.append("texts:\($0)") }, onLinkPreview: { previews.append("links:\($0)") },
             onCopyAndClose: { copiedIDs.append(line.activeActionIDs) })
         XCTAssertTrue(keyboard.handle(key(49))); XCTAssertTrue(keyboard.handle(key(36)))
@@ -177,6 +177,7 @@ import XCTest
         XCTAssertTrue(keyboard.handle(key(49))); XCTAssertTrue(keyboard.handle(key(76)))
         XCTAssertEqual(previews, ["images:\(image)", "texts:\(text)", "links:\(link)"])
         XCTAssertEqual(copiedIDs, [[image], [text], [link]])
+        XCTAssertEqual(legacyCopies, 0, "Return must use the shared copy-and-close route")
     }
 
     func testSearchEditingKeepsVerticalAndPreviewCopyKeysNative() throws {
