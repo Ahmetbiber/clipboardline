@@ -107,6 +107,9 @@ info = {
 }
 # No official feed, update key, credential helper or private signing profile is
 # embedded. Both installed updater paths reject this development bundle ID.
+for key in ('CFBundleShortVersionString', 'CFBundleVersion'):
+    if not isinstance(info[key], str) or not info[key]:
+        raise SystemExit(key + ' must be a nonempty string')
 (app / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
 PY
 if [ "${CLIPBOARDLINE_BUNDLE_MODELS:-0}" = 1 ]; then
