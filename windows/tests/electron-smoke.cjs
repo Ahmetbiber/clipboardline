@@ -145,7 +145,7 @@ async function main(){
   await shortcutParity({page,application,check,until,output});
   await libraryPreview({page,application,check,until,output,waitForCropBox});
   await textPreview({page,application,check,until,output});
-  await libraryFolderDrag({page,application,check,until});
+  await libraryFolderDrag({page,application,check,until,output});
   await videoUI({page,application,check,until,output});
   await semanticImages({page,application,check,until,output});
   await nativeDrag({page,application,check});

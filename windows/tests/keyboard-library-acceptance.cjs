@@ -109,11 +109,12 @@ module.exports=async function keyboardLibrary({page,application,textItem,folder,
   await page.locator('#name-input').fill('Named navigation two');await page.keyboard.press('Enter');await page.locator('#name-input').waitFor({state:'hidden'});
   let state=await page.evaluate(()=>window.clipboardLine.state());assert.ok(state.items.find(item=>item.id===first).pinned&&state.items.find(item=>item.id===second).pinned);
   assert.deepEqual([state.items.find(item=>item.id===first).name,state.items.find(item=>item.id===second).name],['Named navigation one','Named navigation two']);
-  await page.locator(`[data-shelf="text"] [data-item-id="${first}"]`).click();await page.keyboard.press('Shift+p');await page.locator('[data-action="choose-folder"]').first().waitFor({state:'visible'});await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');
-  await until(()=>page.evaluate(()=>window.clipboardLine.state()),next=>next.items.find(item=>item.id===first).folderIds.includes(folder.id));
+  await page.locator(`[data-shelf="text"] [data-item-id="${first}"]`).click();await page.keyboard.press('Shift+p');await page.locator('#modal-query').fill(folder.name);await until(()=>page.locator('[data-action="choose-folder"]').count(),count=>count===1);assert.equal(await page.locator('[data-action="choose-folder"]').getAttribute('data-folder'),folder.id);await page.keyboard.press('Enter');
+  const pinnedFolderState=await until(()=>page.evaluate(()=>window.clipboardLine.state()),next=>next.items.find(item=>item.id===first).folderIds.includes(folder.id));assert.equal(pinnedFolderState.settings.recentPinFolderIds[0],folder.id);
+  await page.keyboard.press('Shift+p');await page.locator('[data-action="choose-folder"]').first().waitFor({state:'visible'});assert.equal(await page.locator('[data-action="choose-folder"]').first().getAttribute('data-folder'),folder.id);assert.equal(await page.locator('[data-action="choose-folder"]').last().getAttribute('data-folder'),'');await page.keyboard.press('Escape');await page.locator('[data-action="choose-folder"]').first().waitFor({state:'hidden'});assert.deepEqual((await page.evaluate(()=>window.clipboardLine.state())).settings.recentPinFolderIds,pinnedFolderState.settings.recentPinFolderIds);
   await page.keyboard.press('f');await until(()=>page.locator('[data-shelf="text"] .card').count(),count=>count===3);await page.keyboard.press('f');
   await page.keyboard.press('s');await until(()=>page.locator(`[data-shelf="text"] [data-item-id="${first}"]`).count(),count=>count===0);await page.keyboard.press('Backspace');await until(()=>page.locator(`[data-shelf="text"] [data-item-id="${first}"]`).count(),count=>count===1);
-  check('real sequential AltP naming, ShiftP folder, F pins and S/Backspace undo preserve organization');
+  check('real sequential AltP naming, successful ShiftP recent-folder defaults, cancel, F pins and S/Backspace undo preserve organization');
 
   await page.evaluate(()=>window.clipboardLine.command('settings'));
   await page.locator('[data-action="settings-tab"][data-tab="shortcuts"]').click();await page.locator('[data-action="record-local"][data-key-action="pin"]').click();

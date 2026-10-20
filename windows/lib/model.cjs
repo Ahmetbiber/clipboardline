@@ -17,7 +17,7 @@ const DEFAULTS = Object.freeze({
   autoCheckUpdates: true, watchFolders: [], openAfterScreenshot: true,
   theme:'soft', cardSize:'medium', sounds:false, launchAtLogin:false, language:'system',indexImages:true,
   libraryListMode:false,libraryInspectorVisible:true,librarySidebarVisible:true,librarySidebarWidth:220,libraryInspectorWidth:300,
-  libraryListColumns:{title:300,kind:80,tags:150,created:130}
+  libraryListColumns:{title:300,kind:80,tags:150,created:130},recentPinFolderIds:[]
 });
 const clone = value => structuredClone(value);
 const fail = message => { throw new Error(message); };
@@ -57,6 +57,8 @@ function settings(patch, previous = DEFAULTS) {
         if(typeof shortcut !== 'string' || shortcut.length > 80 || /[\r\n\0]/.test(shortcut)) fail('Invalid local shortcut');
         out.localShortcuts[action] = shortcut;
       }
+    } else if(key==='recentPinFolderIds') {
+      if(!Array.isArray(value)||value.length>8)fail('Invalid recent folders');out.recentPinFolderIds=ids(value);
     } else if(key==='libraryListColumns') {
       if(!value||typeof value!=='object'||Array.isArray(value))fail('Invalid library columns');
       for(const [column,width] of Object.entries(value)){
@@ -107,10 +109,12 @@ class Store {
       for (const item of this.data.items) this.validateStored(item);
       if(this.data.pendingDeletionFiles&&(!Array.isArray(this.data.pendingDeletionFiles)||this.data.pendingDeletionFiles.length>200000||this.data.pendingDeletionFiles.some(name=>typeof name!=='string'||!MANAGED_MEDIA.test(name))))fail('Invalid pending deletion state.');
     }
+    this.pruneRecentFolders();
     this.privacyWarning='';
     if(this.data.pendingBackupRefresh||this.data.pendingDeletionFiles?.length)try{this.finishPermanentDeletion();}catch(error){this.privacyWarning=error.message;}
     this.expire();
   }
+  pruneRecentFolders(){const known=new Set(this.data.folders.map(folder=>folder.id));this.data.settings.recentPinFolderIds=(this.data.settings.recentPinFolderIds||[]).filter(id=>known.has(id));}
   validateStored(item) {
     ids([item.id]); if (!KINDS.includes(item.kind) || !Array.isArray(item.folderIds) || !Array.isArray(item.tags)) fail('Invalid library record');
     if (item.text != null) text(item.text, 1024 * 1024, true);
@@ -272,7 +276,7 @@ class Store {
   modifyTransaction(action, payload = {}) {
     const now = this.clock();
     if(action==='cleanup'){this.finishPermanentDeletion();return;}
-    if (action === 'setSettings') { this.data.settings = settings(payload.patch, this.data.settings); this.expire(false); this.persist(); return; }
+    if (action === 'setSettings') { this.data.settings = settings(payload.patch, this.data.settings);this.pruneRecentFolders();this.expire(false); this.persist(); return; }
     if (action === 'createFolder') {
       const name = text(payload.name, 120).trim(); if (!name) fail('Folder name is empty');
       const parentId = payload.parentId || null;
@@ -283,7 +287,7 @@ class Store {
       const folder=this.data.folders.find(f=>f.id===payload.id);if(!folder)fail('Folder unavailable');
       if(action==='renameFolder'){folder.name=text(payload.name,120).trim();if(!folder.name)fail('Folder name is empty');}
       else {const removed=new Set([folder.id]);let changed=true;while(changed){changed=false;for(const child of this.data.folders)if(removed.has(child.parentId)&&!removed.has(child.id)){removed.add(child.id);changed=true;}}this.data.folders=this.data.folders.filter(f=>!removed.has(f.id));for(const item of this.data.items)if(item.folderIds.some(id=>removed.has(id))){item.retainedAt??=now;item.folderIds=item.folderIds.filter(id=>!removed.has(id));}}
-      this.persist();return;
+      this.pruneRecentFolders();this.persist();return;
     }
     if(action==='renameTag'||action==='deleteTag') {
       const tag=text(payload.tag,80).trim(),affected=this.data.items.filter(item=>item.tags.includes(tag));
@@ -324,6 +328,7 @@ class Store {
       else if (action === 'folder') {
         if (!this.data.folders.some(f => f.id === payload.folderId)) fail('Folder unavailable');
         if(payload.pinning!==undefined&&typeof payload.pinning!=='boolean')fail('Invalid folder pin option');
+        if(payload.rememberRecent!==undefined&&typeof payload.rememberRecent!=='boolean')fail('Invalid recent folder option');
         item.folderIds = [...new Set([...item.folderIds, payload.folderId])];if(payload.pinning!==false)item.pinned=true;item.retainedAt??=now;
       } else if(action==='unassign') {
         if(typeof payload.folderId!=='string'||!this.data.folders.some(f=>f.id===payload.folderId))fail('Folder unavailable');
@@ -348,6 +353,7 @@ class Store {
       else fail('Unknown library action');
       if(action!=='markCopied')item.updatedAt = now;
     }
+    if(action==='folder'&&payload.rememberRecent===true)this.data.settings.recentPinFolderIds=[payload.folderId,...this.data.settings.recentPinFolderIds.filter(id=>id!==payload.folderId)].slice(0,8);
     if (action === 'delete') this.data.items = this.data.items.filter(i => !items.includes(i));
     if (['delete', 'trash', 'restore'].includes(action)) this.undoStack = this.undoStack.filter(batch => !batch.some(old => items.some(i => i.id === old.id)));
     if(action==='delete')this.preparePermanentDeletion();

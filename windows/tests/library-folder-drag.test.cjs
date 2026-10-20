@@ -7,6 +7,7 @@ function renderer(){
  const listeners=new Map(),windowListeners=new Map(),nodes=new Map(),commands=[];
  class Element{
   constructor(){this.dataset={};this.style={};this.innerHTML='';this.textContent='';const classes=new Set();this.classList={add:value=>classes.add(value),remove:value=>classes.delete(value),contains:value=>classes.has(value)};}
+  set innerHTML(value){this.htmlWrites=(this.htmlWrites||0)+1;this._innerHTML=value;}get innerHTML(){return this._innerHTML;}
   closest(){return null;}querySelector(){return null;}querySelectorAll(){return [];}matches(){return false;}setAttribute(){}focus(){}blur(){}scrollIntoView(){}contains(){return false;}
  }
  const document={body:new Element(),activeElement:null,getElementById(id){if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);},querySelector(){return null;},querySelectorAll(){return [];},addEventListener(type,callback){if(!listeners.has(type))listeners.set(type,[]);listeners.get(type).push(callback);}};
@@ -21,7 +22,7 @@ function renderer(){
  function card(id){const element=new Element();element.dataset.itemId=id;element.closest=selector=>selector==='[data-item-id]'?element:null;return element;}
  function folder(id){const row=new Element(),button=new Element();button.dataset.folder=id;row.querySelector=selector=>selector==='[data-action="folder-scope"]'?button:null;button.closest=selector=>selector==='.folder-row'?row:selector==='[data-action="folder-scope"]'?button:null;return{row,button};}
  async function drag(id,{alt=false}={}){const values=new Map(),dataTransfer={effectAllowed:'',dropEffect:'',setData:(key,value)=>values.set(key,value),getData:key=>values.get(key)||'',get types(){return [...values.keys()];}};const event=await dispatch('dragstart',{target:card(id),altKey:alt,dataTransfer});return{...event,dataTransfer,values};}
- return{ready,dispatch,drag,folder,ids,folders,state,commands,api,get html(){return nodes.get('app').innerHTML;},async selectAll(){await dispatch('keydown',{target:new Element(),code:'KeyA',key:'a',ctrlKey:true,metaKey:false,altKey:false,shiftKey:false,repeat:false});},async end(){await dispatch('dragend');},async blur(){await dispatch('blur',{},windowListeners);}};
+ return{ready,dispatch,drag,folder,ids,folders,state,commands,api,get html(){return nodes.get('app').innerHTML;},get writes(){return nodes.get('app').htmlWrites;},async selectAll(){await dispatch('keydown',{target:new Element(),code:'KeyA',key:'a',ctrlKey:true,metaKey:false,altKey:false,shiftKey:false,repeat:false});},async end(){await dispatch('dragend');},async blur(){await dispatch('blur',{},windowListeners);}};
 }
 
 test('Library image and mixed selections drag onto folders additively without pinning or native file export',async()=>{
@@ -35,6 +36,19 @@ test('Library image and mixed selections drag onto folders additively without pi
 test('Library Alt exports and shelf native image dragging remain separate from owned internal folder drops',async()=>{
  const f=renderer();await f.ready();await f.selectAll();const drag=await f.drag(f.ids[0],{alt:true});assert.equal(drag.prevented,true);assert.deepEqual(f.commands.at(-1),{action:'startDrag',payload:{ids:f.ids}});const target=f.folder(f.folders[1]);assert.equal((await f.dispatch('dragover',{target:target.button,dataTransfer:drag.dataTransfer})).prevented,undefined);await f.dispatch('drop',{target:target.button,dataTransfer:drag.dataTransfer});assert.equal(f.commands.filter(value=>value.action==='folder').length,0);
  f.api.emit({view:'shelves'});await f.ready();const shelf=await f.drag(f.ids[0]);assert.equal(shelf.prevented,true);assert.equal(f.commands.at(-1).action,'startDrag');
+});
+
+test('ordinary state packets preserve a live internal drag DOM and ordered batch until a validated drop flushes latest state',async()=>{
+ const f=renderer();await f.ready();await f.selectAll();const drag=await f.drag(f.ids[1]),target=f.folder(f.folders[1]),writes=f.writes;f.state.items[0].name='Updated during the gesture';f.api.emit({items:f.state.items,imageSearch:{available:true,indexing:true,revision:7}});await f.ready();assert.equal(f.writes,writes);assert.doesNotMatch(f.html,/Updated during the gesture/);assert.deepEqual(JSON.parse(drag.values.get(TYPE)),f.ids);await f.dispatch('dragover',{target:target.button,dataTransfer:drag.dataTransfer});await f.dispatch('drop',{target:target.button,dataTransfer:drag.dataTransfer});assert.deepEqual(f.commands.at(-1),{action:'folder',payload:{ids:f.ids,folderId:f.folders[1],pinning:false}});assert.ok(f.writes>writes);assert.match(f.html,/Updated during the gesture/);assert.equal(target.row.classList.contains('folder-drop-target'),false);
+});
+
+test('dragend and blur flush deferred Library updates while a replacement internal drag keeps them deferred until its own end',async()=>{
+ for(const finish of ['end','blur']){const f=renderer();await f.ready();await f.drag(f.ids[0]);const writes=f.writes;f.state.items[0].name='Pending '+finish;f.api.emit({items:f.state.items});await f.ready();assert.equal(f.writes,writes);await f[finish]();assert.ok(f.writes>writes);assert.match(f.html,new RegExp('Pending '+finish));}
+ const f=renderer();await f.ready();await f.drag(f.ids[0]);const writes=f.writes;f.api.emit({imageSearch:{available:true,revision:9}});await f.ready();const replacement=await f.drag(f.ids[1]);assert.equal(f.writes,writes);assert.deepEqual(JSON.parse(replacement.values.get(TYPE)),[f.ids[1]]);await f.end();assert.ok(f.writes>writes);
+});
+
+test('hidden windows, native view transitions and source/hovered-target deletion cancel live drag ownership before any drop can mutate data',async()=>{
+ for(const change of ['hide','view','source','target']){const f=renderer();await f.ready();const drag=await f.drag(f.ids[0]),target=f.folder(f.folders[1]);await f.dispatch('dragover',{target:target.button,dataTransfer:drag.dataTransfer});const writes=f.writes;f.api.emit({imageSearch:{available:true,revision:5}});await f.ready();assert.equal(f.writes,writes);if(change==='hide')f.api.emit({windowVisible:false});if(change==='view')f.api.emit({view:'shelves'});if(change==='source'){f.state.items[0].trashedAt=1;f.api.emit({items:f.state.items});}if(change==='target')f.api.emit({folders:f.state.folders.filter(folder=>folder.id!==f.folders[1])});await f.ready();assert.ok(f.writes>writes,change);assert.equal(target.row.classList.contains('folder-drop-target'),false);await f.dispatch('drop',{target:target.button,dataTransfer:drag.dataTransfer});assert.equal(f.commands.some(value=>value.action==='folder'),false,change);}
 });
 
 test('folder drops ignore external, changed, trashed, ended and invalid-destination payloads',async()=>{
