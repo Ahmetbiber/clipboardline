@@ -15,6 +15,7 @@ const nativeVideo=require('./native-video-acceptance.cjs');
 const videoUI=require('./video-ui-acceptance.cjs');
 const semanticImages=require('./semantic-image-acceptance.cjs');
 const nativeDrag=require('./native-drag-acceptance.cjs');
+const {waitForImageEditorRaster}=require('./image-editor-ready.cjs');
 const edgeConsumer=require('./consumer-edge-acceptance.cjs');
 const notepadConsumer=require('./notepad-acceptance.cjs');
 if(process.platform!=='win32')throw new Error('Run native acceptance on the actual Windows runner.');
@@ -90,13 +91,13 @@ async function main(){
   await page.evaluate(()=>window.clipboardLine.command('show'));
   await page.locator(`[data-shelf="image"] [data-item-id="${imageItem.id}"]`).click();await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});await page.keyboard.press('c');
   const canvas=page.locator('#markup-canvas');await canvas.waitFor({state:'visible'});
-  await page.waitForFunction(()=>{const canvas=document.getElementById('markup-canvas');return canvas?.width===900&&canvas.height===220;});
+  await waitForImageEditorRaster(page,{width:900,height:220});
   const previewBounds=await application.evaluate(()=>global.__clipboardLineTest.getWindow().getBounds());await application.evaluate(()=>global.__clipboardLineTest.getWindow().setBounds({x:0,y:0,width:760,height:680}));await page.waitForFunction(()=>innerWidth===760);
   const previewControls=await page.evaluate(()=>['previous','next','close-preview'].map(action=>{const element=document.querySelector('.preview-toolbar [data-action="'+action+'"]'),rect=element.getBoundingClientRect(),hit=document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2);return{action,left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,visible:rect.left>=0&&rect.right<=innerWidth&&rect.top>=0&&rect.bottom<=innerHeight&&hit?.closest('[data-action]')===element};}));assert.ok(previewControls.every(control=>control.visible),JSON.stringify(previewControls));
   await application.evaluate((_electron,bounds)=>global.__clipboardLineTest.getWindow().setBounds(bounds),previewBounds);await page.waitForFunction(width=>innerWidth===width,previewBounds.width);
   // Resize rebuilds the clean preview. Wait for the replacement canvas to be
   // redrawn from the original before measuring or sending a crop gesture.
-  await page.waitForFunction(()=>{const canvas=document.getElementById('markup-canvas');return canvas?.width===900&&canvas.height===220;});check('narrow preview keeps navigation and close controls visible and hit-testable');
+  await waitForImageEditorRaster(page,{width:900,height:220});check('narrow preview keeps navigation and close controls visible and hit-testable');
   const box=await waitForCropBox(page,previewBounds);assert.ok(box.width>100&&box.height>30,JSON.stringify(box));
   await page.evaluate(()=>{window.__cropPointerDiagnostics=[];window.__nativeCropCanvas=null;for(const type of ['pointerdown','pointermove','pointerup'])document.addEventListener(type,event=>{if(type==='pointerdown'&&event.target.id==='markup-canvas')window.__nativeCropCanvas=event.target;if(!window.__nativeCropCanvas)return;const canvas=document.getElementById('markup-canvas'),rect=canvas?.getBoundingClientRect();window.__cropPointerDiagnostics.push({type,x:event.clientX,y:event.clientY,sameCanvas:canvas===window.__nativeCropCanvas,raster:canvas?{width:canvas.width,height:canvas.height}:null,box:rect?{x:rect.x,y:rect.y,width:rect.width,height:rect.height}:null,viewport:{width:innerWidth,height:innerHeight}});},{capture:true});});
   await page.mouse.move(box.x+box.width*.60,box.y+box.height*.20);await page.mouse.down();
@@ -114,7 +115,7 @@ async function main(){
   const raster=await application.evaluate(async({net,nativeImage},{current,original})=>{const read=async url=>nativeImage.createFromBuffer(Buffer.from(await(await net.fetch(url)).arrayBuffer())).getSize();return{current:await read(current),original:await read(original)};},{current:cropped.mediaUrl,original:cropped.originalMediaUrl});
   assert.deepEqual(raster.current,{width:cropped.crop.width,height:cropped.crop.height});assert.deepEqual(raster.original,{width:900,height:220});
   await page.keyboard.press('Escape');await page.locator('#preview-dialog').waitFor({state:'hidden'});check('real crop canvas drag saves original-coordinate bounds and cropped raster');
-  await page.locator(`[data-shelf="image"] [data-item-id="${imageItem.id}"]`).click();await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});await page.keyboard.press('c');await canvas.waitFor({state:'visible'});await page.waitForFunction(()=>{const value=document.getElementById('markup-canvas');return value?.width===900&&value.height===220;});
+  await page.locator(`[data-shelf="image"] [data-item-id="${imageItem.id}"]`).click();await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});await page.keyboard.press('c');await canvas.waitFor({state:'visible'});await waitForImageEditorRaster(page,{width:900,height:220});
   const tabCropBox=await waitForCropBox(page,previewBounds);assert.ok(tabCropBox.width>100&&tabCropBox.height>30,JSON.stringify(tabCropBox));
   await page.mouse.move(tabCropBox.x+tabCropBox.width*.15,tabCropBox.y+tabCropBox.height*.25);await page.mouse.down();await page.mouse.move(tabCropBox.x+tabCropBox.width*.45,tabCropBox.y+tabCropBox.height*.75,{steps:6});await page.mouse.up();
   await page.keyboard.press('Tab');await until(()=>page.locator('#preview-dialog').getAttribute('aria-label'),label=>label==='Named synthetic key');

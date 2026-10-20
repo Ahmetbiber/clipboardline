@@ -1,5 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
+const {waitForImageEditorRaster}=require('./image-editor-ready.cjs');
 
 // Every assertion uses the shipped renderer's genuine keyboard/click handlers.
 // Only throwaway records and preferences are seeded through the isolated model.
@@ -40,10 +41,10 @@ module.exports=async function shortcutParity({page,application,check,until}){
   const beforeUp=await navigationSnapshot(),column=beforeUp.rows.text.indexOf(fixtures.second);assert.equal(column,1,JSON.stringify(beforeUp));const expectedImage=beforeUp.rows.image[Math.min(column,beforeUp.rows.image.length-1)];assert.ok(expectedImage,JSON.stringify(beforeUp));await page.keyboard.press('ArrowUp');await expectFocus(expectedImage);assert.equal((await navigationSnapshot()).active,'image');
   // Up preserves the column; explicitly move to column zero to exercise the
   // deliberately tiny first image's markup workspace as well.
-  await page.keyboard.press('Control+ArrowLeft');await expectFocus(fixtures.image);await page.keyboard.press('m');await page.locator('#markup-canvas').waitFor({state:'visible'});await page.keyboard.press('Control+Enter');await page.locator('#markup-canvas').waitFor({state:'hidden'});assert.equal(await page.locator('#preview-dialog').isVisible(),true);
+  await page.keyboard.press('Control+ArrowLeft');await expectFocus(fixtures.image);await page.keyboard.press('m');await waitForImageEditorRaster(page,{width:96,height:64});await page.keyboard.press('Control+Enter');await page.locator('#markup-canvas').waitFor({state:'hidden'});assert.equal(await page.locator('#preview-dialog').isVisible(),true);
   check('action-bar Preview uses the focused batch member and CtrlEnter finishes text/image editing while preserving preview');
 
-  await palette('Marker');await page.keyboard.press('Enter');await page.locator('#markup-canvas').waitFor({state:'visible'});assert.equal(await page.locator('[data-tool="marker"]').getAttribute('aria-pressed'),'true');await page.keyboard.press('Control+Enter');
+  await palette('Marker');await page.keyboard.press('Enter');await waitForImageEditorRaster(page,{width:96,height:64});assert.equal(await page.locator('[data-tool="marker"]').getAttribute('aria-pressed'),'true');await page.keyboard.press('Control+Enter');await page.locator('#markup-canvas').waitFor({state:'hidden'});
   await page.keyboard.press('Escape');await page.keyboard.press('l');await page.locator('.library-grid').waitFor({state:'visible'});
   await palette('List view');await page.keyboard.press('Enter');await page.locator('.library-grid.list').waitFor({state:'visible'});
   await palette('Settings · History');await page.keyboard.press('Enter');await page.locator('[data-retention="text"]').waitFor({state:'visible'});await page.locator('[data-retention="link"]').waitFor({state:'visible'});
@@ -53,7 +54,7 @@ module.exports=async function shortcutParity({page,application,check,until}){
   await until(()=>page.locator('#toast').textContent(),message=>message.includes('already used for Take down'));assert.equal(await page.locator('[aria-label="Record shortcut"]').isVisible(),true);
   await page.keyboard.press('o');await page.locator('[data-action="confirm-modal"]').click();await page.locator('[aria-label="Record shortcut"]').waitFor({state:'hidden'});await show();await page.keyboard.press('o');
   assert.equal((await page.evaluate(()=>window.clipboardLine.state())).items.find(value=>value.id===fixtures.image).pinned,false);
-  await page.keyboard.press('Space');await page.keyboard.press('m');await page.keyboard.press('o');assert.equal(await page.locator('[data-tool="ellipse"]').getAttribute('aria-pressed'),'true');await page.keyboard.press('Control+Enter');await page.keyboard.press('Escape');
+  await page.keyboard.press('Space');await page.keyboard.press('m');await waitForImageEditorRaster(page,{width:96,height:64});await page.keyboard.press('o');assert.equal(await page.locator('[data-tool="ellipse"]').getAttribute('aria-pressed'),'true');await page.keyboard.press('Control+Enter');await page.locator('#markup-canvas').waitFor({state:'hidden'});await page.keyboard.press('Escape');
   check('shortcut recorder rejects overlapping actions but permits the same letter in separate browsing and markup contexts');
  }finally{
   await page.keyboard.press('Escape').catch(()=>{});
