@@ -16,7 +16,7 @@ const temporary=fs.mkdtempSync(path.join(process.env.RUNNER_TEMP,'clipboardline-
 const installedDirectory=path.join(temporary,'installed'),installed=path.join(installedDirectory,'ClipBoardLine.exe');
 const powershell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
 const report={schema:1,platform:process.platform,arch:process.arch,validationRevision:process.env.GITHUB_SHA,publishedSourceRevision:expected.source,expectedReleaseId:expected.releaseId,previous:{version:EXPECTED.previousVersion,build:EXPECTED.previousBuild,sourceRevision:EXPECTED.previousSource,installerSHA256:EXPECTED.previousSHA256},target:{version:EXPECTED.version,build:EXPECTED.build},scope:'unchanged published build65 -> real anonymous production feed/key and Settings buttons -> actual build66 NSIS replacement/automatic reopen -> normal production UI/native text and image paste',feed:FEED,publicKey:PUBLIC_KEY,testMode:false,updaterReplaced:false,fetcherOverridden:false,keyOverridden:false,versionOverridden:false,binaryModified:false,releaseModified:false,checks:[],rendererErrors:[],startedAt:new Date().toISOString()};
-let application,observer,fixture,userdata,seed,manifest;
+let application,activePage,observer,fixture,userdata,seed,manifest;
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 const fileHash=file=>hash(fs.readFileSync(file));
 const check=(name,details={})=>{report.checks.push({name,passed:true,...details});console.log('PASS '+name);};
@@ -33,10 +33,19 @@ async function runtime(page,version,build){
  const info=await application.evaluate(({app,BrowserWindow})=>({packaged:app.isPackaged,testHooks:!!global.__clipboardLineTest,version:app.getVersion(),argv:process.argv,appPath:app.getAppPath(),userData:app.getPath('userData'),processId:process.pid,windowHandle:BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readBigUInt64LE().toString()}));
  const state=await page.evaluate(()=>window.clipboardLine.state());assertProductionRuntime(info,version,build,state);return info;
 }
+async function uiSnapshot(page,label){
+ const value=await page.evaluate(async()=>{const state=await window.clipboardLine.state();return{version:state.version,build:state.build,view:state.view,windowVisible:state.windowVisible,bodyClass:document.body.className,settingsButtons:document.querySelectorAll('[data-action="settings"]').length,settingsTabs:[...document.querySelectorAll('[data-action="settings-tab"]')].map(element=>element.dataset.tab),checkButtons:document.querySelectorAll('[data-action="check-updates"]').length};});
+ (report.uiSnapshots||=[]).push({label,...value});return value;
+}
 async function launch(){
  application=await electron.launch({executablePath:installed,args:[],timeout:60000});
- const page=await application.firstWindow();await page.waitForFunction(()=>!!window.clipboardLine);
- page.on('pageerror',error=>report.rendererErrors.push({name:error.name,message:String(error.message).slice(0,500)}));return page;
+ const page=await application.firstWindow();activePage=page;page.on('pageerror',error=>report.rendererErrors.push({name:error.name,message:String(error.message).slice(0,500)}));await page.waitForFunction(()=>!!window.clipboardLine);
+ // The shipped65 preload API exists before its initial asynchronous native
+ // show/capture finishes. That client intentionally ignores overlapping show
+ // commands; wait for its actual first window, then use its real UI controls.
+ await until(()=>page.evaluate(()=>window.clipboardLine.state()),state=>state.windowVisible===true,60000,'the normal production initial window to finish showing');
+ await page.locator('[data-action="settings"]').first().waitFor({state:'visible'});
+ await uiSnapshot(page,'normal-launch-ready');return page;
 }
 async function stopOwned(){
  if(application){await application.close().catch(()=>{});application=null;}
@@ -45,7 +54,12 @@ async function stopOwned(){
 }
 async function runInstaller(file,args){await new Promise((resolve,reject)=>{const child=spawn(file,args,{windowsHide:true,stdio:'ignore',env:windowsEnvironment()});const timer=setTimeout(()=>{child.kill();reject(new Error('Initial NSIS install exceeded its three-minute limit.'));},180000);child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('exit',code=>{clearTimeout(timer);code===0?resolve():reject(new Error('NSIS installation exit '+code));});});}
 async function command(page,action,payload={}){const result=await page.evaluate(({action,payload})=>window.clipboardLine.command(action,payload),{action,payload});assert.ok(!result.result?.error,action+' rejected: '+(result.result?.error||''));return result;}
-async function settings(page){await command(page,'settings');await page.locator('[data-action="settings-tab"][data-tab="updates"]').click();await page.locator('[data-action="check-updates"]').waitFor({state:'visible'});}
+async function settings(page){
+ const before=await uiSnapshot(page,'before-settings');assert.equal(before.windowVisible,true);
+ await page.locator('[data-action="settings"]').first().click();
+ await page.locator('[data-action="settings-tab"][data-tab="updates"]').click();
+ await page.locator('[data-action="check-updates"]').waitFor({state:'visible'});await uiSnapshot(page,'updates-controls-ready');
+}
 async function publication(){
  const [feed,latestResponse]=await Promise.all([boundedFetch(FEED,{maximum:200000,timeout:60000}),boundedFetch(`https://api.github.com/repos/${REPOSITORY}/releases/latest`,{maximum:500000,timeout:60000})]);
  manifest=verifyEnvelope(feed.bytes);const latest=JSON.parse(latestResponse.bytes.toString('utf8'));
@@ -138,6 +152,11 @@ async function main(){
  await verifySettingsUI(page);await nativePaste(page);assert.deepEqual(report.rendererErrors,[]);report.passed=true;report.completedAt=new Date().toISOString();
 }
 main().catch(error=>{report.passed=false;report.error=String(error.stack||error.message).replaceAll(seed?.text||'__NO_SYNTHETIC_TEXT__','[synthetic text]').slice(0,8000);console.error(report.error);process.exitCode=1;}).finally(async()=>{
+ if(report.passed===false&&application&&activePage){
+  let timer;try{await Promise.race([uiSnapshot(activePage,'failure-before-cleanup'),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('UI snapshot exceeded its five-second bound.')),5000);})]);}catch(error){report.uiSnapshotError=String(error.message).slice(0,500);}finally{clearTimeout(timer);}
+  try{await activePage.screenshot({path:path.join(output,'synthetic-ui-failure.png'),timeout:5000});}catch(error){report.screenshotError=String(error.message).slice(0,500);}
+ }
+ fs.writeFileSync(path.join(output,'windows-production-65-to-66.json'),JSON.stringify(report,null,2)+'\n');
  try{await stopOwned();}catch{}if(observer&&!observer.killed)observer.kill();if(fixture&&!fixture.killed)fixture.kill();
  fs.writeFileSync(path.join(output,'windows-production-65-to-66.json'),JSON.stringify(report,null,2)+'\n');
 });
