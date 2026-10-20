@@ -145,9 +145,12 @@ try{
     $folder=Await-Operation ([Windows.Storage.StorageFolder]::GetFolderFromPathAsync($directory)) ([Windows.Storage.StorageFolder])
     $audio=Await-Operation ($folder.CreateFileAsync('audio.wav',[Windows.Storage.CreationCollisionOption]::FailIfExists)) ([Windows.Storage.StorageFile])
     $transcoder=New-Object Windows.Media.Transcoding.MediaTranscoder
-    $profile=[Windows.Media.MediaProperties.MediaEncodingProfile]::CreateWav([Windows.Media.MediaProperties.AudioEncodingQuality]::Auto)
+    $transcoder.HardwareAccelerationEnabled=$false
+    $transcoder.AlwaysReencode=$true
+    $profile=[Windows.Media.MediaProperties.MediaEncodingProfile]::CreateWav([Windows.Media.MediaProperties.AudioEncodingQuality]::High)
+    $profile.Audio=[Windows.Media.MediaProperties.AudioEncodingProperties]::CreatePcm([uint32]44100,[uint32]1,[uint32]16)
     $prepared=Await-Operation ($transcoder.PrepareFileTranscodeAsync($storage,$audio,$profile)) ([Windows.Media.Transcoding.PrepareTranscodeResult])
-    if(-not $prepared.CanTranscode){throw 'Native audio verification could not decode the recording.'}
+    if(-not $prepared.CanTranscode){throw ('Native audio verification could not decode the recording: '+$prepared.FailureReason)}
     Await-ProgressAction ($prepared.TranscodeAsync())
     $result.audioFile='audio.wav'
   }
