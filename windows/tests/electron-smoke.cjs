@@ -254,9 +254,13 @@ async function main(){
   await page.locator('[data-action="scope"][data-scope="saved"]').click();
   const originalLibraryTarget=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(originalLibraryTarget.editable);
   await fixtureCommand({action:'focus',target:'plain',seed:'Mouse reentry plain selection',selectAll:true});
-  await until(()=>application.evaluate(()=>global.__clipboardLineTest.getObservedTarget()),value=>value?.editable&&value.runtime!==originalLibraryTarget.runtime&&value.processId===originalLibraryTarget.processId);
+  const observedReentryTarget=await until(()=>application.evaluate(()=>global.__clipboardLineTest.getObservedTarget()),value=>value?.editable&&value.runtime!==originalLibraryTarget.runtime&&value.processId===originalLibraryTarget.processId);
   await application.evaluate(()=>global.__clipboardLineTest.getWindow().focus());
-  const reentry=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.notEqual(reentry.runtime,originalLibraryTarget.runtime);
+  // focus() requests Windows activation; its Electron focus event can arrive
+  // after this evaluation returns. Require the actual foreground transition
+  // and the exact newly observed field before sending the shortcut.
+  const reentry=await until(async()=>({...(await application.evaluate(()=>{const h=global.__clipboardLineTest,w=h.getWindow();return{focused:w.isFocused(),sourceHandle:w.getNativeWindowHandle().readBigUInt64LE().toString(),target:h.getTarget()};})),foreground:fixtureState().foreground}),value=>value.focused&&value.foreground===value.sourceHandle&&value.target?.handle===observedReentryTarget.handle&&value.target?.processId===observedReentryTarget.processId&&value.target?.runtime===observedReentryTarget.runtime);
+  assert.deepEqual(reentry.target,observedReentryTarget);
   await page.locator(`[data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');
   await until(fixtureState,value=>value.plainText===textItem.text&&value.focused==='plain'&&value.foreground===value.handle);
   await fixtureCommand({action:'keys',keys:' REENTRY_FOCUS_OK'});await until(fixtureState,value=>value.plainText.endsWith(' REENTRY_FOCUS_OK'));
