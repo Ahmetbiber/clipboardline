@@ -1,10 +1,11 @@
 'use strict';
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
+const {preparePreGestureLocator}=require('./pre-gesture-locator.cjs');
 
-async function dragAcrossStatePacket({page,application,until,source,folderId,sourceId,expectedIds}){
- const target=page.locator(`[data-action="folder-scope"][data-folder="${folderId}"]`);
- await source.scrollIntoViewIfNeeded();await target.scrollIntoViewIfNeeded();
+async function dragAcrossStatePacket({page,application,until,folderId,sourceId,expectedIds}){
+ const resolveSource=()=>page.locator(`.library-grid [data-item-id="${sourceId}"]`),resolveTarget=()=>page.locator(`[data-action="folder-scope"][data-folder="${folderId}"]`),target=resolveTarget();
+ await preparePreGestureLocator(resolveSource,'scrollIntoViewIfNeeded');await preparePreGestureLocator(resolveTarget,'scrollIntoViewIfNeeded');
  await page.evaluate(({sourceId,folderId})=>{
   window.__folderDragProbe?.unsubscribe?.();
   window.__folderDragProbe={active:true,sourceId,folderId,setupSource:document.querySelector(`.library-grid [data-item-id="${sourceId}"]`),setupTarget:document.querySelector(`[data-action="folder-scope"][data-folder="${folderId}"]`),source:null,target:null,started:false,startCount:0,beforeStartPacket:false,packet:false,events:[]};
@@ -29,7 +30,7 @@ async function dragAcrossStatePacket({page,application,until,source,folderId,sou
  assert.deepEqual(await page.evaluate(()=>{const probe=window.__folderDragProbe;return{started:probe.started,sourceDetached:!probe.setupSource?.isConnected,targetDetached:!probe.setupTarget?.isConnected};}),{started:false,sourceDetached:true,targetDetached:true});
  // This is a real pointer drag, paused after dragstart and before the target.
  // The packet travels through the production main→preload state subscription.
- await source.hover();const point=await page.evaluate(()=>window.__folderDragProbe.pointer);assert.ok(point&&Number.isFinite(point.x)&&Number.isFinite(point.y));
+ await preparePreGestureLocator(resolveSource,'hover');const point=await page.evaluate(()=>window.__folderDragProbe.pointer);assert.ok(point&&Number.isFinite(point.x)&&Number.isFinite(point.y));
  await page.mouse.down();await page.mouse.move(point.x+12,point.y+8,{steps:3});await page.mouse.move(point.x+20,point.y+8);
  await until(()=>page.evaluate(()=>window.__folderDragProbe.started),Boolean);
  assert.deepEqual(await page.evaluate(()=>window.__folderDragProbe.ids),expectedIds);
@@ -59,11 +60,11 @@ module.exports=async({page,application,check,until,output})=>{
   assert.deepEqual(await page.locator('[data-action="folder-scope"]').evaluateAll((buttons,expected)=>buttons.map(button=>button.dataset.folder).filter(id=>expected.includes(id)),[fixture.a,fixture.b,fixture.child]),[fixture.a,fixture.b,fixture.child]);
   const image=page.locator(`.library-grid [data-item-id="${fixture.image}"]`),text=page.locator(`.library-grid [data-item-id="${fixture.text}"]`);
   await image.waitFor({state:'visible'});await text.waitFor({state:'visible'});
-  await dragAcrossStatePacket({page,application,until,source:image,sourceId:fixture.image,folderId:fixture.b,expectedIds:[fixture.image]});
+  await dragAcrossStatePacket({page,application,until,sourceId:fixture.image,folderId:fixture.b,expectedIds:[fixture.image]});
   const read=()=>application.evaluate((_electron,{image,text})=>{const h=global.__clipboardLineTest;return{image:h.store.item(image),text:h.store.item(text)};},fixture);
   let state=await until(read,value=>value.image.folderIds.includes(fixture.b));assert.deepEqual(state.image.folderIds,[fixture.a,fixture.b]);assert.equal(state.image.pinned,false);assert.deepEqual(state.text.folderIds,[]);
   await image.click();await text.click({modifiers:['Control']});await until(()=>page.locator('.library-grid .card.selected').count(),value=>value===2);
-  const expectedIds=await page.locator('.library-grid .card.selected').evaluateAll(cards=>cards.map(card=>card.dataset.itemId));assert.equal(expectedIds.length,2);assert.ok(expectedIds.includes(fixture.image)&&expectedIds.includes(fixture.text));await dragAcrossStatePacket({page,application,until,source:text,sourceId:fixture.text,folderId:fixture.a,expectedIds});
+  const expectedIds=await page.locator('.library-grid .card.selected').evaluateAll(cards=>cards.map(card=>card.dataset.itemId));assert.equal(expectedIds.length,2);assert.ok(expectedIds.includes(fixture.image)&&expectedIds.includes(fixture.text));await dragAcrossStatePacket({page,application,until,sourceId:fixture.text,folderId:fixture.a,expectedIds});
   state=await until(read,value=>value.text.folderIds.includes(fixture.a));assert.deepEqual(state.image.folderIds,[fixture.a,fixture.b]);assert.deepEqual(state.text.folderIds,[fixture.a]);assert.equal(state.image.pinned,false);assert.equal(state.text.pinned,false);
   check('actual Library image and ordered mixed-selection pointer drags begin after pre-start refreshes and survive main-process state packets and add folders without moving or pinning');
  }catch(error){
