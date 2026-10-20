@@ -11,6 +11,7 @@ $null=[Windows.Media.MediaProperties.MediaEncodingProfile,Windows.Media.MediaPro
 $null=[Windows.Media.Transcoding.TranscodeFailureReason,Windows.Media.Transcoding,ContentType=WindowsRuntime]
 $null=[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
 $null=[Windows.Graphics.Imaging.BitmapEncoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
+$null=[Windows.Graphics.Imaging.ImageStream,Windows.Graphics.Imaging,ContentType=WindowsRuntime]
 
 }
 
@@ -30,7 +31,9 @@ function Await-Operation($Operation,[Type]$ResultType,[Type]$ProgressType=$null)
   }finally{if($Operation.Status -eq [Windows.Foundation.AsyncStatus]::Started){$Operation.Cancel()}}
 }
 function Await-Action($Operation){
-  $task=[System.WindowsRuntimeSystemExtensions]::AsTask($Operation)
+  $method=[System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {$_.Name -eq 'AsTask' -and -not $_.IsGenericMethod -and $_.GetParameters().Length -eq 1 -and $_.GetParameters()[0].ParameterType.FullName -eq 'Windows.Foundation.IAsyncAction'} | Select-Object -First 1
+  if(-not $method){throw 'Windows asynchronous action bridge is unavailable.'}
+  $task=$method.Invoke($null,@($Operation))
   if(-not $task.Wait([TimeSpan]::FromMinutes(10))){$Operation.Cancel();throw 'Video operation timed out.'}
   $task.GetAwaiter().GetResult()
 }
@@ -50,19 +53,28 @@ function Describe-Clip($Clip){
   return @{durationMs=[double]$Clip.OriginalDuration.TotalMilliseconds;width=[int]$properties.Width;height=[int]$properties.Height;videoCodec=[string]$properties.Subtype;audioTracks=[int]$Clip.EmbeddedAudioTracks.Count}
 }
 function Write-Poster($Clip,[string]$Directory){
+  $script:stage='PosterCompose'
   $composition=New-Object Windows.Media.Editing.MediaComposition
+  $script:stage='PosterClipsAdd'
   $composition.Clips.Add($Clip)
-  $stream=Await-Operation ($composition.GetThumbnailAsync([TimeSpan]::Zero,320,0,[Windows.Media.Editing.VideoFramePrecision]::NearestFrame)) ([Windows.Media.ImageStream])
+  $script:stage='PosterThumbnail'
+  $stream=Await-Operation ($composition.GetThumbnailAsync([TimeSpan]::Zero,[int]320,[int]0,[Windows.Media.Editing.VideoFramePrecision]::NearestFrame)) ([Windows.Graphics.Imaging.ImageStream])
   try{
+    $script:stage='PosterDecoder'
     $decoder=Await-Operation ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+    $script:stage='PosterSoftwareBitmap'
     $bitmap=Await-Operation ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
     try{
+      $script:stage='PosterCreatePNG'
       $folder=Await-Operation ([Windows.Storage.StorageFolder]::GetFolderFromPathAsync($Directory)) ([Windows.Storage.StorageFolder])
       $output=Await-Operation ($folder.CreateFileAsync('poster.png',[Windows.Storage.CreationCollisionOption]::FailIfExists)) ([Windows.Storage.StorageFile])
+      $script:stage='PosterOpenOutput'
       $outputStream=Await-Operation ($output.OpenAsync([Windows.Storage.FileAccessMode]::ReadWrite)) ([Windows.Storage.Streams.IRandomAccessStream])
       try{
+        $script:stage='PosterEncoder'
         $encoder=Await-Operation ([Windows.Graphics.Imaging.BitmapEncoder]::CreateAsync([Windows.Graphics.Imaging.BitmapEncoder]::PngEncoderId,$outputStream)) ([Windows.Graphics.Imaging.BitmapEncoder])
         $encoder.SetSoftwareBitmap($bitmap)
+        $script:stage='PosterFlush'
         Await-Action ($encoder.FlushAsync())
       }finally{$outputStream.Dispose()}
     }finally{$bitmap.Dispose()}
@@ -131,6 +143,7 @@ try{
   $known=$_.Exception.Message
   if($known -match '^(Choose a nonempty|Video operation timed out|Only MP4|Windows could not encode|The encoded trim duration|The recording has no usable)'){$message=$known}
   $failure=$_.Exception;while($failure.InnerException){$failure=$failure.InnerException}
-  [Console]::Out.WriteLine((@{ok=$false;error=$message;code='MEDIA_UNSUPPORTED_OR_FAILED';stage=$stage;hresult=$failure.HResult;exceptionType=$failure.GetType().FullName} | ConvertTo-Json -Compress))
+  $errorId=([string]$_.FullyQualifiedErrorId -replace '[^A-Za-z0-9_.:,-]',' ');if($errorId.Length -gt 180){$errorId=$errorId.Substring(0,180)}
+  [Console]::Out.WriteLine((@{ok=$false;error=$message;code='MEDIA_UNSUPPORTED_OR_FAILED';stage=$stage;hresult=$failure.HResult;exceptionType=$failure.GetType().FullName;errorId=$errorId;scriptLine=$_.InvocationInfo.ScriptLineNumber} | ConvertTo-Json -Compress))
   exit 1
 }
