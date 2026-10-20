@@ -30,7 +30,7 @@ function responseMetadata(raw) {
   };
 }
 function readReleaseMetadata({ token, environment = process.env, execute = execFileSync, observe = () => {} }) {
-  assert.match(token || '', /^[A-Za-z0-9_]{20,1000}$/, 'A read-only workflow metadata credential is required.');
+  assert.ok(typeof token === 'string' && token.length > 0 && token.length <= 16384 && !/[\x00-\x20\x7f]/.test(token), 'A bounded, nonempty workflow metadata credential without whitespace/control characters is required.');
   const env = { ...clientEnvironment(environment), GH_TOKEN: token };
   const args = ['api', '--hostname', 'github.com', ENDPOINT, '--include', '-H', 'Accept: application/vnd.github+json', '-H', 'X-GitHub-Api-Version: 2022-11-28'];
   let raw, failed = false;
