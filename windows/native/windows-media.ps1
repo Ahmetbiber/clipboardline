@@ -121,16 +121,22 @@ try{
     $output=Await-Operation ($folder.CreateFileAsync('trimmed.mp4',[Windows.Storage.CreationCollisionOption]::FailIfExists)) ([Windows.Storage.StorageFile])
     # Use a real H.264/AAC MP4 output while preserving source dimensions/rate.
     # Never write MP4 bytes under a MOV name or silently shrink a recording.
-    $profile=[Windows.Media.MediaProperties.MediaEncodingProfile]::CreateMp4([Windows.Media.MediaProperties.VideoEncodingQuality]::Auto)
+    # Composition rendering needs a complete encoder profile. Auto leaves
+    # attributes unresolved on desktop hosts; start with explicit defaults,
+    # then retain the recording's dimensions and timing below.
+    $profile=[Windows.Media.MediaProperties.MediaEncodingProfile]::CreateMp4([Windows.Media.MediaProperties.VideoEncodingQuality]::HD720p)
+    $profile.Audio=[Windows.Media.MediaProperties.AudioEncodingProperties]::CreateAac([uint32]44100,[uint32]2,[uint32]128000)
     # A video-only recording must remain video-only after trimming.
     if($original.audioTracks -eq 0){$profile.Audio=$null}
     $video=$clip.GetVideoEncodingProperties()
     $profile.Video.Width=$video.Width;$profile.Video.Height=$video.Height
     $profile.Video.FrameRate.Numerator=$video.FrameRate.Numerator;$profile.Video.FrameRate.Denominator=$video.FrameRate.Denominator
+    $profile.Video.PixelAspectRatio.Numerator=1;$profile.Video.PixelAspectRatio.Denominator=1
     if($video.Bitrate -gt 0){$profile.Video.Bitrate=$video.Bitrate}
+    $stage='TrimRender'
     $failure=Await-Operation ($composition.RenderToFileAsync($output,[Windows.Media.Editing.MediaTrimmingPreference]::Precise,$profile)) ([Windows.Media.Transcoding.TranscodeFailureReason]) ([double])
     if($failure -ne [Windows.Media.Transcoding.TranscodeFailureReason]::None){throw ('Windows could not encode this recording: '+$failure)}
-    $clip=Open-Clip ([IO.Path]::Combine($directory,'trimmed.mp4'))
+    $stage='TrimReopen';$clip=Open-Clip ([IO.Path]::Combine($directory,'trimmed.mp4'))
     $result=Describe-Clip $clip
     if([Math]::Abs($result.durationMs-($end-$start)) -gt 150){throw 'The encoded trim duration did not match the selection.'}
     $result.trimmedFile='trimmed.mp4'

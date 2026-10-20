@@ -67,6 +67,17 @@ test('fresh shelves select only the first image; P pins it; Space previews it',a
 
 test('preview arrows move across shelf kinds, S keeps preview on neighbor, Backspace restores',async()=>{const f=fixture();await f.ready();await f.key('Space');await f.key('ArrowDown');assert.match(f.overlay,/aria-label="Text one"/);await f.key('KeyS');assert.match(f.overlay,/aria-label="Text two"/);assert.ok(f.state.items.find(item=>item.id===f.text1).trashedAt);await f.key('Backspace');assert.match(f.overlay,/aria-label="Text one"/);assert.equal(f.state.items.find(item=>item.id===f.text1).trashedAt,null);});
 
+test('removing the final preview item keeps an empty Undo view and Backspace restores that exact item',async()=>{
+ for(const pinned of [false,true]){
+  const f=fixture();await f.ready();f.api.emit({items:[{...f.state.items[0],pinned}]});await f.ready();await f.key('Space');await f.key('KeyS');
+  assert.match(f.overlay,/id="preview-dialog"/);assert.match(f.overlay,/empty-preview/);assert.match(f.overlay,/data-action="undo"/);
+  const before=f.commands.length;await f.key('KeyC',{ctrl:true});await f.key('KeyP');assert.equal(f.commands.length,before,'empty preview must not copy or mutate its removed item');
+  await f.key('Backspace');assert.match(f.overlay,/aria-label="Synthetic image"/);assert.doesNotMatch(f.overlay,/empty-preview/);assert.deepEqual(selectedCards(f),[f.image]);
+  assert.equal(f.state.items[0].trashedAt,null);assert.equal(f.state.items[0].hiddenFromShelf,false);
+  await f.key('KeyS');assert.match(f.overlay,/empty-preview/);await f.key('Escape');assert.equal(f.overlay,'');assert.equal(f.state.windowVisible,true);
+ }
+});
+
 test('preview CtrlC keeps open; Enter copies exact current item and dismisses',async()=>{const f=fixture();await f.ready();await f.key('Space');await f.key('ArrowDown');await f.key('KeyC',{ctrl:true});assert.equal(f.commands.at(-1).action,'copy');assert.equal(f.commands.at(-1).payload.keepOpen,true);assert.match(f.overlay,/id="preview-dialog"/);await f.key('Enter');assert.equal(f.commands.at(-1).payload.ids[0],f.text1);assert.equal(f.commands.at(-1).payload.keepOpen,false);assert.equal(f.state.windowVisible,false);assert.equal(f.overlay,'');});
 
 test('L opens Library; CtrlK action search closes with Escape',async()=>{const f=fixture();await f.ready();await f.key('KeyL');assert.equal(f.state.view,'library');assert.match(f.main,/Library results/);await f.key('KeyK',{ctrl:true});assert.match(f.overlay,/Search actions/);await f.key('Escape');assert.equal(f.overlay,'');});
@@ -83,7 +94,7 @@ test('native Settings state closes the screenshot crop preview instead of coveri
 
 test('native view transition saves the current text draft once before clearing preview',async()=>{const f=fixture();await f.ready();await f.key('Tab');await f.key('Space');await f.key('KeyE');await f.input('text-editor','Edited before native Settings');await f.api.command('settings');await f.ready();assert.equal(f.state.items.find(item=>item.id===f.text1).text,'Edited before native Settings');assert.equal(f.commands.filter(command=>command.action==='editText').length,1);assert.equal(f.overlay,'');assert.match(f.main,/class="settings-main"/);});
 
-test('failed native transition retains text draft until a successful explicit retry',async()=>{const f=fixture();await f.ready();await f.key('Tab');await f.key('Space');await f.key('KeyE');await f.input('text-editor','Keep this unsaved draft');f.failEditOnce();await f.api.command('settings');await f.ready();assert.match(f.overlay,/id="text-editor"/);assert.match(f.overlay,/Keep this unsaved draft/);assert.equal(f.state.items.find(item=>item.id===f.text1).text,'Text one');assert.doesNotMatch(f.main,/class="settings-main"/);await f.click('finish-text');assert.equal(f.state.items.find(item=>item.id===f.text1).text,'Keep this unsaved draft');assert.equal(f.overlay,'');assert.match(f.main,/class="settings-main"/);});
+test('failed native transition retains text draft until a successful explicit retry',async()=>{const f=fixture();await f.ready();await f.key('Tab');await f.key('Space');await f.key('KeyE');f.failEditOnce();f.failEditOnce();await f.input('text-editor','Keep this unsaved draft');await f.api.command('settings');await f.ready();assert.match(f.overlay,/id="text-editor"/);assert.match(f.overlay,/Keep this unsaved draft/);assert.equal(f.state.items.find(item=>item.id===f.text1).text,'Text one');assert.doesNotMatch(f.main,/class="settings-main"/);await f.click('finish-text');assert.equal(f.state.items.find(item=>item.id===f.text1).text,'Keep this unsaved draft');assert.equal(f.overlay,'');assert.match(f.main,/class="settings-main"/);});
 
 test('native hide clears clean preview and does not leave it on the next opening',async()=>{const f=fixture();await f.ready();await f.key('Space');assert.match(f.overlay,/id="preview-dialog"/);await f.api.command('hide');await f.ready();assert.equal(f.overlay,'');await f.api.command('show');await f.ready();assert.equal(f.overlay,'');});
 

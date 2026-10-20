@@ -9,6 +9,8 @@ const expectedVersion=require('../package.json').version;
 const keyboardLibrary=require('./keyboard-library-acceptance.cjs');
 const shortcutParity=require('./shortcut-parity-acceptance.cjs');
 const libraryPreview=require('./library-preview-acceptance.cjs');
+const textPreview=require('./text-preview-acceptance.cjs');
+const libraryFolderDrag=require('./library-folder-drag-acceptance.cjs');
 const nativeVideo=require('./native-video-acceptance.cjs');
 const videoUI=require('./video-ui-acceptance.cjs');
 const semanticImages=require('./semantic-image-acceptance.cjs');
@@ -141,6 +143,8 @@ async function main(){
   await keyboardLibrary({page,application,textItem,folder,check,until,output});
   await shortcutParity({page,application,check,until,output});
   await libraryPreview({page,application,check,until,output});
+  await textPreview({page,application,check,until,output});
+  await libraryFolderDrag({page,application,check,until});
   await videoUI({page,application,check,until,output});
   await semanticImages({page,application,check,until,output});
   await nativeDrag({page,application,check});
@@ -231,6 +235,7 @@ async function main(){
   check('held OS CtrlEnter keeps the source focused until release and repeated paste requests insert once');
   await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'plain',seed:'Original plain fixture value',selectAll:true});
   await application.evaluate(()=>global.__clipboardLineTest.command('library'));
+  await page.locator('[data-action="scope"][data-scope="saved"]').click();
   await page.locator(`[data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');
   await until(fixtureState,value=>value.plainText===textItem.text);assert.equal((await page.evaluate(()=>window.clipboardLine.state())).windowVisible,false);
   check('Library CtrlEnter replaces selected text in a second native plain editor');
@@ -242,6 +247,7 @@ async function main(){
   // Return by native window focus rather than command('library'): that path
   // must capture the newly visited editor, not the previous Library opening.
   await fixtureCommand({action:'focus',target:'rich'});await application.evaluate(()=>global.__clipboardLineTest.command('library'));
+  await page.locator('[data-action="scope"][data-scope="saved"]').click();
   const originalLibraryTarget=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(originalLibraryTarget.editable);
   await fixtureCommand({action:'focus',target:'plain',seed:'Mouse reentry plain selection',selectAll:true});
   await until(()=>application.evaluate(()=>global.__clipboardLineTest.getObservedTarget()),value=>value?.editable&&value.runtime!==originalLibraryTarget.runtime&&value.processId===originalLibraryTarget.processId);

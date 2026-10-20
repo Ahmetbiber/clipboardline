@@ -261,7 +261,7 @@ function configureShortcuts(previousPreferences=null) {
   return rejected;
 }
 
-const modelActions=new Set(['pin','name','details','retain','note','unassign','removeTag','folder','createFolder','renameFolder','removeFolder','tag','remove','undo','trash','restore','delete','editText','saveImage','cleanup']);
+const modelActions=new Set(['pin','name','details','retain','note','unassign','removeTag','renameTag','deleteTag','folder','createFolder','renameFolder','removeFolder','tag','remove','undo','trash','restore','delete','editText','saveImage','cleanup']);
 async function command(action,payload={}) {
   if(typeof action!=='string'||!payload||typeof payload!=='object'||Array.isArray(payload)||JSON.stringify(payload).length>92_000_000)throw new Error('Invalid command');
   message='';let result;

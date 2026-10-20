@@ -276,13 +276,26 @@ class Store {
     if (action === 'createFolder') {
       const name = text(payload.name, 120).trim(); if (!name) fail('Folder name is empty');
       const parentId = payload.parentId || null;
-      if (parentId && !this.data.folders.some(f => f.id === parentId)) fail('Parent folder is unavailable');
+      if(parentId){const parent=this.data.folders.find(f=>f.id===parentId);if(!parent)fail('Parent folder is unavailable');if(parent.parentId!=null)fail('Only top-level folders can contain subfolders');}
       const folder = {id: crypto.randomUUID(), name, parentId}; this.data.folders.push(folder); this.persist(); return folder;
     }
     if(action==='renameFolder'||action==='removeFolder') {
       const folder=this.data.folders.find(f=>f.id===payload.id);if(!folder)fail('Folder unavailable');
       if(action==='renameFolder'){folder.name=text(payload.name,120).trim();if(!folder.name)fail('Folder name is empty');}
-      else {this.data.folders=this.data.folders.filter(f=>f.id!==folder.id);for(const child of this.data.folders)if(child.parentId===folder.id)child.parentId=folder.parentId;for(const item of this.data.items)item.folderIds=item.folderIds.filter(id=>id!==folder.id);}
+      else {const removed=new Set([folder.id]);let changed=true;while(changed){changed=false;for(const child of this.data.folders)if(removed.has(child.parentId)&&!removed.has(child.id)){removed.add(child.id);changed=true;}}this.data.folders=this.data.folders.filter(f=>!removed.has(f.id));for(const item of this.data.items)if(item.folderIds.some(id=>removed.has(id))){item.retainedAt??=now;item.folderIds=item.folderIds.filter(id=>!removed.has(id));}}
+      this.persist();return;
+    }
+    if(action==='renameTag'||action==='deleteTag') {
+      const tag=text(payload.tag,80).trim(),affected=this.data.items.filter(item=>item.tags.includes(tag));
+      if(!tag||!affected.length)fail('Tag unavailable');
+      let name;
+      if(action==='renameTag'){
+        name=text(payload.name,256).trim();
+        if(!name||Array.from(name).length>64||/[\u0000-\u001f\u007f-\u009f]/u.test(name))fail('Invalid tag name');
+        const folded=value=>value.normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase();
+        if(this.data.items.some(item=>item.tags.some(value=>value!==tag&&folded(value)===folded(name))))fail('A tag with this name already exists');
+      }
+      for(const item of affected){item.retainedAt??=now;item.tags=action==='renameTag'?[...new Set(item.tags.map(value=>value===tag?name:value))]:item.tags.filter(value=>value!==tag);}
       this.persist();return;
     }
     if (action === 'undo') {
@@ -310,7 +323,8 @@ class Store {
       else if (action === 'name') { item.name = text(payload.name, 200, true).trim(); item.pinned = true; item.retainedAt??=now; }
       else if (action === 'folder') {
         if (!this.data.folders.some(f => f.id === payload.folderId)) fail('Folder unavailable');
-        item.folderIds = [...new Set([...item.folderIds, payload.folderId])]; item.pinned = true;item.retainedAt??=now;
+        if(payload.pinning!==undefined&&typeof payload.pinning!=='boolean')fail('Invalid folder pin option');
+        item.folderIds = [...new Set([...item.folderIds, payload.folderId])];if(payload.pinning!==false)item.pinned=true;item.retainedAt??=now;
       } else if(action==='unassign') {
         if(typeof payload.folderId!=='string'||!this.data.folders.some(f=>f.id===payload.folderId))fail('Folder unavailable');
         item.folderIds=item.folderIds.filter(id=>id!==payload.folderId);

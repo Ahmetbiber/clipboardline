@@ -34,7 +34,8 @@ function fixture({deferInitialState=false,initialVisible=true}={}){
  let subscriber,removed=[],cleanupFailures=0,editFailures=0,delayedReply=null,releaseInitialState,visualSearch=()=>({ids:[],scores:[],available:false,indexing:false}),detailsFailures=0;
  const clone=value=>structuredClone(value);
  const api={emit(patch){Object.assign(state,patch);subscriber?.(clone(state));},state:async()=>{const initial=clone(state);if(deferInitialState)await new Promise(resolve=>{releaseInitialState=resolve;});return initial;},subscribe(fn){subscriber=fn;return()=>{};},async command(action,payload={}){commands.push({action,payload:clone(payload)});const selected=state.items.filter(item=>(payload.ids||[payload.id]).includes(item.id));
-  let cleanupError;if(action==='cleanup'){if(cleanupFailures){cleanupFailures--;cleanupError='Permanent deletion cleanup is still pending.';}else state.needsDeletionCleanup=false;}
+  let cleanupError,newNote;if(action==='cleanup'){if(cleanupFailures){cleanupFailures--;cleanupError='Permanent deletion cleanup is still pending.';}else state.needsDeletionCleanup=false;}
+  if(action==='newNote'){newNote=base('00000000-0000-4000-8000-000000000006','text',Date.now(),{text:payload.text,retainedAt:Date.now()});state.items.unshift(newNote);}
   if(action==='editText'){if(editFailures){editFailures--;cleanupError='Synthetic draft write failure';}else selected.forEach(item=>item.text=payload.text);}
   if(action==='setSettings'){const patch=payload.patch||{},localShortcuts={...state.settings.localShortcuts,...patch.localShortcuts};for(const [action,value]of Object.entries(localShortcuts))if(value===null)delete localShortcuts[action];state.settings={...state.settings,...patch,localShortcuts};}
   if(action==='saveImage')selected.forEach(item=>{item.crop=clone(payload.crop);item.annotations=clone(payload.annotations);});
@@ -43,6 +44,8 @@ function fixture({deferInitialState=false,initialVisible=true}={}){
   if(action==='retain')selected.forEach(item=>item.retainedAt=Date.now());
   if(action==='unassign')selected.forEach(item=>item.folderIds=item.folderIds.filter(id=>id!==payload.folderId));
   if(action==='removeTag')selected.forEach(item=>item.tags=item.tags.filter(tag=>tag!==payload.tag));
+  if(action==='renameTag')state.items.forEach(item=>item.tags=item.tags.map(tag=>tag===payload.tag?payload.name:tag));
+  if(action==='deleteTag')state.items.forEach(item=>item.tags=item.tags.filter(tag=>tag!==payload.tag));
   if(action==='pin')selected.forEach(item=>item.pinned=typeof payload.value==='boolean'?payload.value:!item.pinned);
   if(action==='name')selected.forEach(item=>{item.name=payload.name;item.pinned=true;});
   if(action==='remove'){removed=selected.map(clone);selected.forEach(item=>{if(item.pinned)item.hiddenFromShelf=true;else item.trashedAt=Date.now();});state.canUndo=true;}
@@ -50,7 +53,7 @@ function fixture({deferInitialState=false,initialVisible=true}={}){
   if(action==='copy'&&!payload.keepOpen||action==='paste'||action==='hide')state.windowVisible=false;
   if(action==='show'){state.view='shelves';state.windowVisible=true;state.viewEvent={serial:String(commands.length)};}
   if(action==='library'||action==='settings'){state.view=action;state.windowVisible=true;}
-  const output=clone(state);if(action==='searchImages')output.result=await visualSearch(clone(payload));if(cleanupError)output.result={error:cleanupError};subscriber?.(output);
+  const output=clone(state);if(newNote)output.result={id:newNote.id};if(action==='searchImages')output.result=await visualSearch(clone(payload));if(cleanupError)output.result={error:cleanupError};subscriber?.(output);
   if(delayedReply?.action===action){const pending=delayedReply;delayedReply=null;await pending.promise;}
   return output;
  }};
@@ -70,6 +73,8 @@ function fixture({deferInitialState=false,initialVisible=true}={}){
 
 function cards(f){return [...f.main.matchAll(/<article class="[^"]*"[^>]*data-item-id="([^"]+)"/g)].map(match=>match[1]);}
 async function recent(f){await f.key('KeyL');await f.click('scope',{scope:'recent'});}
+async function savedLibrary(f){await f.key('KeyL');await f.click('scope',{scope:'saved'});}
+function focusedCard(f){return f.main.match(/<article class="[^"]*\bfocused\b[^"]*"[^>]*data-item-id="([^"]+)"/)?.[1]||null;}
 
 test('image browsing previews use rendered full resolution instead of cached thumbnail and no permanent footer',async()=>{
  const f=fixture();await f.ready();f.state.items[0].thumbnailUrl='appmedia://media/'+f.image+'/thumbnail';f.api.emit({items:f.state.items});await f.ready();await f.key('Space');
@@ -81,7 +86,7 @@ test('image browsing previews use rendered full resolution instead of cached thu
 });
 
 test('Library notes and memberships have focused controls and use captured target IDs',async()=>{
- const f=fixture();await f.ready();const text=f.state.items.find(value=>value.id===f.text1);text.pinned=true;text.note='A searchable note';text.folderIds=['20000000-0000-4000-8000-000000000001'];text.tags=['client'];f.state.folders=[{id:text.folderIds[0],name:'Client work'}];f.api.emit({items:f.state.items,folders:f.state.folders});await f.ready();await recent(f);await f.key('KeyC',{ctrl:true});await f.key('ArrowRight');
+ const f=fixture();await f.ready();const text=f.state.items.find(value=>value.id===f.text1);text.pinned=true;text.note='A searchable note';text.folderIds=['20000000-0000-4000-8000-000000000001'];text.tags=['client'];f.state.folders=[{id:text.folderIds[0],name:'Client work'}];f.api.emit({items:f.state.items,folders:f.state.folders});await f.ready();await savedLibrary(f);assert.equal(focusedCard(f),f.text1);
  assert.match(f.main,/id="detail-note"[^>]*>A searchable note<\/textarea>/);
  await f.input('detail-note','Updated organization note');await f.click('save-detail-note');assert.equal(text.note,'Updated organization note');assert.deepEqual(f.commands.at(-1),{action:'note',payload:{id:f.text1,note:'Updated organization note'}});
  await f.click('remove-item-folder',{id:f.text1,folder:text.folderIds[0]});assert.equal(text.folderIds.length,0);assert.equal(f.commands.at(-1).action,'unassign');
@@ -89,11 +94,39 @@ test('Library notes and memberships have focused controls and use captured targe
 });
 
 test('Library multi-tag filters require every selected tag and Clear filters restores results',async()=>{
- const f=fixture();await f.ready();f.state.items[0].tags=['work','client'];f.state.items[1].tags=['work'];f.state.items[2].tags=['client'];f.api.emit({items:f.state.items});await f.ready();await recent(f);await f.click('toggle-filters');
+ const f=fixture();await f.ready();f.state.items[0].tags=['work','client'];f.state.items[1].tags=['work'];f.state.items[2].tags=['client'];f.api.emit({items:f.state.items});await f.ready();await savedLibrary(f);await f.click('toggle-filters');
  assert.match(f.main,/Tags \(match all\)/);
  await f.change('filter-work','',{dataset:{filterTag:'work'},checked:true});assert.deepEqual(cards(f),[f.image,f.text1]);
  await f.change('filter-client','',{dataset:{filterTag:'client'},checked:true});assert.deepEqual(cards(f),[f.image]);
- await f.click('clear-filters');assert.equal(cards(f).length,4);
+ await f.click('clear-filters');assert.deepEqual(cards(f),[f.image,f.text1,f.text2]);await f.click('scope',{scope:'recent'});assert.deepEqual(cards(f),[f.link]);
+});
+
+test('Library Recent, Saved, Pinned and Unorganized use disjoint retention scopes and exclude Trash',async()=>{
+ const f=fixture();await f.ready();const folder='20000000-0000-4000-8000-000000000001';f.state.items[0].retainedAt=0;Object.assign(f.state.items[1],{retainedAt:900,pinned:true,folderIds:[folder],tags:['client']});Object.assign(f.state.items[3],{retainedAt:700,folderIds:[folder],tags:['client']});f.state.folders=[{id:folder,name:'Client work'}];f.state.items.push({...structuredClone(f.state.items[1]),id:'00000000-0000-4000-8000-000000000005',trashedAt:1100});f.api.emit({items:f.state.items,folders:f.state.folders});await f.ready();await recent(f);assert.deepEqual(cards(f),[f.text2]);await f.click('scope',{scope:'saved'});assert.deepEqual(cards(f),[f.image,f.text1,f.link]);await f.click('scope',{scope:'unorganized'});assert.deepEqual(cards(f),[f.image]);await f.click('scope',{scope:'pinned'});assert.deepEqual(cards(f),[f.text1]);await f.click('scope',{scope:'trash'});assert.deepEqual(cards(f),['00000000-0000-4000-8000-000000000005']);
+});
+
+test('Library F filters within folder, tag and Recent without replacing their scope or eligible focus',async()=>{
+ const f=fixture();await f.ready();const folder='20000000-0000-4000-8000-000000000001';f.state.items[0].retainedAt=1000;Object.assign(f.state.items[1],{retainedAt:900,pinned:true,folderIds:[folder],tags:['client'],text:'Shared reference text'});Object.assign(f.state.items[3],{retainedAt:700,folderIds:[folder],tags:['client'],title:'Shared reference link'});f.state.folders=[{id:folder,name:'Client work'}];f.api.emit({items:f.state.items,folders:f.state.folders});await f.ready();await savedLibrary(f);await f.click('folder-scope',{folder});assert.deepEqual(cards(f),[f.text1,f.link]);await f.key('ArrowRight');assert.equal(focusedCard(f),f.link);await f.key('KeyF');assert.deepEqual(cards(f),[f.text1]);assert.equal(focusedCard(f),f.text1);assert.match(f.main,/data-action="folder-scope"[^>]*class="active"/);assert.match(f.main,/data-action="pinnedOnly"[^>]*aria-pressed="true"/);await f.key('KeyF');assert.deepEqual(cards(f),[f.text1,f.link]);assert.equal(focusedCard(f),f.text1);
+ await f.click('tag-scope',{tag:'client'});await f.input('search-input','Shared reference');await f.change('sort-filter','oldest');await f.key('KeyF');assert.deepEqual(cards(f),[f.text1]);assert.match(f.main,/data-action="tag-scope" data-tag="client" class="active"/);assert.match(f.main,/id="search-input"[^>]*value="Shared reference"/);assert.match(f.main,/<option value="oldest" selected>/);await f.key('KeyF');assert.deepEqual(cards(f),[f.link,f.text1]);
+ await f.click('scope',{scope:'recent'});assert.deepEqual(cards(f),[f.text2]);await f.key('KeyF');assert.deepEqual(cards(f),[]);assert.match(f.main,/data-action="scope" data-scope="recent" class="active"/);await f.key('KeyF');assert.deepEqual(cards(f),[f.text2]);assert.equal(focusedCard(f),f.text2);
+ await f.click('scope',{scope:'pinned'});await f.key('KeyF');assert.deepEqual(cards(f),[f.link,f.text1,f.image]);assert.match(f.main,/data-action="scope" data-scope="saved" class="active"/);await f.click('folder-scope',{folder});await f.key('KeyF');await f.click('clear-filters');assert.deepEqual(cards(f),[f.link,f.text1]);assert.match(f.main,/data-action="folder-scope"[^>]*class="active"/);assert.match(f.main,/data-action="pinnedOnly"[^>]*aria-pressed="false"/);
+});
+
+test('new permanent notes leave incompatible Library filters and open unpinned in Saved',async()=>{
+ const f=fixture();await f.ready();Object.assign(f.state.items[0],{retainedAt:1000,pinned:true});f.api.emit({items:f.state.items});await f.ready();await savedLibrary(f);await f.key('KeyF');await f.click('new-note');await f.input('simple-input','A new permanent note');await f.click('confirm-modal');const note=f.state.items.find(value=>value.text==='A new permanent note');assert.ok(note?.retainedAt);assert.equal(note.pinned,false);assert.deepEqual(cards(f),[note.id,f.image]);assert.match(f.main,/data-action="scope" data-scope="saved" class="active"/);assert.match(f.main,/data-action="pinnedOnly"[^>]*aria-pressed="false"/);assert.match(f.overlay,/id="text-editor"[^>]*>A new permanent note<\/textarea>/);
+});
+
+test('Edit details chooses Saved for a retained shelf item excluded by Recent',async()=>{
+ const f=fixture();await f.ready();f.state.items[0].retainedAt=0;f.api.emit({items:f.state.items});await f.ready();await recent(f);assert.ok(!cards(f).includes(f.image));await f.api.command('show');await f.click('edit-details');assert.deepEqual(cards(f),[f.image]);assert.equal(focusedCard(f),f.image);assert.match(f.main,/data-action="scope" data-scope="saved" class="active"/);
+});
+
+test('folder menus create only one subfolder level and generic New folder stays top-level',async()=>{
+ const f=fixture();await f.ready();const parent='20000000-0000-4000-8000-000000000001',child='20000000-0000-4000-8000-000000000002';f.state.folders=[{id:parent,name:'Parent',parentId:null},{id:child,name:'Child',parentId:parent}];f.api.emit({folders:f.state.folders});await f.ready();await f.key('KeyL');await f.click('folder-menu',{folder:child});assert.doesNotMatch(f.overlay,/data-folder-action="new-subfolder"|New subfolder/);await f.click('close-modal');await f.click('folder-scope',{folder:child});await f.click('new-folder');await f.input('simple-input','New root');await f.click('confirm-modal');assert.deepEqual(f.commands.findLast(command=>command.action==='createFolder').payload,{name:'New root',parentId:null});await f.click('folder-menu',{folder:parent});assert.match(f.overlay,/New subfolder/);await f.click('new-subfolder',{folder:parent});await f.input('simple-input','Another child');await f.click('confirm-modal');assert.deepEqual(f.commands.findLast(command=>command.action==='createFolder').payload,{name:'Another child',parentId:parent});await f.click('remove-folder',{folder:parent});assert.match(f.overlay,/Remove this folder and its subfolders\? Item content remains in the library\./);
+});
+
+test('global tag menu keyboard rename follows the selected scope and filters while deletion requires confirmation',async()=>{
+ const f=fixture();await f.ready();Object.assign(f.state.items[0],{retainedAt:1000,tags:['client'],pinned:true});Object.assign(f.state.items[1],{retainedAt:900,tags:['client'],pinned:false});Object.assign(f.state.items[2],{retainedAt:800,tags:['other']});f.api.emit({items:f.state.items});await f.ready();await savedLibrary(f);await f.click('tag-scope',{tag:'client'});await f.change('filter-client','',{dataset:{filterTag:'client'},checked:true});assert.deepEqual(cards(f),[f.image,f.text1]);await f.click('tag-menu',{tag:'client'});assert.match(f.overlay,/Rename tag/);assert.match(f.overlay,/Remove tag/);await f.key('Enter');assert.match(f.overlay,/Rename tag/);await f.input('simple-input','Renamed client');await f.key('Enter');assert.deepEqual(f.commands.findLast(command=>command.action==='renameTag').payload,{tag:'client',name:'Renamed client'});assert.deepEqual(cards(f),[f.image,f.text1]);assert.match(f.main,/data-action="tag-scope" data-tag="Renamed client" class="active"/);assert.deepEqual(f.state.items[0].tags,['Renamed client']);assert.deepEqual(f.state.items[1].tags,['Renamed client']);assert.equal(f.state.items[1].pinned,false);
+ await f.click('tag-menu',{tag:'Renamed client'});await f.key('ArrowDown');await f.key('Enter');assert.match(f.overlay,/Remove this tag\?/);assert.equal(f.commands.some(command=>command.action==='deleteTag'),false);await f.key('Escape');assert.deepEqual(f.state.items[0].tags,['Renamed client']);await f.click('tag-menu',{tag:'Renamed client'});await f.key('ArrowDown');await f.key('Enter');await f.click('confirm-modal');assert.deepEqual(f.commands.findLast(command=>command.action==='deleteTag').payload,{tag:'Renamed client'});assert.deepEqual(f.state.items[0].tags,[]);assert.deepEqual(f.state.items[1].tags,[]);assert.deepEqual(f.state.items[2].tags,['other']);assert.deepEqual(cards(f),[f.image,f.text1,f.text2]);assert.match(f.main,/data-action="scope" data-scope="saved" class="active"/);assert.doesNotMatch(f.main,/data-action="tag-scope" data-tag="Renamed client"/);
 });
 
 test('Library title descending and best match order actual result identities',async()=>{

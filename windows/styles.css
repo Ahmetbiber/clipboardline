@@ -145,10 +145,11 @@ svg.rope path, svg.line path { fill: none; stroke: #a3a3a9; stroke-width: 1.1; v
 .sidebar h2 { margin: 23px 10px 7px; color: #97979f; font-size: 10px; font-weight: 600; letter-spacing: .2px; text-transform: none; }
 .sidebar button { display: flex; justify-content: flex-start; width: 100%; min-height: 28px; margin: 2px 0; padding: 5px 9px; overflow: hidden; border: 0; border-radius: 6px; background: transparent; color: #dddde1; text-align: left; text-overflow: ellipsis; font-size: 12px; }
 .sidebar button.active { background: #1479d0bb; color: #fff; }
-.folder-row { display: flex; align-items: center; min-width: 0; }
-.folder-row button:first-child { flex: 1; min-width: 0; }
-.folder-row button:last-child { flex: 0 0 24px; width: 24px; min-height: 24px; padding: 0; justify-content: center; opacity: .55; }
-.folder-row:hover button:last-child, .folder-row:focus-within button:last-child { opacity: 1; }
+.folder-row, .tag-row { display: flex; align-items: center; min-width: 0; }
+.folder-row button:first-child, .tag-row button:first-child { flex: 1; min-width: 0; }
+.folder-row button:last-child, .tag-row button:last-child { flex: 0 0 24px; width: 24px; min-height: 24px; padding: 0; justify-content: center; opacity: .55; }
+.folder-row:hover button:last-child, .folder-row:focus-within button:last-child, .tag-row:hover button:last-child, .tag-row:focus-within button:last-child { opacity: 1; }
+.folder-row.folder-drop-target > [data-action="folder-scope"] { background: #1479d0bb; color: #fff; outline: 1px solid var(--accent); outline-offset: -1px; }
 .library-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .library-toolbar { flex: 0 0 auto; gap: 7px; min-height: 42px; padding: 6px 14px; border-bottom: 1px solid var(--line); background: #2a2a2c; }
 .library-toolbar button { min-width: 27px; min-height: 27px; padding: 4px 6px; border-color: transparent; background: transparent; }
@@ -458,6 +459,8 @@ svg.rope path, svg.line path { fill: none; stroke: #a3a3a9; stroke-width: 1.1; v
 .library-search-status { margin: 0 0 12px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); font-size: 11px; }
 .image-preview[data-compact="true"] .preview-toolbar { display: none; }
 .preview-dialog.text-preview { width: min(680px, 80vw); height: min(532px, 72vh); border-radius: 20px; }
+.preview-dialog.empty-preview { width: min(480px, 80vw); height: min(280px, 72vh); border-radius: 20px; }
+.empty-preview .preview-body { flex-direction: column; gap: 10px; }
 .preview-dialog.link-preview-window { width: min(660px, 80vw); height: min(650px, 85vh); border-radius: 20px; }
 .link-preview-window .link-preview { max-width: 100%; }
 .link-preview-window .link-preview img { aspect-ratio: 16 / 9; max-height: 320px; margin-bottom: 18px; }

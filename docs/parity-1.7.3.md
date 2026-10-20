@@ -1,8 +1,9 @@
 # ClipBoardLine 1.7.3 platform parity
 
-**Candidate, not published.** Native platform acceptance and final publication
-are pending. The table describes implemented source behavior, not a claim that
-every native check has passed or all product features are identical.
+This document describes the 1.7.3 implementation. Package availability is shown
+by the [latest release](https://github.com/orkunisitmak/clipboardline-desktop/releases/latest).
+The table describes source behavior; the native acceptance gates below must
+pass for the exact source revision before a package can be published.
 
 macOS and Windows share one product version and one behavior contract. Command
 maps to Control, and Option maps to Alt, on Windows. Every future feature is a
@@ -14,10 +15,10 @@ two-platform change unless a native exception is recorded in the contract.
 | Text identity | Both stores match NFC Unicode and CRLF/CR line endings, ignoring only outer paragraph breaks. Newest literal clipboard bytes replace the body while names, pins, folders, tags and notes survive. Spaces, indentation, case, invisible characters and internal blank lines remain significant. The shared `contracts/text-identity.json` fixture exercises both actual stores. |
 | Shortcuts | Remapping, disabling and restoring defaults affect actual dispatch and displayed hints. Custom bindings take precedence over new defaults. Quick slots, selection extension, image tools and context-dependent editing commands are configurable. |
 | Actions | Search, navigation, Library views, folders/tags, settings destinations, crop and markup use real controllers. Batch actions retain captured order; preview follows the focused batch member. |
-| Library | Notes and inspector edits save automatically before navigation. Saved status survives unpinning or removing folders/tags. Multiple tags filter with AND; title descending, last-copied and relevance sorting are available. |
+| Library | Notes and inspector edits save automatically before navigation. Saved status survives unpinning or removing folders/tags. Recent excludes saved records; Unorganized includes only saved records without folders/tags. F filters pins inside the current folder/tag scope. Multiple tags filter with AND; title descending, last-copied and relevance sorting are available. Folder drops add membership without changing existing pins; global tag rename/removal updates every record. |
 | Layout | Compact 52-pixel list rows with Title/Type/Tags/Added columns; sortable headers, resizable columns, persistent side panels and widths. Grid and list share selection/actions. |
-| Preview | Frameless, aspect-fitted images use full-resolution rendered content. Text editing saves before arrows change items. Library preview arrows advance items; shelf preview Up/Down crosses rows without closing the preview. |
-| Recordings | Candidate Windows native MP4/MOV import/watch, playback, M/Actions Trim and video-file copy/drag/export; original preserved and trim output MP4. Mandatory native acceptance remains pending; codec, native controls and Mac source-replacement differences are detailed below. |
+| Preview | Frameless, aspect-fitted images use full-resolution rendered content. Click text to edit; a 300 ms autosave preserves the native editor, caret, selection and undo. Editing finishes before arrows change items. Deleting the last shelf result retains an empty preview with Undo. Library preview arrows advance items; shelf preview Up/Down crosses rows without closing the preview. |
+| Recordings | Windows native MP4/MOV import/watch, playback, M/Actions Trim and video-file copy/drag/export; original preserved and trim output MP4. Native codec, controls and Mac source-replacement details are below. |
 | Image editing | One top toolbar, zoom/pan, eight crop handles, apply/cancel, independent crop reset and annotation clearing, undo/redo after editing. |
 | Links | Explicit refresh respects metadata preferences; verified YouTube black letterboxing is removed while real 4:3 content remains intact. Open-in-browser commands preserve their context. |
 | Search | Names, text, notes, tags, link metadata and OCR are searchable. Windows now bundles the original MobileCLIP-S2 model through verified ONNX/WASM export; visual search runs offline in a worker with private derived caches. Text/visual/all modes respect the current Library scope. |
@@ -45,15 +46,15 @@ external editors. Computer Use cannot automate its own host ChatGPT/Codex
 application; website or synthetic tests must never be reported as native ChatGPT
 desktop acceptance. No security permission is granted automatically.
 
-## Screen recordings — candidate, mandatory native acceptance pending
+## Screen recordings
 
-The Windows candidate implements `.mp4`/`.mov` file import and collection from
+Windows implements `.mp4`/`.mov` file import and collection from
 explicitly configured watched folders. Recordings remain in Images, with a
 poster and duration, and can use the same Library pin/name/folder/tag workflows.
 The preview plays the video. **M** or **Actions → Trim video** opens start/end
 range controls; Enter saves and Esc cancels. Copy, drag and export transfer the
-recording file, not its poster. This describes candidate code, not a successful
-native video test or a published feature.
+recording file, not its poster. The native acceptance suite verifies these operations on each distributed
+application form.
 
 A separate, bounded native worker uses the installed Windows WinRT media stack
 (`MediaClip`, `MediaComposition`, `BitmapDecoder` and `MediaTranscoder`). There is
@@ -78,15 +79,14 @@ source-retention behavior therefore still differ explicitly.
 The release gate must verify real decoding, poster pixels, seeking, the selected
 trim duration, retained decoded audio, cancellation, source hashes, Library
 organization, and actual video-file transfer in source, packaged and installed
-Windows runs. Until those checks succeed, recording parity remains **pending
-verification** and must not be reported as passed merely because a command
-returned success. The 1.7.3 candidate remains unpublished.
+Windows runs. A command returning success alone cannot satisfy these checks. Native reports
+bind the actual source, packaged and installed runs to the release revision.
 
 ## Native platform details
 
 AppKit materials and Windows window chrome use their respective platform
 renderers. Text/file dragging has an explicit native exception: Windows keeps
-ordinary text insertion and offers Alt-drag for per-item `.txt`/`.url` copies;
+ordinary shelf text insertion and offers Alt-drag for per-item file copies; Library cards use ordinary drag to add to folders and Alt-drag to export files;
 Mac can advertise text and files in the same drag. See
 [native transfer](windows-native-transfer.md). Neither distinction changes
 Library organization, copy or paste commands.

@@ -8,7 +8,7 @@ const path=require('node:path');
 module.exports=async function semanticImages({page,application,check,until,output}){
  const fixtures=await application.evaluate(({nativeImage})=>{
   const h=global.__clipboardLineTest,side=512,images=[];
-  for(const shape of ['round','square']){const bitmap=Buffer.alloc(side*side*4,255);for(let y=0;y<side;y++)for(let x=0;x<side;x++){const dx=x-side/2,dy=y-side/2,inside=shape==='round'?dx*dx+dy*dy<150*150:Math.abs(dx)<150&&Math.abs(dy)<150;if(inside){const at=(y*side+x)*4;bitmap[at]=shape==='round'?0:255;bitmap[at+1]=0;bitmap[at+2]=shape==='round'?255:0;}}const item=h.store.insert('image',nativeImage.createFromBitmap(bitmap,{width:side,height:side}).toPNG());item.name='Semantic fixture '+(images.length?'B':'A');item.pinned=true;item.ocrText='';item.tags=['semantic-acceptance'];images.push({id:item.id,key:item.imageFile.slice(0,64)});}
+  for(const shape of ['round','square']){const bitmap=Buffer.alloc(side*side*4,255);for(let y=0;y<side;y++)for(let x=0;x<side;x++){const dx=x-side/2,dy=y-side/2,inside=shape==='round'?dx*dx+dy*dy<150*150:Math.abs(dx)<150&&Math.abs(dy)<150;if(inside){const at=(y*side+x)*4;bitmap[at]=shape==='round'?0:255;bitmap[at+1]=0;bitmap[at+2]=shape==='round'?255:0;}}const item=h.store.insert('image',nativeImage.createFromBitmap(bitmap,{width:side,height:side}).toPNG());item.name='Semantic fixture '+(images.length?'B':'A');h.store.modify('pin',{id:item.id,value:true});item.ocrText='';item.tags=['semantic-acceptance'];images.push({id:item.id,key:item.imageFile.slice(0,64)});}
   h.store.persist();h.getImageSearch().refresh();return images;
  });
  const ids=fixtures.map(value=>value.id),query=async(text,eligible=ids)=>page.evaluate(async({text,eligible})=>{const state=await window.clipboardLine.command('searchImages',{query:text,eligibleIds:eligible});if(state.result?.error)throw new Error(state.result.error);return state.result;},{text,eligible});
@@ -26,7 +26,7 @@ module.exports=async function semanticImages({page,application,check,until,outpu
   check('bundled offline MobileCLIP-S2 WASM model distinguishes generated red-circle and blue-square images without OCR or descriptive metadata');
 
   const scoped=await query('a red circle',[ids[1]]);assert.ok(scoped.ids.every(id=>id===ids[1]));assert.ok(scoped.scores.every(value=>value.id===ids[1]));
-  await page.evaluate(()=>window.clipboardLine.command('library'));await page.locator('[data-action="scope"][data-scope="recent"]').click();await page.keyboard.press('Control+1');await page.locator('#search-input').fill('a red circle');
+  await page.evaluate(()=>window.clipboardLine.command('library'));await page.locator('[data-action="scope"][data-scope="saved"]').click();await page.keyboard.press('Control+1');await page.locator('#search-input').fill('a red circle');
   await until(()=>page.locator('.library-grid .card').getAttribute('data-item-id'),id=>id===ids[0],30000);assert.equal(await page.locator(`[data-item-id="${ids[1]}"]`).count(),0);
   if(!await page.locator('#search-mode-filter').count())await page.locator('[data-action="toggle-filters"]').click();await page.locator('#search-mode-filter').selectOption('text');await until(()=>page.locator('.library-grid .card').count(),count=>count===0);await page.locator('#search-mode-filter').selectOption('visual');await page.locator(`[data-item-id="${ids[0]}"]`).waitFor({state:'visible'});
   check('Library uses real semantic results, keeps Text-only independent, and ranks only the current eligible image scope');
