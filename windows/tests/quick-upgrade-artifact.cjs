@@ -12,6 +12,8 @@ function gh(args,options={}){const authEnv={...process.env};delete authEnv.GH_DE
 function treeFingerprint(directory){let files=0,bytes=0;const digest=crypto.createHash('sha256');function visit(folder){for(const entry of fs.readdirSync(folder,{withFileTypes:true}).sort((a,b)=>a.name.localeCompare(b.name))){const file=path.join(folder,entry.name);if(entry.isSymbolicLink())throw new Error('Unexpected symlink in installed immutable candidate.');if(entry.isDirectory())visit(file);else if(entry.isFile()){const stat=fs.statSync(file);files++;bytes+=stat.size;digest.update(path.relative(directory,file).split(path.sep).join('/')+'\0'+stat.size+'\0'+hash(file)+'\n');}else throw new Error('Unexpected non-file candidate entry.');}}visit(directory);return{files,bytes,sha256:digest.digest('hex')};}
 async function run(file,args,timeout){await new Promise((resolve,reject)=>{const child=spawn(file,args,{env:cleanEnv,stdio:'inherit',windowsHide:true}),timer=setTimeout(()=>{child.kill();reject(new Error('Owned diagnostic child exceeded its outer workflow bound.'));},timeout);child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('exit',code=>{clearTimeout(timer);code===0?resolve():reject(new Error('Owned diagnostic child exited '+code));});});}
 async function main(){
+ cleanEnv.CLIPBOARDLINE_VALIDATION=output;
+ await run(process.execPath,['tests/upgrade-observer-selftest.cjs'],60000);report.observerSelfTest=true;
  const metadata=JSON.parse(gh([`repos/${repo}/actions/artifacts/${PIN.artifact}`],{encoding:'utf8'}));
  assert.equal(metadata.id,PIN.artifact);assert.equal(metadata.expired,false);assert.equal(metadata.name,'clipboardline-windows-'+PIN.source);assert.equal(metadata.workflow_run.id,PIN.run);assert.equal(metadata.workflow_run.head_sha,PIN.source);assert.equal(metadata.size_in_bytes,PIN.zipSize);assert.equal(metadata.digest,'sha256:'+PIN.zipSHA);
  const zip=path.join(temporary,'artifact.zip'),fd=fs.openSync(zip,'wx');try{gh([`repos/${repo}/actions/artifacts/${PIN.artifact}/zip`],{stdio:['ignore',fd,'pipe']});}finally{fs.closeSync(fd);}assert.equal(fs.statSync(zip).size,PIN.zipSize);assert.equal(hash(zip),PIN.zipSHA);
@@ -26,7 +28,6 @@ async function main(){
  const registeredDirectory=path.join(temporary,'registered-candidate'),candidateDirectory=path.join(dist,'win-unpacked');
  await run(installer,['/S','/D='+registeredDirectory],180000);assert.ok(fs.existsSync(path.join(registeredDirectory,'ClipBoardLine.exe')));
  const beforeCopy=treeFingerprint(registeredDirectory);assert.ok(beforeCopy.files>10&&beforeCopy.bytes>PIN.installerSize);fs.cpSync(registeredDirectory,candidateDirectory,{recursive:true,errorOnExist:true,force:false});const afterCopy=treeFingerprint(candidateDirectory);assert.deepEqual(afterCopy,beforeCopy);report.candidateInstalled=true;report.unregisteredCandidateCopy={verified:true,...afterCopy};
- cleanEnv.CLIPBOARDLINE_VALIDATION=output;
  console.log('DIAGNOSTIC ONLY: immutable77 candidate; unchanged upgrade-smoke guards. Not publication evidence.');
  await run(process.execPath,['tests/upgrade-smoke.cjs'],600000);report.passed=true;
 }
