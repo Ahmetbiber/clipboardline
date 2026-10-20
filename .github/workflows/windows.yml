@@ -1,17 +1,27 @@
 name: Windows application
+# This validation-only branch intentionally does not change main's CI. Dispatch
+# this existing workflow ID with this branch ref only AFTER build66 is public.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['windows/**', 'Sources/**', 'Tests/**', 'contracts/**', 'scripts/check-cross-platform-parity.py', 'scripts/test-cross-platform-parity.py', '.github/workflows/macos.yml', '.github/workflows/windows.yml']
-  pull_request:
-    paths: ['windows/**', 'Sources/**', 'Tests/**', 'contracts/**', 'scripts/check-cross-platform-parity.py', 'scripts/test-cross-platform-parity.py', '.github/workflows/macos.yml', '.github/workflows/windows.yml']
+    inputs:
+      published_source:
+        description: 'Exact 40-character source SHA authenticated by the published 1.7.3/build66 feed'
+        required: true
+        type: string
+      published_release_id:
+        description: 'Reviewed numeric ID of the coordinated canonical Latest release'
+        required: true
+        type: string
 permissions:
   contents: read
+concurrency:
+  group: clipboardline-production-65-to-66-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  windows:
+  production-update:
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/codex/')
     runs-on: windows-2025
-    timeout-minutes: 45
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: windows
@@ -25,74 +35,25 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: windows/package-lock.json
-      - name: Install pinned dependencies
+      - name: Install pinned observation tools (no application build)
         run: npm ci --no-fund
-      - name: Prepare pinned offline image search models
-        run: |
-          python ../scripts/test-windows-search-models.py
-          python ../scripts/prepare-windows-search-models.py
-          python ../scripts/prepare-windows-search-models.py --check
-      - name: Shared version and parity guard tests
-        run: |
-          python ../scripts/check-release-version.py --require-windows
-          python ../scripts/sync-windows-locales.py --check
-          python ../scripts/test-cross-platform-parity.py
-      - name: Audit dependencies and run model/security tests
-        run: |
-          npm audit --audit-level=moderate
-          npm test
+      - name: Check immutable publication/runtime validation gates
+        run: node --test tests/production-update-profile.test.cjs
+      - name: Verify actual observer retains success and failure native exit codes
+        run: node tests/upgrade-observer-selftest.cjs
         env:
-          CLIPBOARDLINE_PARITY_REPORT: validation/parity/windows.json
-      - name: Real Windows Electron runtime acceptance
-        run: npm run test:electron
+          CLIPBOARDLINE_VALIDATION: validation/production-update
+      - name: Unchanged published build65 to build66 through real production Settings buttons
+        run: node tests/production-update-acceptance.cjs
         env:
-          CLIPBOARDLINE_VALIDATION: validation/source
-      - name: Build per-user NSIS installer
-        run: npm run dist
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - name: Execute packaged Windows application acceptance
-        run: npm run test:electron
-        env:
-          CLIPBOARDLINE_EXECUTABLE: dist/win-unpacked/ClipBoardLine.exe
-          CLIPBOARDLINE_VALIDATION: validation/packaged
-      - name: Install NSIS package into an isolated per-user location
-        run: |
-          $destination = Join-Path $env:RUNNER_TEMP 'clipboardline-installed'
-          $package = Get-Content package.json | ConvertFrom-Json
-          $installer = (Get-Item ('dist/ClipBoardLine-Setup-' + $package.version + '-x64.exe')).FullName
-          $process = Start-Process $installer -ArgumentList @('/S', "/D=$destination") -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "NSIS installation failed: $($process.ExitCode)" }
-          if (-not (Test-Path (Join-Path $destination 'ClipBoardLine.exe'))) { throw 'Installed executable is missing.' }
-          "CLIPBOARDLINE_INSTALLED_EXECUTABLE=$(Join-Path $destination 'ClipBoardLine.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - name: Execute installed Windows application acceptance
-        run: |
-          $env:CLIPBOARDLINE_EXECUTABLE = $env:CLIPBOARDLINE_INSTALLED_EXECUTABLE
-          npm run test:electron
-        env:
-          CLIPBOARDLINE_VALIDATION: validation/installed
-      - name: Real signed updater replacement, data preservation and automatic reopen
-        run: node tests/upgrade-smoke.cjs
-        env:
-          CLIPBOARDLINE_VALIDATION: validation/upgrade
-      - name: Check installer format, hash and signing state
-        run: |
-          $package = Get-Content package.json | ConvertFrom-Json
-          $installer = Get-Item ('dist/ClipBoardLine-Setup-' + $package.version + '-x64.exe')
-          $stream = [System.IO.File]::OpenRead($installer.FullName)
-          try { if ($stream.ReadByte() -ne 77 -or $stream.ReadByte() -ne 90) { throw 'Installer is not a Windows PE executable.' } } finally { $stream.Dispose() }
-          $signature = Get-AuthenticodeSignature $installer.FullName
-          $result = @{platform='win32';architecture='x64';version=$package.version;build=$package.clipboardLineBuild;installer=$installer.Name;size=$installer.Length;sha256=(Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant();authenticodeStatus=$signature.Status.ToString();sourceRevision=$env:GITHUB_SHA}
-          New-Item validation -ItemType Directory -Force | Out-Null
-          $result | ConvertTo-Json | Set-Content validation/windows-package.json
-          if ($signature.Status -ne 'Valid') { Write-Host '::notice::This build has no configured Windows Authenticode identity; SmartScreen may warn. Ed25519 public release signing is a separate local release step.' }
-      - name: Upload Windows installer and runtime evidence
+          CLIPBOARDLINE_PUBLISHED_SOURCE: ${{ inputs.published_source }}
+          CLIPBOARDLINE_PUBLISHED_RELEASE_ID: ${{ inputs.published_release_id }}
+          CLIPBOARDLINE_VALIDATION: validation/production-update
+      - name: Upload synthetic-only production update receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: clipboardline-windows-${{ github.sha }}
-          path: |
-            windows/dist/ClipBoardLine-Setup-*-x64.exe
-            windows/validation/**
-          if-no-files-found: error
+          name: clipboardline-production-65-to-66-${{ github.sha }}
+          path: windows/validation/production-update/**
+          if-no-files-found: warn
           retention-days: 14
