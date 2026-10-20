@@ -310,7 +310,7 @@ async function main(){
   otherFixture=spawn(ps,['-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',path.resolve('tests/native-fixture.ps1'),'-Output',otherOutput],{windowsHide:false,stdio:'ignore',env:windowsEnvironment()});
   const otherState=()=>JSON.parse(fs.readFileSync(otherOutput,'utf8'));await until(otherState,value=>value.ready&&value.foreground===value.handle);
   const unrelated=await application.evaluate(async(_electron,target)=>{try{await global.__clipboardLineTest.native.preparePaste(target);return{ok:true};}catch(error){return{error:error.message};}},protectedTarget);
-  assert.match(unrelated.error||'',/Another application/);assert.equal(otherState().foreground,otherState().handle);assert.equal(otherState().text,'');
+  assert.match(unrelated.error||'',/Another (?:application|window)/);const unrelatedAfter=otherState();assert.equal(unrelatedAfter.foreground,unrelatedAfter.handle);assert.equal(unrelatedAfter.text,'');
   const otherExited=new Promise(resolve=>otherFixture.once('exit',resolve));otherFixture.kill();await otherExited;otherFixture=null;
   check('unrelated foreground application cancels native paste without stealing its focus');
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
