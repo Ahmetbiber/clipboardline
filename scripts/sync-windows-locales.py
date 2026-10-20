@@ -31,7 +31,7 @@ def main():
     args = parser.parse_args()
     values = {source.parent.name[:-6]: catalog(source.read_text(encoding='utf-8'))
               for source in sorted((ROOT/'Sources/Tendedero/Resources').glob('*.lproj/Localizable.strings'))}
-    content = '// Generated from the shared macOS localization resources.\nwindow.clipboardLineTranslations=Object.freeze(' + json.dumps(values, ensure_ascii=False, separators=(',', ':')) + ');\n'
+    content = '// Generated from the shared macOS localization resources.\n(function(root){const catalogs=Object.freeze(' + json.dumps(values, ensure_ascii=False, separators=(',', ':')) + ');if(typeof module===\"object\"&&module.exports)module.exports=catalogs;else root.clipboardLineTranslations=catalogs;})(typeof window===\"object\"?window:globalThis);\n'
     target = ROOT/'windows/locales.js'
     if args.check:
         if target.read_text(encoding='utf-8') != content:

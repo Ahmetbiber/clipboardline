@@ -28,15 +28,17 @@ const {metadataFetch,linkMetadata} = require('./lib/network.cjs');
 const {Updates,AutomaticUpdateScheduler} = require('./lib/updates.cjs');
 const {GlobalShortcuts}=require('./lib/global-shortcuts.cjs');
 const {ImageSearch,modelPaths}=require('./lib/image-search.cjs');
+const {StatusTray,trayIcon,translated}=require('./lib/status-summary.cjs');
 const BUILD_NUMBER=Number(require('./package.json').clipboardLineBuild)||63;
 const testMode = process.argv.includes('--test-mode');
 const testFolder = process.argv.find(value=>value.startsWith('--test-data='))?.slice('--test-data='.length);
+const testTray=testMode&&!!testFolder&&process.argv.includes('--test-tray');
 if(testMode && testFolder) app.setPath('userData',path.resolve(testFolder));
 const development=!app.isPackaged&&!testMode;
 if(development){const directory=path.join(app.getPath('appData'),'ClipBoardLine Dev');fs.mkdirSync(directory,{recursive:true,mode:0o700});app.setPath('userData',directory);}
 app.setName(development?'ClipBoardLine Dev':'ClipBoardLine');
 protocol.registerSchemesAsPrivileged([{scheme:'appmedia',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}}]);
-let window,store,tray,updates,updateScheduler,monitor,clipboardTimer,retentionTimer,updateTimer,updateLaunchTimer,previous=null,view='shelves',message='',viewEvent=null;
+let window,store,tray,trayPresentation,updates,updateScheduler,monitor,clipboardTimer,retentionTimer,updateTimer,updateLaunchTimer,previous=null,view='shelves',message='',viewEvent=null;
 let lastFingerprint='',ownFingerprint='',capturing=false,pendingClipboard=false,showing=false,closing=false,watchers=[],normalBounds=null,normalMaximized=false,applyingBounds=false;
 let pastePromise=null,hidePromise=null,pasteGeneration=0;
 const pasteTargets=new PasteTargetTracker(process.pid);
@@ -63,15 +65,24 @@ async function readSemanticImage(id){
 }
 
 function state(result) { return {...store.publicState(),version:app.getVersion(),build:BUILD_NUMBER,platform:process.platform,development,view,windowMode:view==='shelves'?'overlay':'normal',windowMaximized:window?.isMaximized()||false,windowVisible:window?.isVisible()||false,message:message||store.privacyWarning||'',viewEvent,imageSearch:{...(imageSearch?.state||{available:false,indexing:false,pending:0,revision:0})},update:{...updates.state},...(result===undefined?{}:{result})}; }
-function broadcast() { if(window&&!window.isDestroyed())window.webContents.send('clipboardline:changed',state()); }
+function broadcast() { refreshTray();if(window&&!window.isDestroyed())window.webContents.send('clipboardline:changed',state()); }
 function notify(text) { message=text;broadcast(); }
 function openUpdates(){return show('settings',{settingsTab:'updates'});}
 function refreshTray(){
-  if(!tray)return;const available=updates?.manifest;
-  tray.setToolTip(available?`ClipBoardLine ${available.version} is available`:'ClipBoardLine');
-  tray.setContextMenu(Menu.buildFromTemplate([{label:'Open shelves',click:()=>show('shelves')},{label:'Library',click:()=>show('library')},{label:'Capture screen',click:()=>capture()},{label:'Settings',click:()=>show('settings')},
-    ...(available?[{label:`Update available: ${available.version}…`,click:openUpdates}]:[]),{label:'Check for updates…',click:async()=>{await openUpdates();await updates.check();}},{type:'separator'},{label:'Quit',click:()=>app.quit()}]));
+  if(closing||!tray||tray.isDestroyed()||!trayPresentation||!store)return;
+  trayPresentation.refresh({items:store.data.items,settings:store.data.settings,updateVersion:updates?.manifest?.version,systemLocale:app.getLocale()});
 }
+function createTray(){
+  if(tray)return;
+  tray=new Tray(appIcon());
+  trayPresentation=new StatusTray({tray,createIcon:summary=>trayIcon(nativeImage,appIcon(),summary),createMenu:summary=>{
+    const t=(key,...values)=>translated(summary.language,key,...values);
+    return Menu.buildFromTemplate([{id:'tray-show',label:t('Show line'),click:()=>show('shelves')},{id:'tray-library',label:t('Library'),click:()=>show('library')},{id:'tray-capture',label:t('Screenshots'),click:()=>capture()},{id:'tray-settings',label:t('Settings'),click:()=>show('settings')},
+      ...(summary.updateVersion?[{id:'tray-update',label:t('Update available')+': '+summary.updateVersion+'…',click:openUpdates}]:[]),{id:'tray-check',label:t('Check for updates…'),click:async()=>{await openUpdates();await updates.check();}},{type:'separator'},{id:'tray-quit',label:t('Quit %@','ClipBoardLine'),click:()=>app.quit()}]);
+  }});
+  refreshTray();tray.on('click',()=>window.isVisible()?hide():show('shelves'));
+}
+
 function updateAvailable(manifest){
   refreshTray();if(testMode||!store.data.settings.autoCheckUpdates||!Notification.isSupported())return;
   const notice=new Notification({title:'ClipBoardLine update available',body:`ClipBoardLine ${manifest.version} is ready. Click to review and install.`,silent:true});notice.on('click',()=>void openUpdates());notice.show();
@@ -354,7 +365,7 @@ function appIcon(){
 }
 if(!app.requestSingleInstanceLock())app.quit();
 else app.whenReady().then(async()=>{
-  store=new Store(app.getPath('userData'));mediaJobs=new MediaJobs({directory:path.join(store.directory,'media-jobs')});try{dragFiles=new DragFiles(store.directory);}catch{}updates=new Updates(path.join(store.directory,'updates'),{build:BUILD_NUMBER,version:app.getVersion(),changed:()=>{broadcast();refreshTray();},available:updateAvailable});
+  store=new Store(app.getPath('userData'));mediaJobs=new MediaJobs({directory:path.join(store.directory,'media-jobs')});try{dragFiles=new DragFiles(store.directory);}catch{}updates=new Updates(path.join(store.directory,'updates'),{build:BUILD_NUMBER,version:app.getVersion(),changed:()=>broadcast(),available:updateAvailable});
   updateScheduler=new AutomaticUpdateScheduler(updates,{enabled:()=>!development&&!testMode&&store.data.settings.autoCheckUpdates});
   const searchPaths=modelPaths({packaged:app.isPackaged,resourcesPath:process.resourcesPath,sourceDirectory:__dirname});
   let ortModule=null,runtimeDirectory=null;try{ortModule=require.resolve('onnxruntime-web/wasm').replace(/app[.]asar([\\/])/,'app.asar.unpacked$1');runtimeDirectory=path.dirname(ortModule);}catch{}
@@ -391,10 +402,12 @@ else app.whenReady().then(async()=>{
   ipcMain.handle('clipboardline:command',async(event,action,payload)=>{trusted(event);try{return await command(action,payload);}catch(error){notify(error.message);return state({error:error.message});}});
   await window.loadURL(entry);
   monitor=native.monitor(()=>{if(!testMode)void readClipboard();},error=>{monitor?.kill();monitor=null;pasteTargets.clear();if(!closing)notify(error.message+' Falling back to bounded clipboard polling.');},focus=>pasteTargets.observe(focus));
-  if(!testMode){
-    const icon=appIcon();
+  if(!testMode||testTray){
     if(process.platform==='win32')app.setAppUserModelId('com.clipboardline.desktop.windows');
-    tray=new Tray(icon);refreshTray();tray.on('click',()=>window.isVisible()?hide():show('shelves'));updates.announce();
+    createTray();
+  }
+  if(!testMode){
+    updates.announce();
     configureShortcuts();configureWatchers();
 
     clipboardTimer=setInterval(()=>{if(!monitor)void readClipboard();},1000);
@@ -405,8 +418,8 @@ else app.whenReady().then(async()=>{
   }
   await show('shelves');
   // Test hooks are main-process only and require an explicit isolated data path.
-  if(testMode&&testFolder)global.__clipboardLineTest={store,command,state,readClipboard,writeClipboard,clipboardContent,privateClipboard,importFile,getMediaJobs:()=>mediaJobs,getWindow:()=>window,getTarget:()=>previous,setTarget:value=>{previous=value;},getObservedTarget:()=>pasteTargets.reenter(),getImageSearch:()=>imageSearch,getMediaDiagnostics:()=>mediaDiagnostics.map(value=>({...value})),enableShortcuts:configureShortcuts,getUpdates:()=>updates,setUpdates:value=>{updates=value;updates.changed=()=>{broadcast();refreshTray();};updates.available=updateAvailable;updateScheduler=new AutomaticUpdateScheduler(updates,{enabled:()=>store.data.settings.autoCheckUpdates});},getUpdateScheduler:()=>updateScheduler,capture,native};
+  if(testMode&&testFolder)global.__clipboardLineTest={store,command,state,readClipboard,writeClipboard,clipboardContent,privateClipboard,importFile,getMediaJobs:()=>mediaJobs,getWindow:()=>window,getTray:()=>({tray,presentation:trayPresentation}),getTarget:()=>previous,setTarget:value=>{previous=value;},getObservedTarget:()=>pasteTargets.reenter(),getImageSearch:()=>imageSearch,getMediaDiagnostics:()=>mediaDiagnostics.map(value=>({...value})),enableShortcuts:configureShortcuts,getUpdates:()=>updates,setUpdates:value=>{updates=value;updates.changed=()=>broadcast();updates.available=updateAvailable;updateScheduler=new AutomaticUpdateScheduler(updates,{enabled:()=>store.data.settings.autoCheckUpdates});},getUpdateScheduler:()=>updateScheduler,capture,native};
 }).catch(error=>{dialog.showErrorBox('ClipBoardLine could not start',error.message);app.exit(1);});
 app.on('second-instance',()=>{if(window)void show('shelves');});
 app.on('activate',()=>{if(window)void show('shelves');});
-app.on('before-quit',()=>{closing=true;cancelRecordingTrims();mediaJobs?.dispose();dragFiles?.dispose();clearTimeout(imageSearchTimer);void imageSearch?.stop();clearInterval(clipboardTimer);clearInterval(retentionTimer);clearInterval(updateTimer);clearTimeout(updateLaunchTimer);monitor?.kill();watchers.forEach(w=>w.close());shortcutRegistry?.dispose();globalShortcut.unregisterAll();});
+app.on('before-quit',()=>{closing=true;trayPresentation?.dispose();tray?.destroy();cancelRecordingTrims();mediaJobs?.dispose();dragFiles?.dispose();clearTimeout(imageSearchTimer);void imageSearch?.stop();clearInterval(clipboardTimer);clearInterval(retentionTimer);clearInterval(updateTimer);clearTimeout(updateLaunchTimer);monitor?.kill();watchers.forEach(w=>w.close());shortcutRegistry?.dispose();globalShortcut.unregisterAll();});

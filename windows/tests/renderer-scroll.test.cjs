@@ -17,7 +17,7 @@ function renderer(){
  const api={state:async()=>structuredClone(raw),subscribe:callback=>subscriber=callback,command:async()=>structuredClone(raw)};
  const context={window:{clipboardLine:api,addEventListener(){}},document,HTMLElement:Element,HTMLTextAreaElement:class extends Element{},Image:class{},console,structuredClone,URL,Set,Map,Date,Math,Number,String,JSON,setTimeout:()=>1,clearTimeout(){},requestAnimationFrame:callback=>frames.push(callback)};vm.createContext(context);
  const source=fs.readFileSync(path.join(__dirname,'../renderer.js'),'utf8').replace(/\}\)\(\);\s*$/,'window.__scrollTest={ui,render,select,revealFocused};})();');vm.runInContext(source,context);
- return{ids,nodes,ranges,frames,context,ready:()=>new Promise(setImmediate),get ui(){return context.window.__scrollTest.ui;},render:()=>context.window.__scrollTest.render(),select:id=>context.window.__scrollTest.select(raw.items.find(value=>value.id===id)),emit(patch){raw={...raw,...patch};subscriber(structuredClone(raw));},focus(id){document.activeElement=nodes.get('#'+id);},reveal(){context.window.__scrollTest.revealFocused();},get active(){return document.activeElement;}};
+ return{ids,nodes,ranges,frames,context,ready:()=>new Promise(setImmediate),get settings(){return raw.settings;},get ui(){return context.window.__scrollTest.ui;},render:()=>context.window.__scrollTest.render(),select:id=>context.window.__scrollTest.select(raw.items.find(value=>value.id===id)),emit(patch){raw={...raw,...patch};subscriber(structuredClone(raw));},focus(id){document.activeElement=nodes.get('#'+id);},reveal(){context.window.__scrollTest.revealFocused();},get active(){return document.activeElement;}};
 }
 const position=node=>[node.scrollTop,node.scrollLeft];
 test('ordinary same-context packets preserve independent Library viewports and clamp changed content ranges',async()=>{
@@ -32,6 +32,11 @@ test('Library query, scope, view mode and selection boundaries reset only their 
  f.nodes.get('.library-results').scrollTop=200;f.ui.list=true;f.render();assert.equal(f.nodes.get('.library-results').scrollTop,0);
  f.nodes.get('.library-results').scrollTop=200;f.ui.scope='recent';f.render();assert.equal(f.nodes.get('.library-results').scrollTop,0);assert.equal(f.nodes.get('.sidebar').scrollTop,200);
 });
+test('a committed list-mode projection establishes its new context before same-context horizontal preservation is measured',async()=>{
+ const f=renderer();await f.ready();f.nodes.get('.library-results').scrollTop=240;f.nodes.get('.library-results').scrollLeft=120;f.ui.list=true;f.render();assert.deepEqual(position(f.nodes.get('.library-results')),[0,0]);
+ f.emit({settings:{...f.settings,libraryListMode:true}});f.nodes.get('.library-results').scrollTop=160;f.nodes.get('.library-results').scrollLeft=100;f.emit({imageSearch:{revision:15}});assert.deepEqual(position(f.nodes.get('.library-results')),[160,100]);
+});
+
 test('Settings keep same-tab scroll but reset on tab, query, surface and hidden-session changes',async()=>{
  const f=renderer();await f.ready();f.emit({view:'settings'});f.ui.settingsTab='shortcuts';f.render();f.nodes.get('.settings-main').scrollTop=230;f.nodes.get('.settings-tabs').scrollTop=50;f.emit({imageSearch:{revision:5}});assert.equal(f.nodes.get('.settings-main').scrollTop,230);assert.equal(f.nodes.get('.settings-tabs').scrollTop,50);
  f.ui.shortcutsQuery='pin';f.render();assert.equal(f.nodes.get('.settings-main').scrollTop,0);f.nodes.get('.settings-main').scrollTop=210;f.ui.settingsTab='general';f.render();assert.equal(f.nodes.get('.settings-main').scrollTop,0);

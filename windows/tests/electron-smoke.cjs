@@ -6,6 +6,7 @@ const fs=require('node:fs');const path=require('node:path');const os=require('no
 const {_electron:electron}=require('playwright');
 const {windowsEnvironment}=require('../lib/windows-environment.cjs');
 const appIconAcceptance=require('./app-icon-acceptance.cjs');
+const statusTrayAcceptance=require('./status-tray-acceptance.cjs');
 const expectedVersion=require('../package.json').version;
 const keyboardLibrary=require('./keyboard-library-acceptance.cjs');
 const shortcutParity=require('./shortcut-parity-acceptance.cjs');
@@ -44,7 +45,7 @@ async function waitForCropBox(page,viewport,raster={width:900,height:220}){
   return ready.box;
 }
 async function main(){
-  const args=['--test-mode','--test-data='+data];
+  const args=['--test-mode','--test-data='+data,'--test-tray'];
   application=await electron.launch({...(process.env.CLIPBOARDLINE_EXECUTABLE?{executablePath:path.resolve(process.env.CLIPBOARDLINE_EXECUTABLE)}:{args:[path.resolve('.'),...args]}),...(process.env.CLIPBOARDLINE_EXECUTABLE?{args}:{}),timeout:60000});
   const page=await application.firstWindow();activePage=page;await page.waitForFunction(()=>!!window.clipboardLine);
   report.rendererErrors=[];page.on('pageerror',error=>{if(report.rendererErrors.length<20)report.rendererErrors.push(String(error.stack||error.message).slice(0,2000));});
@@ -53,6 +54,7 @@ async function main(){
   const nativeInitialization=await application.evaluate(async()=>{try{return{focus:await global.__clipboardLineTest.native.capture()};}catch(error){return{error:error.message};}});assert.ok(!nativeInitialization.error,JSON.stringify(nativeInitialization));check('native UIA focus bridge initializes Microsoft system providers');
   const nativeFocusPolicy=await application.evaluate(()=>global.__clipboardLineTest.native.selfTestFocusPolicy());assert.equal(nativeFocusPolicy.ok,true);assert.equal(nativeFocusPolicy.passed,12);assert.equal(nativeFocusPolicy.capturePassed,30);check('native IA2 policy rejects readonly/protected/disabled/defunct and bounded BUSY-document capture keeps the first stable editable identity');
   await appIconAcceptance({application,check,output});
+  await statusTrayAcceptance({page,application,check,until,output});
   await nativeVideo.runNativeVideo({outputDirectory:path.join(output,'video-native')});check('native Windows MP4/MOV probe, precise trim, decoded audio, cancellation and unsupported-codec rejection preserve original recordings');
   const preferences=await page.evaluate(()=>window.clipboardLine.diagnostics());
   assert.equal(preferences.contextIsolated,true);assert.equal(preferences.sandboxed,true);
