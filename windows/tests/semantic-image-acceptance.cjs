@@ -15,7 +15,10 @@ module.exports=async function semanticImages({page,application,check,until,outpu
  const evidence={engine:'onnxruntime-web/wasm',model:'MobileCLIP-S2',hostPlatform:process.platform,sourceRevision:process.env.GITHUB_SHA||'',queries:[]};
  try{
   await until(()=>page.evaluate(()=>window.clipboardLine.state()),state=>state.imageSearch?.available===true,30000);
-  await until(()=>application.evaluate(keys=>keys.every(key=>global.__clipboardLineTest.getImageSearch().known.has(key)),fixtures.map(value=>value.key)),Boolean,180000);
+  // Electron evaluate receives its module first and our serialized argument
+  // second. Return scoped indexing diagnostics instead of swallowing a bad
+  // callback into an undefined timeout.
+  evidence.indexState=await until(()=>application.evaluate((_electron,keys)=>{const search=global.__clipboardLineTest.getImageSearch();return{ready:keys.every(key=>search.known.has(key)),keys,known:keys.filter(key=>search.known.has(key)),failed:keys.filter(key=>search.failed.has(key)),state:{...search.state}};},fixtures.map(value=>value.key)),value=>value.ready,180000);
   const red=await query('a red circle'),blue=await query('a blue square');
   assert.equal(red.available,true);assert.equal(blue.available,true);assert.ok(red.ids.includes(ids[0]),JSON.stringify(red));assert.ok(!red.ids.includes(ids[1]),JSON.stringify(red));assert.ok(blue.ids.includes(ids[1]),JSON.stringify(blue));assert.ok(!blue.ids.includes(ids[0]),JSON.stringify(blue));
   assert.ok(red.scores.find(value=>value.id===ids[0]).score>red.scores.find(value=>value.id===ids[1]).score);assert.ok(blue.scores.find(value=>value.id===ids[1]).score>blue.scores.find(value=>value.id===ids[0]).score);
@@ -30,7 +33,7 @@ module.exports=async function semanticImages({page,application,check,until,outpu
 
   await page.evaluate(id=>window.clipboardLine.command('trash',{ids:[id]}),ids[0]);
   const deleted=await query('a red circle');assert.ok(!deleted.ids.includes(ids[0]));assert.ok(!deleted.scores.some(value=>value.id===ids[0]));
-  await until(()=>application.evaluate(key=>{const fs=process.getBuiltinModule('node:fs'),path=process.getBuiltinModule('node:path'),h=global.__clipboardLineTest;return!fs.existsSync(path.join(h.store.directory,'image-search',key+'.bin'));},fixtures[0].key),Boolean,30000);
+  await until(()=>application.evaluate((_electron,key)=>{const fs=process.getBuiltinModule('node:fs'),path=process.getBuiltinModule('node:path'),h=global.__clipboardLineTest;return!fs.existsSync(path.join(h.store.directory,'image-search',key+'.bin'));},fixtures[0].key),Boolean,30000);
   check('deleted images immediately leave visual query results and their unreferenced derived vector cache is removed');
  }finally{
   await page.keyboard.press('Escape').catch(()=>{});await page.evaluate(()=>window.clipboardLine.command('library'));await page.locator('[data-action="clear-filters"]').click().catch(()=>{});
