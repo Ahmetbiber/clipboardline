@@ -9,13 +9,16 @@ const {_electron:electron}=require('playwright');
 const {boundedFetch}=require('../lib/network.cjs');
 const {verifyEnvelope,FEED,PUBLIC_KEY}=require('../lib/updates.cjs');
 const {windowsEnvironment}=require('../lib/windows-environment.cjs');
+const {clientEnvironment,credentialKey,readReleaseMetadata}=require('./production-metadata.cjs');
+const metadataToken=process.env.CLIPBOARDLINE_METADATA_TOKEN,clientEnv=clientEnvironment(process.env);
+assert.equal(Object.keys(clientEnv).some(credentialKey),false);
 const {REPOSITORY,EXPECTED,expectedPublication,assertPublication,assertProductionRuntime}=require('./production-update-profile.cjs');
 const expected=expectedPublication(process.env);
 const output=path.resolve(process.env.CLIPBOARDLINE_VALIDATION||'validation/production-update');fs.mkdirSync(output,{recursive:true});
 const temporary=fs.mkdtempSync(path.join(process.env.RUNNER_TEMP,'clipboardline-production-65-66-'));
 const installedDirectory=path.join(temporary,'installed'),installed=path.join(installedDirectory,'ClipBoardLine.exe');
 const powershell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
-const report={schema:1,platform:process.platform,arch:process.arch,validationRevision:process.env.GITHUB_SHA,publishedSourceRevision:expected.source,expectedReleaseId:expected.releaseId,previous:{version:EXPECTED.previousVersion,build:EXPECTED.previousBuild,sourceRevision:EXPECTED.previousSource,installerSHA256:EXPECTED.previousSHA256},target:{version:EXPECTED.version,build:EXPECTED.build},scope:'unchanged published build65 -> real anonymous production feed/key and Settings buttons -> actual build66 NSIS replacement/automatic reopen -> normal production UI/native text and image paste',feed:FEED,publicKey:PUBLIC_KEY,testMode:false,updaterReplaced:false,fetcherOverridden:false,keyOverridden:false,versionOverridden:false,binaryModified:false,releaseModified:false,checks:[],rendererErrors:[],startedAt:new Date().toISOString()};
+const report={schema:1,platform:process.platform,arch:process.arch,validationRevision:process.env.GITHUB_SHA,publishedSourceRevision:expected.source,expectedReleaseId:expected.releaseId,previous:{version:EXPECTED.previousVersion,build:EXPECTED.previousBuild,sourceRevision:EXPECTED.previousSource,installerSHA256:EXPECTED.previousSHA256},target:{version:EXPECTED.version,build:EXPECTED.build},scope:'unchanged published build65 -> real anonymous production feed/key and Settings buttons -> actual build66 NSIS replacement/automatic reopen -> normal production UI/native text and image paste',feed:FEED,publicKey:PUBLIC_KEY,testMode:false,updaterReplaced:false,fetcherOverridden:false,keyOverridden:false,versionOverridden:false,binaryModified:false,releaseModified:false,metadataAuthenticated:false,clientNetworkAuthenticated:false,networkPhases:[],checks:[],rendererErrors:[],startedAt:new Date().toISOString()};
 let application,activePage,observer,fixture,userdata,seed,manifest;
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 const fileHash=file=>hash(fs.readFileSync(file));
@@ -23,14 +26,14 @@ const check=(name,details={})=>{report.checks.push({name,passed:true,...details}
 async function until(reader,predicate,timeout=60000,label='owned validation state'){
  const deadline=Date.now()+timeout;while(Date.now()<deadline){try{const value=await reader();if(predicate(value))return value;}catch{}await new Promise(resolve=>setTimeout(resolve,250));}throw new Error('Timed out waiting for '+label);
 }
-function native(script,payload){return JSON.parse(execFileSync(powershell,['-NoProfile','-NonInteractive','-Command',script],{input:JSON.stringify(payload),encoding:'utf8',timeout:20000,windowsHide:true,env:windowsEnvironment()}).replace(/^\uFEFF/,'').trim()||'null');}
+function native(script,payload){return JSON.parse(execFileSync(powershell,['-NoProfile','-NonInteractive','-Command',script],{input:JSON.stringify(payload),encoding:'utf8',timeout:20000,windowsHide:true,env:windowsEnvironment(clientEnv)}).replace(/^\uFEFF/,'').trim()||'null');}
 function processes(){
  if(!fs.existsSync(installed))return[];
  return native("$p=[Console]::In.ReadToEnd()|ConvertFrom-Json;$rows=@(Get-CimInstance Win32_Process|Where-Object {$_.ExecutablePath -eq $p.path -and $_.CommandLine -notmatch '--type='}|ForEach-Object {$x=Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue;@{pid=$_.ProcessId;commandLine=$_.CommandLine;window=$x.MainWindowHandle.ToInt64().ToString();version=(Get-Item -LiteralPath $_.ExecutablePath).VersionInfo.ProductVersion}});ConvertTo-Json -InputObject $rows -Compress",{path:fs.realpathSync.native(installed)});
 }
 function actualForeground(){return native("Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public static class NativeForeground{[DllImport(\"user32.dll\")]public static extern IntPtr GetForegroundWindow();[DllImport(\"user32.dll\")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);}';$h=[NativeForeground]::GetForegroundWindow();[uint32]$owner=0;[void][NativeForeground]::GetWindowThreadProcessId($h,[ref]$owner);@{handle=$h.ToInt64().ToString();processId=$owner}|ConvertTo-Json -Compress",{});}
 async function runtime(page,version,build){
- const info=await application.evaluate(({app,BrowserWindow})=>({packaged:app.isPackaged,testHooks:!!global.__clipboardLineTest,version:app.getVersion(),argv:process.argv,appPath:app.getAppPath(),userData:app.getPath('userData'),processId:process.pid,windowHandle:BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readBigUInt64LE().toString()}));
+ const info=await application.evaluate(({app,BrowserWindow})=>({packaged:app.isPackaged,testHooks:!!global.__clipboardLineTest,version:app.getVersion(),argv:process.argv,appPath:app.getAppPath(),userData:app.getPath('userData'),processId:process.pid,credentialEnvironmentPresent:Object.keys(process.env).some(key=>/TOKEN|SECRET|PASSWORD|AUTHORIZATION/i.test(key)),windowHandle:BrowserWindow.getAllWindows()[0].getNativeWindowHandle().readBigUInt64LE().toString()}));
  const state=await page.evaluate(()=>window.clipboardLine.state());assertProductionRuntime(info,version,build,state);return info;
 }
 async function uiSnapshot(page,label){
@@ -38,7 +41,7 @@ async function uiSnapshot(page,label){
  (report.uiSnapshots||=[]).push({label,...value});return value;
 }
 async function launch(){
- application=await electron.launch({executablePath:installed,args:[],timeout:60000});
+ application=await electron.launch({executablePath:installed,args:[],timeout:60000,env:clientEnv});
  const page=await application.firstWindow();activePage=page;page.on('pageerror',error=>report.rendererErrors.push({name:error.name,message:String(error.message).slice(0,500)}));await page.waitForFunction(()=>!!window.clipboardLine);
  // The shipped65 preload API exists before its initial asynchronous native
  // show/capture finishes. That client intentionally ignores overlapping show
@@ -49,10 +52,10 @@ async function launch(){
 }
 async function stopOwned(){
  if(application){await application.close().catch(()=>{});application=null;}
- for(const row of processes())try{execFileSync('taskkill.exe',['/PID',String(row.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});}catch{}
+ for(const row of processes())try{execFileSync('taskkill.exe',['/PID',String(row.pid),'/T','/F'],{windowsHide:true,stdio:'ignore',env:clientEnv});}catch{}
  await until(processes,rows=>rows.length===0,20000,'only the owned installation to exit');
 }
-async function runInstaller(file,args){await new Promise((resolve,reject)=>{const child=spawn(file,args,{windowsHide:true,stdio:'ignore',env:windowsEnvironment()});const timer=setTimeout(()=>{child.kill();reject(new Error('Initial NSIS install exceeded its three-minute limit.'));},180000);child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('exit',code=>{clearTimeout(timer);code===0?resolve():reject(new Error('NSIS installation exit '+code));});});}
+async function runInstaller(file,args){await new Promise((resolve,reject)=>{const child=spawn(file,args,{windowsHide:true,stdio:'ignore',env:windowsEnvironment(clientEnv)});const timer=setTimeout(()=>{child.kill();reject(new Error('Initial NSIS install exceeded its three-minute limit.'));},180000);child.once('error',error=>{clearTimeout(timer);reject(error);});child.once('exit',code=>{clearTimeout(timer);code===0?resolve():reject(new Error('NSIS installation exit '+code));});});}
 async function command(page,action,payload={}){const result=await page.evaluate(({action,payload})=>window.clipboardLine.command(action,payload),{action,payload});assert.ok(!result.result?.error,action+' rejected: '+(result.result?.error||''));return result;}
 async function settings(page){
  const before=await uiSnapshot(page,'before-settings');assert.equal(before.windowVisible,true);
@@ -60,14 +63,19 @@ async function settings(page){
  await page.locator('[data-action="settings-tab"][data-tab="updates"]').click();
  await page.locator('[data-action="check-updates"]').waitFor({state:'visible'});await uiSnapshot(page,'updates-controls-ready');
 }
+async function anonymousFetch(phase,url,options){
+ const trace={phase,endpoint:url,authenticated:false,status:null};report.networkPhases.push(trace);
+ try{const response=await boundedFetch(url,options);trace.status=200;trace.bytes=response.bytes.length;return response;}
+ catch(error){trace.error=String(error.message).slice(0,300);trace.statusUnavailable=true;throw new Error(phase+' ('+url+'): '+error.message);}
+}
 async function publication(){
- const [feed,latestResponse]=await Promise.all([boundedFetch(FEED,{maximum:200000,timeout:60000}),boundedFetch(`https://api.github.com/repos/${REPOSITORY}/releases/latest`,{maximum:500000,timeout:60000})]);
- manifest=verifyEnvelope(feed.bytes);const latest=JSON.parse(latestResponse.bytes.toString('utf8'));
+ const [feed,latest]=await Promise.all([anonymousFetch('anonymous-signed-production-feed',FEED,{maximum:200000,timeout:60000}),Promise.resolve().then(()=>readReleaseMetadata({token:metadataToken,environment:clientEnv,observe:trace=>{report.metadataAuthenticated=trace.authenticated;report.networkPhases.push(trace);}}))]);
+ manifest=verifyEnvelope(feed.bytes);
  assert.equal(String(latest.id),expected.releaseId,'Latest differs from the reviewed post-publication release ID.');
  const assetURL=latest.assets?.find(asset=>asset.name==='windows-update.json')?.browser_download_url;assert.ok(assetURL&&assetURL.startsWith(`https://github.com/${REPOSITORY}/releases/download/`));
- const asset=await boundedFetch(assetURL,{maximum:200000,timeout:60000});const identity=assertPublication(manifest,latest,asset.bytes,feed.bytes,expected);
+ const asset=await anonymousFetch('anonymous-reviewed-feed-asset',assetURL,{maximum:200000,timeout:60000});const identity=assertPublication(manifest,latest,asset.bytes,feed.bytes,expected);
  report.publication={...identity,feedSHA256:hash(feed.bytes),installerSHA256:manifest.sha256,installerBytes:manifest.size,url:manifest.url,sourceRevision:manifest.sourceRevision};
- check('anonymous canonical Latest and reviewed release ID expose the identical production-signed build66 feed with both platforms');return feed.bytes;
+ check('anonymous signed Latest feed and read-only control-plane release metadata identify the exact coordinated published build66');return feed.bytes;
 }
 async function seedData(page){
  const state=await page.evaluate(()=>window.clipboardLine.state());assert.equal(state.items.length,0,'Disposable runner must have no existing clipboard history.');assert.equal(state.folders.length,0);
@@ -97,7 +105,7 @@ function preserved(){
 async function observeInstaller(sourceProcessId,cache){
  const destination=path.join(temporary,'installer-observer.json'),configuration=path.join(temporary,'installer-observer-config.json');
  fs.writeFileSync(configuration,JSON.stringify({sourceProcessId,installer:path.join(fs.realpathSync.native(cache),'ClipBoardLine-Setup-66.exe'),output:destination,awaitInstallerMilliseconds:300000}));
- observer=spawn(powershell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.resolve('tests/upgrade-observer.ps1'),'-Config',configuration],{windowsHide:true,stdio:'ignore',env:windowsEnvironment()});
+ observer=spawn(powershell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.resolve('tests/upgrade-observer.ps1'),'-Config',configuration],{windowsHide:true,stdio:'ignore',env:windowsEnvironment(clientEnv)});
  await until(()=>JSON.parse(fs.readFileSync(destination,'utf8')),state=>state.status==='waiting',15000,'the exact-parent installer observer');return destination;
 }
 async function verifySettingsUI(page){
@@ -109,7 +117,7 @@ async function verifySettingsUI(page){
  check('normal build66 Settings UI retains update opt-out, source choices and separate retention, and the real Check button reports current');
 }
 async function nativePaste(page){
- const file=path.join(temporary,'synthetic-native-target.json');fixture=spawn(powershell,['-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',path.resolve('tests/native-fixture.ps1'),'-Output',file],{windowsHide:false,stdio:'ignore',env:windowsEnvironment()});
+ const file=path.join(temporary,'synthetic-native-target.json');fixture=spawn(powershell,['-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',path.resolve('tests/native-fixture.ps1'),'-Output',file],{windowsHide:false,stdio:'ignore',env:windowsEnvironment(clientEnv)});
  const read=()=>JSON.parse(fs.readFileSync(file,'utf8'));
  async function fixtureCommand(payload){const serial=crypto.randomUUID(),destination=file+'.commands';fs.writeFileSync(destination+'.tmp',JSON.stringify({...payload,serial}));for(let attempt=0;;attempt++){try{fs.renameSync(destination+'.tmp',destination);break;}catch(error){if(!['EPERM','EACCES','EBUSY'].includes(error.code)||attempt>=20)throw error;await new Promise(resolve=>setTimeout(resolve,25));}}const value=await until(read,state=>state.lastSerial===serial,15000,'synthetic editor command');assert.equal(value.commandError,'');return value;}
  await until(read,state=>state.ready,15000,'the separate native fixture');
@@ -130,10 +138,10 @@ async function nativePaste(page){
 }
 async function main(){
  const productionEnvelope=await publication();
- const previous=(await boundedFetch(EXPECTED.previousURL,{maximum:200*1024*1024,timeout:120000})).bytes;assert.equal(hash(previous),EXPECTED.previousSHA256);assert.equal(previous.subarray(0,2).toString(),'MZ');
+ const previous=(await anonymousFetch('anonymous-published-build65-installer',EXPECTED.previousURL,{maximum:200*1024*1024,timeout:120000})).bytes;assert.equal(hash(previous),EXPECTED.previousSHA256);assert.equal(previous.subarray(0,2).toString(),'MZ');
  const previousFile=path.join(temporary,'published-build65.exe');fs.writeFileSync(previousFile,previous,{flag:'wx'});await runInstaller(previousFile,['/S','/D='+installedDirectory]);assert.ok(fs.existsSync(installed));
  let page=await launch();const before=await runtime(page,EXPECTED.previousVersion,EXPECTED.previousBuild);userdata=before.userData;assert.equal(path.basename(userdata).toLowerCase(),'clipboardline');assert.ok(path.isAbsolute(userdata));
- const unchanged={exe:fileHash(installed),asar:fileHash(before.appPath)};report.oldRuntime={processId:before.processId,version:EXPECTED.previousVersion,build:EXPECTED.previousBuild,packaged:true,testHooks:false,normalUserData:true,executableSHA256:unchanged.exe,asarSHA256:unchanged.asar};
+ const unchanged={exe:fileHash(installed),asar:fileHash(before.appPath)};report.oldRuntime={processId:before.processId,version:EXPECTED.previousVersion,build:EXPECTED.previousBuild,packaged:true,testHooks:false,normalUserData:true,credentialEnvironmentStripped:true,executableSHA256:unchanged.exe,asarSHA256:unchanged.asar};
  check('pinned published build65 installs and launches unchanged, packaged, without test mode or alternate data paths');
  seed=await seedData(page);report.before=preserved();check('ordinary production IPC and clipboard monitoring persist synthetic text/PNG, pins, folder, tag and custom source/retention/shortcut preferences');
  await settings(page);await page.locator('[data-action="check-updates"]').click();

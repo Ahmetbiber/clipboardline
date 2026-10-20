@@ -38,7 +38,7 @@ jobs:
       - name: Install pinned observation tools (no application build)
         run: npm ci --no-fund
       - name: Check immutable publication/runtime validation gates
-        run: node --test tests/production-update-profile.test.cjs
+        run: node --test tests/production-update-profile.test.cjs tests/production-metadata.test.cjs
       - name: Verify actual observer retains success and failure native exit codes
         run: node tests/upgrade-observer-selftest.cjs
         env:
@@ -46,6 +46,7 @@ jobs:
       - name: Unchanged published build65 to build66 through real production Settings buttons
         run: node tests/production-update-acceptance.cjs
         env:
+          CLIPBOARDLINE_METADATA_TOKEN: ${{ github.token }}
           CLIPBOARDLINE_PUBLISHED_SOURCE: ${{ inputs.published_source }}
           CLIPBOARDLINE_PUBLISHED_RELEASE_ID: ${{ inputs.published_release_id }}
           CLIPBOARDLINE_VALIDATION: validation/production-update

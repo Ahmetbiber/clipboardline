@@ -32,6 +32,14 @@ modifies either shipped binary. The separate test process checks the public
 signature/source/release binding independently; it does not inject its result
 into the application or pre-cache the new installer.
 
+Only the disposable runner's existing read-only workflow token reads the exact
+Latest release metadata through a fixed GitHub API command. Neither installed
+application nor native/installer child receives a credential; their actual main
+process environments are checked. Signed feed and installer downloads remain
+anonymous and use the unchanged production client. The receipt separates
+`metadataAuthenticated` from `clientNetworkAuthenticated` and records endpoint,
+phase and available HTTP status without tokens or response bodies.
+
 The exact-parent native observer starts before the click and allows up to five
 minutes for the real download to finish, then observes actual NSIS exit. The job
 requires automatic build66 reopening with `--updated`, the same install path,

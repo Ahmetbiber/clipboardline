@@ -25,7 +25,7 @@ function assertPublication(manifest,latest,assetEnvelope,latestEnvelope,expected
  return {id:String(latest.id),tag:latest.tag_name,feedAssetId:String(assets.get('windows-update.json').id),installerAssetId:String(installer.id)};
 }
 function assertProductionRuntime(info,version,build,state){
- assert.equal(info.packaged,true);assert.equal(info.testHooks,false);assert.equal(info.version,version);assert.equal(state.version,version);assert.equal(state.build,build);assert.equal(state.development,false);
+ assert.equal(info.packaged,true);assert.equal(info.testHooks,false);assert.equal(info.credentialEnvironmentPresent,false,'Installed production clients must never inherit workflow credentials.');assert.equal(info.version,version);assert.equal(state.version,version);assert.equal(state.build,build);assert.equal(state.development,false);
  assert.ok(Array.isArray(info.argv));assert.ok(!info.argv.some(value=>/^--test-(?:mode|data)(?:=|$)/.test(value)),'Production acceptance may never enable test hooks or redirect user data.');
  assert.match(info.appPath,/[/\\]resources[/\\]app\.asar$/i);
 }
