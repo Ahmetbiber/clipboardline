@@ -90,6 +90,7 @@ enum HistoryTestRunner {
         let merge = UpstreamMergeTests()
         let imageTextCopyTests = ImageTextCopyTests()
         let directPasteCoordinatorTests = DirectPasteCoordinatorTests()
+        let mainWindowPasteFocusTests = MainWindowPasteFocusTests()
         let pasteAccessibility = DirectPasteAccessibilityTests()
         let commandPaletteTests = CommandPaletteTests()
         let actionBarCatalog = ActionBarCatalogTests()
@@ -113,6 +114,12 @@ enum HistoryTestRunner {
         let namedShelfLabel = NamedShelfLabelTests()
         let publicUpdates = PublicUpdateChannelTests()
         let cases: [(String, () throws -> Void)] = [
+            ("testBrowsingPresentationKeepsPreBlurFieldBeforeOwnKeyWindowExists", directPasteCoordinatorTests.testBrowsingPresentationKeepsPreBlurFieldBeforeOwnKeyWindowExists),
+            ("testBrowsingPresentationScopeDoesNotRetainStaleFieldOnLaterExternalEntry", directPasteCoordinatorTests.testBrowsingPresentationScopeDoesNotRetainStaleFieldOnLaterExternalEntry),
+            ("testBrowsingPresentationStillRejectsFieldChangedAfterCapture", directPasteCoordinatorTests.testBrowsingPresentationStillRejectsFieldChangedAfterCapture),
+            ("testNativeMainWindowMouseBoundaryOnlyCapturesOnFreshLeftClick", mainWindowPasteFocusTests.testNativeMainWindowMouseBoundaryOnlyCapturesOnFreshLeftClick),
+            ("testMainWindowControllersForwardEarlyCaptureWithoutDisplayingOrChangingKeyDispatch", mainWindowPasteFocusTests.testMainWindowControllersForwardEarlyCaptureWithoutDisplayingOrChangingKeyDispatch),
+            ("testMainWindowMouseEntryPreservesOwnHandoffsAndRefreshesLaterExternalField", mainWindowPasteFocusTests.testMainWindowMouseEntryPreservesOwnHandoffsAndRefreshesLaterExternalField),
             ("testOnlyBundledAnonymousChannelIsAccepted", publicUpdates.testOnlyBundledAnonymousChannelIsAccepted),
             ("testMissingOrRelaxedVerificationAndAutomaticInstallationAreRejected", publicUpdates.testMissingOrRelaxedVerificationAndAutomaticInstallationAreRejected),
             ("testOldAutomaticCheckOptOutWinsWithoutChangingSavedPreferences", publicUpdates.testOldAutomaticCheckOptOutWinsWithoutChangingSavedPreferences),
@@ -130,6 +137,14 @@ enum HistoryTestRunner {
             ("testPasteAccessibilityBlocksUnsafeAncestorsAndConflictingReadOnlyHints", pasteAccessibility.testPasteAccessibilityBlocksUnsafeAncestorsAndConflictingReadOnlyHints),
             ("testPasteAccessibilityRejectsUnrelatedRolesAndMalformedFocusOrAncestors", pasteAccessibility.testPasteAccessibilityRejectsUnrelatedRolesAndMalformedFocusOrAncestors),
             ("testPasteAccessibilityAcceptsAppVendedRemoteWebContentElement", pasteAccessibility.testPasteAccessibilityAcceptsAppVendedRemoteWebContentElement),
+            ("testPasteAccessibilityFollowsOnlyAppVendedFocusProxiesIntoRemoteEditor", pasteAccessibility.testPasteAccessibilityFollowsOnlyAppVendedFocusProxiesIntoRemoteEditor),
+            ("testPasteAccessibilityFocusProxiesKeepStableEditableAncestorAndChangedTargetIdentity", pasteAccessibility.testPasteAccessibilityFocusProxiesKeepStableEditableAncestorAndChangedTargetIdentity),
+            ("testPasteAccessibilityFocusProxiesPreserveTerminalSecurityAndReadOnlyRejection", pasteAccessibility.testPasteAccessibilityFocusProxiesPreserveTerminalSecurityAndReadOnlyRejection),
+            ("testPasteAccessibilityRejectsMalformedAndCyclicFocusProxies", pasteAccessibility.testPasteAccessibilityRejectsMalformedAndCyclicFocusProxies),
+            ("testPasteAccessibilityBoundsFocusedProxyTraversal", pasteAccessibility.testPasteAccessibilityBoundsFocusedProxyTraversal),
+            ("testPasteAccessibilityStopsAtSelfVendedTextAndEditableTerminals", pasteAccessibility.testPasteAccessibilityStopsAtSelfVendedTextAndEditableTerminals),
+            ("testPasteAccessibilityCannotTraverseSecureOrDisabledContainerProxies", pasteAccessibility.testPasteAccessibilityCannotTraverseSecureOrDisabledContainerProxies),
+            ("testPasteAccessibilityDoesNotFollowFocusGettersOnNonContainerDescendants", pasteAccessibility.testPasteAccessibilityDoesNotFollowFocusGettersOnNonContainerDescendants),
             ("testCropDocumentDecodesLegacyAndRoundTripsWithoutChangingVersion", imageCrop.testCropDocumentDecodesLegacyAndRoundTripsWithoutChangingVersion),
             ("testCropValidationRejectsNonFiniteEmptyAndOutsideOriginalBounds", imageCrop.testCropValidationRejectsNonFiniteEmptyAndOutsideOriginalBounds),
             ("testCropUsesBottomLeftQuadrantsAndFullResolutionPixels", imageCrop.testCropUsesBottomLeftQuadrantsAndFullResolutionPixels),

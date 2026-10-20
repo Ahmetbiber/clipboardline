@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import ServiceManagement
 import SwiftUI
 
@@ -44,14 +45,20 @@ final class SettingsModel: ObservableObject {
     var reopenForLanguage: () -> Void = {}
     let languageDefaults: UserDefaults
     private let launchLanguage: String
+    private let pastePermissionGranted: () -> Bool
 
-    init(line: Line, allowsSystemChanges: Bool = true, languageDefaults: UserDefaults = .standard, updates: AppUpdateController? = nil) {
+    init(line: Line, allowsSystemChanges: Bool = true, languageDefaults: UserDefaults = .standard, updates: AppUpdateController? = nil,
+         pastePermissionGranted: @escaping () -> Bool = { AXIsProcessTrusted() }) {
         self.line = line; self.allowsSystemChanges = allowsSystemChanges
         self.updates = updates ?? AppUpdateController(enabled: allowsSystemChanges)
         self.languageDefaults = languageDefaults; launchLanguage = LanguagePreferences.selection(languageDefaults)
+        self.pastePermissionGranted = pastePermissionGranted
     }
     var language: String { LanguagePreferences.selection(languageDefaults) }
     var languageNeedsRestart: Bool { language != launchLanguage }
+    // Re-read on the existing presentation/activation refresh rather than
+    // retaining a warning after the user grants access in System Settings.
+    var needsPastePermission: Bool { !pastePermissionGranted() }
 
     func refresh() { objectWillChange.send() }
     func binding<Value>(get: @escaping () -> Value, set: @escaping (Value) -> Void) -> Binding<Value> {
@@ -63,17 +70,27 @@ final class SettingsModel: ObservableObject {
     }
 }
 
-private final class SettingsNativeWindow: NSWindow {
+final class SettingsNativeWindow: NSWindow {
     var onCommandKey: ((NSEvent) -> Bool)?
+    var onBeforeMouseKeyFocus: (() -> Void)?
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if onCommandKey?(event) == true { return true }
         return super.performKeyEquivalent(with: event)
+    }
+    override func sendEvent(_ event: NSEvent) {
+        Self.prepareForMouseKeyFocus(event, isKeyWindow: isKeyWindow, onEntry: onBeforeMouseKeyFocus)
+        super.sendEvent(event)
+    }
+    static func prepareForMouseKeyFocus(_ event: NSEvent, isKeyWindow: Bool, onEntry: (() -> Void)?) {
+        guard event.type == .leftMouseDown, !isKeyWindow else { return }
+        onEntry?()
     }
 }
 
 @MainActor
 final class SettingsWindowController: NSWindowController {
     let model: SettingsModel
+    var onBeforeMouseKeyFocus: (() -> Void)?
     init(model: SettingsModel) {
         self.model = model
         let window = SettingsNativeWindow(contentRect: NSRect(x: 0, y: 0, width: 740, height: 610),
@@ -89,6 +106,7 @@ final class SettingsWindowController: NSWindowController {
         window.contentView = NSHostingView(rootView: SettingsView(model: model, line: model.line))
         window.center()
         super.init(window: window)
+        window.onBeforeMouseKeyFocus = { [weak self] in self?.onBeforeMouseKeyFocus?() }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func present() {
@@ -279,8 +297,14 @@ private struct SettingsView: View {
                 Text(L("This shortcut opens the shelves with search ready.")).font(.caption).foregroundStyle(.secondary)
             }
             Section(L("Paste into previous app")) {
-                Text(L("Accessibility permission is needed to paste into another app.")).font(.caption).foregroundStyle(.secondary)
-                Button(L("Open Accessibility Settings"), action: model.requestPastePermission)
+                if model.needsPastePermission {
+                    Text(L("Accessibility permission is needed to paste into another app.")).font(.caption).foregroundStyle(.secondary)
+                }
+                if #available(macOS 27, *) {
+                    Button(L("Open Device Control and Data Access"), action: model.requestPastePermission)
+                } else {
+                    Button(L("Open Accessibility Settings"), action: model.requestPastePermission)
+                }
             }
             Section(L("Show or hide the line")) {
                 LabeledContent(L("Shortcut")) { Text(Shortcut.current?.display ?? L("None")).monospaced() }

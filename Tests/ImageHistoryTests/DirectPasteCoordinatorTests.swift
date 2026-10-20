@@ -382,6 +382,83 @@ import XCTest
         XCTAssertEqual(f.events, [f.targetPID]); XCTAssertEqual(f.writes.count, 1)
     }
 
+    func testBrowsingPresentationKeepsPreBlurFieldBeforeOwnKeyWindowExists() throws {
+        for missingFocus in [false, true] {
+            let data = try SyntheticFixture(); defer { data.cleanup() }
+            let line = Line(defaults: data.defaults, inbox: data.inbox, now: { data.date }, breeze: false,
+                copyImage: { _ in }, copyText: { _ in })
+            let f = DirectPasteFixture(), service = DirectPasteCoordinator(environment: f.environment)
+            f.ownsKeyboardFocusOverride = false
+            let app = AppDelegate(line: line, watchesFiles: false, directPaste: service,
+                ownsKeyboardFocus: { f.ownsKeyboardFocusOverride == true })
+            app.withPasteTargetForFocusHandoff {
+                XCTAssertEqual(f.fieldReads, 1, "Capture must precede window ordering")
+                // orderFrontRegardless can blur a web editor while keyWindow
+                // is still nil. Nested refresh/search focus callbacks must
+                // preserve the identity captured before that presentation.
+                f.currentField = missingFocus ? nil : .init(identity: NSObject(), editable: false, secure: false)
+                app.capturePasteTarget()
+                app.withPasteTargetForFocusHandoff { app.capturePasteTarget() }
+                XCTAssertEqual(f.fieldReads, 1)
+            }
+            f.ownsKeyboardFocusOverride = true
+            service.recordActivation(f.ownPID)
+            XCTAssertEqual(f.fieldReads, 1, "Own activation must preserve the early capture too")
+            f.onDismiss = { f.ownsKeyboardFocusOverride = false }
+            f.onPause = { f.currentField = .init(identity: f.field, editable: true, secure: false) }
+            XCTAssertEqual(paste(service, fixture: f), .pasted)
+            XCTAssertEqual(f.events, [f.targetPID]); XCTAssertEqual(f.writes.count, 1)
+        }
+    }
+
+    func testBrowsingPresentationScopeDoesNotRetainStaleFieldOnLaterExternalEntry() throws {
+        for destination in ["new", "missing", "readonly", "secure"] {
+            let data = try SyntheticFixture(); defer { data.cleanup() }
+            let line = Line(defaults: data.defaults, inbox: data.inbox, now: { data.date }, breeze: false,
+                copyImage: { _ in }, copyText: { _ in })
+            let f = DirectPasteFixture(), service = DirectPasteCoordinator(environment: f.environment)
+            f.ownsKeyboardFocusOverride = false
+            let app = AppDelegate(line: line, watchesFiles: false, directPaste: service,
+                ownsKeyboardFocus: { f.ownsKeyboardFocusOverride == true })
+            app.withPasteTargetForFocusHandoff {
+                f.currentField = nil
+                app.capturePasteTarget()
+            }
+            let next = NSObject()
+            switch destination {
+            case "missing": f.currentField = nil
+            case "readonly": f.currentField = .init(identity: next, editable: false, secure: false)
+            case "secure": f.currentField = .init(identity: next, editable: true, secure: true)
+            default: f.currentField = .init(identity: next, editable: true, secure: false)
+            }
+            app.withPasteTargetForFocusHandoff {}
+            XCTAssertEqual(f.fieldReads, 2, "A new visit must query the current external field")
+            f.ownsKeyboardFocusOverride = true
+            f.onDismiss = { f.ownsKeyboardFocusOverride = false }
+            XCTAssertEqual(paste(service, fixture: f), destination == "new" ? .pasted : .noTarget)
+            XCTAssertEqual(f.writes.count, destination == "new" ? 1 : 0)
+            XCTAssertEqual(f.events, destination == "new" ? [f.targetPID] : [])
+        }
+    }
+
+    func testBrowsingPresentationStillRejectsFieldChangedAfterCapture() throws {
+        let data = try SyntheticFixture(); defer { data.cleanup() }
+        let line = Line(defaults: data.defaults, inbox: data.inbox, now: { data.date }, breeze: false,
+            copyImage: { _ in }, copyText: { _ in })
+        let f = DirectPasteFixture(), service = DirectPasteCoordinator(environment: f.environment)
+        f.ownsKeyboardFocusOverride = false
+        let app = AppDelegate(line: line, watchesFiles: false, directPaste: service,
+            ownsKeyboardFocus: { f.ownsKeyboardFocusOverride == true })
+        app.withPasteTargetForFocusHandoff {
+            f.currentField = nil; app.capturePasteTarget()
+        }
+        f.ownsKeyboardFocusOverride = true
+        f.onDismiss = { f.ownsKeyboardFocusOverride = false }
+        f.onPause = { f.currentField = .init(identity: NSObject(), editable: true, secure: false) }
+        XCTAssertEqual(paste(service, fixture: f), .focusChanged)
+        XCTAssertTrue(f.writes.isEmpty); XCTAssertTrue(f.events.isEmpty)
+    }
+
     func testNewOwnBrowsingActionCancelsPendingPasteWithoutSendingOrCopying() throws {
         let data = try SyntheticFixture(); defer { data.cleanup() }
         let line = Line(defaults: data.defaults, inbox: data.inbox, now: { data.date }, breeze: false,

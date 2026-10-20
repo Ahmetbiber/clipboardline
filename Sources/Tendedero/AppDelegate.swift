@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var libraryHotKey: HotKey?
     private var searchHotKey: HotKey?
     private let directPaste: DirectPasteCoordinator
+    private var pasteFocusHandoffDepth = 0
     private lazy var imageTextCopy: ImageTextCopy? = line.library.map { store in
         ImageTextCopy(store: store, writeText: { [weak self] text in
             ClipboardTransfer.write(ClipboardTransfer.textItems([text]), to: self?.isolatedCopyBoard ?? .general)
@@ -475,6 +476,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             line.hang(url)
             return
         }
+        if !isRevealed && Self.peeksAtNew && !isPasting {
+            withPasteTargetForFocusHandoff { presentCapture(url) }
+        } else {
+            presentCapture(url)
+        }
+    }
+
+    private func presentCapture(_ url: URL) {
         let from = captureRect(of: url)
         let screen = from.flatMap { from in
             NSScreen.screens.first { NSMouseInRect(CGPoint(x: from.midX, y: from.midY), $0.frame, false) }
@@ -633,14 +642,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 refresh()
             }
         } else {
-            capturePasteTarget()
-            keepOpen = true
-            wanted = true
-            panel.placeOnScreen()
-            updateCapacity()
-            refresh()
-            reveal(pinned: true)
-            focusLine()
+            withPasteTargetForFocusHandoff {
+                keepOpen = true
+                wanted = true
+                panel.placeOnScreen()
+                updateCapacity()
+                refresh()
+                reveal(pinned: true)
+                focusLine(preservePasteTarget: true)
+            }
         }
     }
 
@@ -764,8 +774,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// A deliberate menu-bar dwell supports browsing immediately. Like a new
     /// capture peek, it can retract until the user starts keyboard browsing.
     func revealFromPointer(on screen: NSScreen) {
-        if panel.screen != screen { panel.placeOnScreen(screen); updateCapacity() }
-        refresh(); reveal(); focusLine(); pointerFocus = true
+        withPasteTargetForFocusHandoff {
+            if panel.screen != screen { panel.placeOnScreen(screen); updateCapacity() }
+            refresh(); reveal(); focusLine(preservePasteTarget: true); pointerFocus = true
+        }
     }
 
     /// The panel spans the whole width of the screen, so it only accepts the
@@ -989,6 +1001,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 do { try LanguagePreferences.reopen() } catch { self.line.notice = L("The app could not reopen. Quit and open it to apply the language.") }
             }
             settingsController = SettingsWindowController(model: model)
+            settingsController?.onBeforeMouseKeyFocus = { [weak self] in self?.capturePasteTarget() }
         }
         if isRevealed { setRevealed(false, restoreApplication: false) }
         settingsController?.present()
@@ -1010,6 +1023,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if libraryController == nil {
             let controller = LibraryWindowController(store: store, line: line, copyPasteboard: isolatedCopyBoard)
             controller.onSettings = { [weak self] in self?.showSettings() }
+            controller.onBeforeMouseKeyFocus = { [weak self] in self?.capturePasteTarget() }
             controller.onBeforePreviewMouseKeyFocus = { [weak self] in self?.capturePasteTarget() }
             controller.onRefreshLink = { [weak self] in self?.metadataService?.request([$0], force: true) }
             controller.model.onVisibleLinks = { [weak self] in self?.metadataService?.request($0) }
@@ -1322,6 +1336,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// panel can own the keyboard while the workspace still names the external
     /// app, so workspace PID/previousApplication cannot identify this boundary.
     func capturePasteTarget() {
+        guard pasteFocusHandoffDepth == 0 else { return }
         directPaste.cancel(); isPasting = false
         let ownFocus = ownsKeyboardFocus()
         DirectPasteDiagnostics.log.debug("Capture boundary ownsKeyboard=\(ownFocus)")
@@ -1331,14 +1346,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         directPaste.captureTarget()
     }
+
+    /// Capture before ordering any window, then keep that exact field through
+    /// the synchronous presentation. Web editors can blur before AppKit sets
+    /// our keyWindow, so a nested focus request must not recapture that blur.
+    /// A later external entry runs outside this scope and captures afresh.
+    func withPasteTargetForFocusHandoff(_ present: () -> Void) {
+        capturePasteTarget()
+        pasteFocusHandoffDepth += 1
+        defer { pasteFocusHandoffDepth -= 1 }
+        present()
+    }
     func openShelfSearch() {
         guard line.shelfSearch != nil, flushPreviewEdits(), libraryController?.flush() ?? true else { return }
-        capturePasteTarget()
-        closePreview(); libraryController?.dismissForPaste()
-        if !isRevealed {
-            keepOpen = true; wanted = true; panel.placeOnScreen(); updateCapacity(); refresh(); reveal(pinned: true)
+        withPasteTargetForFocusHandoff {
+            closePreview(); libraryController?.dismissForPaste()
+            if !isRevealed {
+                keepOpen = true; wanted = true; panel.placeOnScreen(); updateCapacity(); refresh(); reveal(pinned: true)
+            }
+            focusLine(preservePasteTarget: true); line.beginShelfSearch()
         }
-        focusLine(); line.beginShelfSearch()
     }
     private func registerSearchShortcut(_ value: KeyShortcut?, persist: Bool = true) {
         guard let value else {

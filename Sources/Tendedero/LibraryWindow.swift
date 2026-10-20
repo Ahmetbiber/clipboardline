@@ -1,17 +1,23 @@
 import AppKit
 import SwiftUI
 
-private final class LibraryNativeWindow: NSWindow {
+final class LibraryNativeWindow: NSWindow {
     var onKey: ((NSEvent, Bool) -> Bool)?
+    var onBeforeMouseKeyFocus: (() -> Void)?
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let editing = firstResponder is NSTextView || firstResponder is NSTextField || firstResponder is NSOutlineView
         if onKey?(event, editing) == true { return true }
         return super.performKeyEquivalent(with: event)
     }
     override func sendEvent(_ event: NSEvent) {
+        Self.prepareForMouseKeyFocus(event, isKeyWindow: isKeyWindow, onEntry: onBeforeMouseKeyFocus)
         let editing = firstResponder is NSTextView || firstResponder is NSTextField || firstResponder is NSOutlineView
         if event.type == .keyDown, onKey?(event, editing) == true { return }
         super.sendEvent(event)
+    }
+    static func prepareForMouseKeyFocus(_ event: NSEvent, isKeyWindow: Bool, onEntry: (() -> Void)?) {
+        guard event.type == .leftMouseDown, !isKeyWindow else { return }
+        onEntry?()
     }
 }
 
@@ -32,6 +38,7 @@ private final class LibraryNativeWindow: NSWindow {
     private(set) var splitController: LibrarySplitController!
     private(set) var toolbarController: LibraryToolbarController!
     var onSettings: (() -> Void)?
+    var onBeforeMouseKeyFocus: (() -> Void)?
     var onBeforePreviewMouseKeyFocus: (() -> Void)?
     var onRefreshLink: ((UUID) -> Void)?
     init(store: LibraryStore, line: Line, copyPasteboard: NSPasteboard? = nil) {
@@ -42,6 +49,7 @@ private final class LibraryNativeWindow: NSWindow {
         window.toolbarStyle = .unified
         window.collectionBehavior = [.fullScreenPrimary]; window.isReleasedWhenClosed = false
         super.init(window: window)
+        window.onBeforeMouseKeyFocus = { [weak self] in self?.onBeforeMouseKeyFocus?() }
         model.onFlushPreview = { [weak self] in self?.previews.flush() ?? true }
         previews.onBeforeMouseKeyFocus = { [weak self] in self?.onBeforePreviewMouseKeyFocus?() }
         window.delegate = self

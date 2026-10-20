@@ -118,4 +118,143 @@ import XCTest
         XCTAssertEqual(fixture.requestedPIDs, [101]); XCTAssertTrue(remote.ownerPID != 101)
         XCTAssertTrue(field.identity === remote); XCTAssertTrue(field.editable)
     }
+
+    func testPasteAccessibilityFollowsOnlyAppVendedFocusProxiesIntoRemoteEditor() throws {
+        let fixture = PasteAccessibilityFixture()
+        let proxy = PasteAccessibilityFixture.Element(role: kAXGroupRole)
+        let webArea = PasteAccessibilityFixture.Element(role: "AXWebArea", ownerPID: 202)
+        let remote = PasteAccessibilityFixture.Element(role: kAXTextAreaRole, ownerPID: 202)
+        proxy.attributes[kAXFocusedUIElementAttribute] = webArea
+        webArea.attributes[kAXFocusedUIElementAttribute] = remote
+        // Ordinary container editability does not describe its focused editor.
+        webArea.set("AXEditable", false)
+        fixture.focused = proxy
+        let field = try XCTUnwrap(fixture.resolve())
+        XCTAssertTrue(field.identity === remote); XCTAssertTrue(field.editable); XCTAssertFalse(field.secure)
+        XCTAssertEqual(fixture.requestedPIDs, [101], "Keyboard/activation ownership stays with the application")
+        XCTAssertFalse(fixture.reads.contains(kAXChildrenAttribute))
+        XCTAssertFalse(fixture.reads.contains(kAXValueAttribute))
+        XCTAssertFalse(fixture.reads.contains(kAXSelectedTextAttribute))
+        XCTAssertFalse(fixture.reads.contains(kAXSelectedTextRangeAttribute))
+    }
+
+    func testPasteAccessibilityFocusProxiesKeepStableEditableAncestorAndChangedTargetIdentity() throws {
+        let fixture = PasteAccessibilityFixture()
+        let root = PasteAccessibilityFixture.Element(role: kAXGroupRole, ownerPID: 202)
+        func proxy(to root: PasteAccessibilityFixture.Element) -> PasteAccessibilityFixture.Element {
+            let proxy = PasteAccessibilityFixture.Element(role: "AXWebArea")
+            let leaf = PasteAccessibilityFixture.Element(role: kAXStaticTextRole, ownerPID: 202)
+            proxy.attributes[kAXFocusedUIElementAttribute] = leaf
+            leaf.attributes["AXHighestEditableAncestor"] = root
+            return proxy
+        }
+        fixture.focused = proxy(to: root)
+        let original = try XCTUnwrap(fixture.resolve())
+        XCTAssertTrue(original.identity === root); XCTAssertTrue(original.editable)
+        fixture.focused = proxy(to: root)
+        XCTAssertTrue(CFEqual(original.identity, try XCTUnwrap(fixture.resolve()).identity))
+        let changedRoot = PasteAccessibilityFixture.Element(role: kAXGroupRole, ownerPID: 202)
+        fixture.focused = proxy(to: changedRoot)
+        XCTAssertFalse(CFEqual(original.identity, try XCTUnwrap(fixture.resolve()).identity),
+            "A different editable root must still fail the coordinator's identity check")
+    }
+
+    func testPasteAccessibilityFocusProxiesPreserveTerminalSecurityAndReadOnlyRejection() throws {
+        for blocked in ["disabled", "secure", "AXEditable", kAXIsEditableAttribute] {
+            let fixture = PasteAccessibilityFixture()
+            let proxy = PasteAccessibilityFixture.Element(role: "AXWebArea")
+            let leaf = PasteAccessibilityFixture.Element(role: kAXTextFieldRole, ownerPID: 202)
+            let ancestor = PasteAccessibilityFixture.Element(role: kAXTextAreaRole, ownerPID: 202)
+            proxy.attributes[kAXFocusedUIElementAttribute] = leaf
+            leaf.attributes["AXEditableAncestor"] = ancestor
+            switch blocked {
+            case "disabled": leaf.set(kAXEnabledAttribute, false)
+            case "secure": leaf.attributes[kAXSubroleAttribute] = kAXSecureTextFieldSubrole as NSString
+            default: leaf.set(blocked, false)
+            }
+            fixture.focused = proxy
+            let field = try XCTUnwrap(fixture.resolve())
+            XCTAssertTrue(field.identity === leaf); XCTAssertFalse(field.editable)
+            XCTAssertEqual(field.secure, blocked == "secure")
+        }
+    }
+
+    func testPasteAccessibilityRejectsMalformedAndCyclicFocusProxies() throws {
+        for cycle in ["malformed", "self", "pair"] {
+            let fixture = PasteAccessibilityFixture()
+            let first = PasteAccessibilityFixture.Element(role: "AXWebArea")
+            switch cycle {
+            case "malformed": first.attributes[kAXFocusedUIElementAttribute] = "Not an element" as NSString
+            case "self": first.attributes[kAXFocusedUIElementAttribute] = first
+            default:
+                let second = PasteAccessibilityFixture.Element(role: kAXGroupRole)
+                first.attributes[kAXFocusedUIElementAttribute] = second
+                second.attributes[kAXFocusedUIElementAttribute] = first
+            }
+            fixture.focused = first
+            XCTAssertNil(fixture.resolve(), "Must not fall back to a cyclic/malformed container for \(cycle)")
+            first.attributes.removeAll() // Break the synthetic ownership cycle.
+        }
+    }
+
+    func testPasteAccessibilityBoundsFocusedProxyTraversal() throws {
+        for count in [8, 9, 20] {
+            let fixture = PasteAccessibilityFixture()
+            let elements = (0..<count).map { PasteAccessibilityFixture.Element(role: $0 == count - 1 ? kAXTextAreaRole : kAXGroupRole) }
+            for index in 1..<elements.count { elements[index - 1].attributes[kAXFocusedUIElementAttribute] = elements[index] }
+            fixture.focused = elements[0]
+            let field = fixture.resolve()
+            if count == 8 { XCTAssertTrue(try XCTUnwrap(field).identity === elements.last!) }
+            else { XCTAssertNil(field) }
+            XCTAssertEqual(fixture.reads.filter { $0 == kAXFocusedUIElementAttribute }.count, count == 8 ? 7 : 8)
+        }
+    }
+
+    func testPasteAccessibilityStopsAtSelfVendedTextAndEditableTerminals() throws {
+        for role in [kAXTextAreaRole, kAXTextFieldRole, kAXComboBoxRole, kAXGroupRole] {
+            let fixture = PasteAccessibilityFixture()
+            let editor = PasteAccessibilityFixture.Element(role: role, ownerPID: 202)
+            if role == kAXGroupRole { editor.set("AXEditable", true) }
+            editor.attributes[kAXFocusedUIElementAttribute] = editor
+            fixture.focused = editor
+            let field = try XCTUnwrap(fixture.resolve())
+            XCTAssertTrue(field.identity === editor); XCTAssertTrue(field.editable)
+            XCTAssertFalse(fixture.reads.contains(kAXFocusedUIElementAttribute), "A resolved editor is not a focus proxy")
+            editor.attributes.removeAll()
+        }
+    }
+
+    func testPasteAccessibilityCannotTraverseSecureOrDisabledContainerProxies() throws {
+        for blocked in ["secure", "disabled"] {
+            let fixture = PasteAccessibilityFixture()
+            let first = PasteAccessibilityFixture.Element(role: "AXWebArea")
+            let middle = PasteAccessibilityFixture.Element(role: kAXGroupRole)
+            let editor = PasteAccessibilityFixture.Element(role: kAXTextAreaRole, ownerPID: 202)
+            first.attributes[kAXFocusedUIElementAttribute] = middle
+            middle.attributes[kAXFocusedUIElementAttribute] = editor
+            if blocked == "secure" { middle.attributes[kAXSubroleAttribute] = kAXSecureTextFieldSubrole as NSString }
+            else { middle.set(kAXEnabledAttribute, false) }
+            fixture.focused = first
+            let field = try XCTUnwrap(fixture.resolve())
+            XCTAssertTrue(field.identity === middle); XCTAssertFalse(field.editable)
+            XCTAssertEqual(field.secure, blocked == "secure")
+            XCTAssertEqual(fixture.reads.filter { $0 == kAXFocusedUIElementAttribute }.count, 1)
+        }
+    }
+
+    func testPasteAccessibilityDoesNotFollowFocusGettersOnNonContainerDescendants() throws {
+        for role in [kAXStaticTextRole, kAXButtonRole] {
+            let fixture = PasteAccessibilityFixture()
+            let leaf = PasteAccessibilityFixture.Element(role: role)
+            let ancestor = PasteAccessibilityFixture.Element(role: kAXGroupRole)
+            leaf.attributes[kAXFocusedUIElementAttribute] = leaf
+            if role == kAXStaticTextRole { leaf.attributes["AXHighestEditableAncestor"] = ancestor }
+            fixture.focused = leaf
+            let field = try XCTUnwrap(fixture.resolve())
+            XCTAssertFalse(fixture.reads.contains(kAXFocusedUIElementAttribute))
+            XCTAssertEqual(field.editable, role == kAXStaticTextRole)
+            XCTAssertTrue(field.identity === (role == kAXStaticTextRole ? ancestor : leaf))
+            leaf.attributes.removeAll()
+        }
+    }
 }

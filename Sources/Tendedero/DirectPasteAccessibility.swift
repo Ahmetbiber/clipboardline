@@ -14,7 +14,15 @@ import ApplicationServices
                 let element = unsafeBitCast(object, to: AXUIElement.self)
                 AXUIElementSetMessagingTimeout(element, 0.15)
                 var value: CFTypeRef?
-                guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
+                let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+                guard error == .success else {
+                    // Missing/unsupported focus on a terminal field is normal.
+                    // Report only actual query failures, never field content.
+                    if name == kAXFocusedUIElementAttribute, error != .attributeUnsupported, error != .noValue {
+                        DirectPasteDiagnostics.log.debug("Focused AX query failed code=\(error.rawValue, privacy: .public)")
+                    }
+                    return nil
+                }
                 return value
             }
             return Environment(focusedElement: { pid in
@@ -26,6 +34,7 @@ import ApplicationServices
 
     private struct Capabilities {
         let textRole: Bool
+        let focusContainer: Bool
         let editable: Bool?
         let enabled: Bool
         let secure: Bool
@@ -37,7 +46,7 @@ import ApplicationServices
     }
 
     static func focusedField(_ pid: pid_t, environment: Environment) -> DirectPasteCoordinator.FocusedField? {
-        guard let leaf = environment.focusedElement(pid), environment.isElement(leaf) else { return nil }
+        guard let focused = environment.focusedElement(pid), environment.isElement(focused) else { return nil }
         func capabilities(_ element: AnyObject) -> Capabilities {
             let role = environment.attribute(element, kAXRoleAttribute) as? String
             let subrole = environment.attribute(element, kAXSubroleAttribute) as? String
@@ -47,6 +56,7 @@ import ApplicationServices
             let hint: Bool? = editable == false || isEditable == false ? false : editable ?? isEditable
             DirectPasteDiagnostics.log.debug("Field role=\(role ?? "missing", privacy: .public) subrole=\(subrole ?? "missing", privacy: .public) editable=\(String(describing: hint), privacy: .public)")
             return Capabilities(textRole: role == kAXTextFieldRole || role == kAXTextAreaRole || role == kAXComboBoxRole,
+                focusContainer: [kAXGroupRole, "AXWebArea", kAXScrollAreaRole, kAXWindowRole, kAXSplitGroupRole].contains(role ?? ""),
                 editable: hint, enabled: (environment.attribute(element, kAXEnabledAttribute) as? Bool) != false,
                 secure: role == kAXSecureTextFieldSubrole || subrole == kAXSecureTextFieldSubrole)
         }
@@ -54,7 +64,7 @@ import ApplicationServices
             .init(identity: element, editable: !facts.blocked && (ancestor || facts.textRole || facts.editable == true), secure: facts.secure)
         }
 
-        let leafFacts = capabilities(leaf)
+        guard let (leaf, leafFacts) = focusedLeaf(from: focused, environment: environment, capabilities: capabilities) else { return nil }
         // A secure, disabled or explicitly read-only descendant cannot be made
         // eligible by walking up to an ordinary contenteditable container.
         guard !leafFacts.blocked else { return field(leaf, leafFacts) }
@@ -75,5 +85,31 @@ import ApplicationServices
         // The application vends this element. Its AX owner may be a remote
         // WebContent process; activation and keyboard events still target pid.
         return field(leaf, leafFacts)
+    }
+
+    /// WKWebView can vend a remote focus proxy before its actual editor. Follow
+    /// only that explicit focus relation, never arbitrary children or text.
+    /// Keep the terminal identity for the coordinator's exact-field checks.
+    private static func focusedLeaf(from element: AnyObject, environment: Environment,
+                                    capabilities: (AnyObject) -> Capabilities) -> (AnyObject, Capabilities)? {
+        var current = element
+        var visited = [element]
+        while true {
+            let facts = capabilities(current)
+            // A text editor's generic WebKit focus getter may return itself.
+            // Resolve only containers; ordinary fields and static descendants
+            // retain their existing role/ancestor checks. A secure or disabled
+            // proxy must not expose an eligible field through another link.
+            guard facts.focusContainer, !facts.textRole, facts.editable != true,
+                  facts.enabled, !facts.secure else { return (current, facts) }
+            guard let next = environment.attribute(current, kAXFocusedUIElementAttribute) else { return (current, facts) }
+            guard environment.isElement(next), visited.count < 8,
+                  !visited.contains(where: { CFEqual($0, next) }) else {
+                DirectPasteDiagnostics.log.debug("Focused AX chain rejected depth=\(visited.count, privacy: .public)")
+                return nil
+            }
+            visited.append(next)
+            current = next
+        }
     }
 }
