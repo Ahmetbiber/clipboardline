@@ -18,11 +18,11 @@ two-platform change unless a native exception is recorded in the contract.
 | Library | Notes and inspector edits save automatically before navigation. Saved status survives unpinning or removing folders/tags. Recent excludes saved records; Unorganized includes only saved records without folders/tags. F filters pins inside the current folder/tag scope. Multiple tags filter with AND; title descending, last-copied and relevance sorting are available. Folder drops add membership without changing existing pins; global tag rename/removal updates every record. |
 | Layout | Compact 52-pixel list rows with Title/Type/Tags/Added columns; sortable headers, resizable columns, persistent side panels and widths. Grid and list share selection/actions. |
 | Preview | Frameless, aspect-fitted images use full-resolution rendered content. Click text to edit; a 300 ms autosave preserves the native editor, caret, selection and undo. Editing finishes before arrows change items. Deleting the last shelf result retains an empty preview with Undo. Library preview arrows advance items; shelf preview Up/Down crosses rows without closing the preview. |
-| Recordings | Windows native MP4/MOV import/watch, playback, M/Actions Trim and video-file copy/drag/export; original preserved and trim output MP4. Native codec, controls and Mac source-replacement details are below. |
+| Recordings | Windows native MP4/MOV import/watch, playback, M/Actions Trim and video-file copy/drag/export; original preserved and trim output MP4. Native codec, controls and original-preserving storage details are below. |
 | Image editing | One top toolbar, zoom/pan, eight crop handles, apply/cancel, independent crop reset and annotation clearing, undo/redo after editing. |
 | Links | Explicit refresh respects metadata preferences; verified YouTube black letterboxing is removed while real 4:3 content remains intact. Open-in-browser commands preserve their context. |
 | Search | Names, text, notes, tags, link metadata and OCR are searchable. Windows now bundles the original MobileCLIP-S2 model through verified ONNX/WASM export; visual search runs offline in a worker with private derived caches. Text/visual/all modes respect the current Library scope. |
-| Paste | Capture the external editor before opening; preserve it across own-window transitions; refresh it when returning to an already open Library. Revalidate the exact process, window and editable field before clipboard writes and dispatch. Changed, secure or read-only fields are rejected. Successful paste dismisses browsing UI and returns keyboard focus. |
+| Paste | Mac requests a cold Chromium/Electron accessibility tree once and uses a bounded wait for its real editable field; secure/read-only controls remain rejected. Capture the external editor before opening; preserve it across own-window transitions; refresh it when returning to an already open Library. Revalidate the exact process, window and editable field before clipboard writes and dispatch. Changed, secure or read-only fields are rejected. Successful paste dismisses browsing UI and returns keyboard focus. |
 | Language | Windows translations are generated from all nine shared localization catalogs; CI rejects drift. Existing explicit source/privacy preferences are preserved. |
 | Updates | Both signed feeds and both current packages must appear together in Latest. Build66 upgrades the actual published build65 and preserves existing content/settings. Large offline-model downloads use a bounded five-minute socket timeout without relaxing signatures, size or hash validation. |
 
@@ -72,15 +72,37 @@ acceptance; HEVC, ProRes and every possible MOV codec are not guaranteed.
 
 Mac recognizes `.mov`/`.mp4`; its screenshot watcher accepts recordings in the
 application Inbox. Quick Look and AVKit provide native playback/trimming windows.
-The current Mac Trim exports the kept range to a temporary file and replaces the
-source recording. Windows retains its original instead. Native controls and
-source-retention behavior therefore still differ explicitly.
+Mac Trim now snapshots the active recording into private managed storage and
+exports the kept range to another managed file. Its Library transaction switches
+the existing item to the validated derivative while preserving the first original,
+item ID, organization and temporary-history status. Canceling, changing the source,
+trashing the item or failing the transaction cannot replace the source file. Native
+AVKit controls and container/passthrough behavior differ from the Windows WinRT
+encoder; both platforms preserve original recording bytes.
 
 The release gate must verify real decoding, poster pixels, seeking, the selected
 trim duration, retained decoded audio, cancellation, source hashes, Library
 organization, and actual video-file transfer in source, packaged and installed
 Windows runs. A command returning success alone cannot satisfy these checks. Native reports
 bind the actual source, packaged and installed runs to the release revision.
+
+## Cold Mac browser/editor accessibility
+
+Electron can activate its web accessibility tree on demand. Mac capture now
+reads the application role and requests `AXManualAccessibility` once only when
+focus is absent or an eligible container is still loading. This follows
+[Electron’s documented assistive-client API](https://www.electronjs.org/docs/latest/tutorial/accessibility).
+Electron 44.9.0 debounces this request for two seconds; repeated setters during
+polling would keep restarting it. A cold capture therefore has a 3.2-second
+monotonic deadline with bounded AX calls; ordinary resolved fields retain the
+fast path. Only an actual stable editable field can receive paste, and its
+identity is checked before and after clipboard preparation. No security
+permission, field value or undocumented enhanced-UI flag is requested.
+
+Full-tree test clients may warm the target before a clipboard test; this is an
+inference from the provider sources, not proof of the cause in a particular
+ChatGPT installation. Controlled cold fixtures must avoid any external AX read
+before the first paste. Native ChatGPT desktop acceptance remains separate.
 
 ## Native platform details
 

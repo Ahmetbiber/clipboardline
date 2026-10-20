@@ -1006,7 +1006,7 @@ final class Line: ObservableObject {
     func markup(_ id: UUID) {
         guard let item = items.first(where: { $0.id == id }) else { return }
         if item.isRecording {
-            Trim.shared.edit(item.url, size: item.thumb?.size ?? CGSize(width: 720, height: 450))
+            if let library { Trim.shared.edit(id, store: library, size: item.thumb?.size ?? CGSize(width: 720, height: 450)) }
         } else {
             onImageMarkupRequested?(id)
         }

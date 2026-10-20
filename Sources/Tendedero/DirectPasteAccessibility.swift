@@ -9,10 +9,13 @@ import ApplicationServices
         var attribute: (AnyObject, String) -> AnyObject?
         var isElement: (AnyObject) -> Bool
 
-        static var system: Environment {
+        static var system: Environment { system(deadline: nil) }
+        static func system(deadline: TimeInterval?) -> Environment {
             func attribute(_ object: AnyObject, _ name: String) -> AnyObject? {
+                let remaining = deadline.map { $0 - ProcessInfo.processInfo.systemUptime } ?? 0.15
+                guard remaining > 0 else { return nil }
                 let element = unsafeBitCast(object, to: AXUIElement.self)
-                AXUIElementSetMessagingTimeout(element, 0.15)
+                AXUIElementSetMessagingTimeout(element, Float(min(0.15, remaining)))
                 var value: CFTypeRef?
                 let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
                 guard error == .success else {
@@ -32,6 +35,41 @@ import ApplicationServices
         }
     }
 
+    /// Chromium/Electron may not expose web editors until an assistive client
+    /// requests its application role or manual accessibility support. This is
+    /// a one-shot capture preparation, not a permission grant or an editor hint.
+    struct WarmupEnvironment {
+        var ownPID: pid_t
+        var trusted: () -> Bool
+        var application: (pid_t) -> AnyObject?
+        var attribute: (AnyObject, String) -> AnyObject?
+        var setBoolean: (AnyObject, String, Bool) -> Bool
+        static var system: WarmupEnvironment {
+            .init(ownPID: ProcessInfo.processInfo.processIdentifier, trusted: { AXIsProcessTrusted() },
+                application: { pid in
+                    let app = AXUIElementCreateApplication(pid)
+                    AXUIElementSetMessagingTimeout(app, 0.15)
+                    return app
+                }, attribute: Environment.system.attribute,
+                setBoolean: { object, name, value in
+                    let app = unsafeBitCast(object, to: AXUIElement.self)
+                    return AXUIElementSetAttributeValue(app, name as CFString, value ? kCFBooleanTrue : kCFBooleanFalse) == .success
+                })
+        }
+    }
+    @discardableResult static func prepareAccessibility(_ pid: pid_t, environment: WarmupEnvironment = .system) -> Bool {
+        guard pid > 0, pid != environment.ownPID, environment.trusted(),
+              let app = environment.application(pid) else { return false }
+        // Reading the application role is Chromium's current native/basic AX
+        // activation path. Electron also documents this explicit manual flag.
+        let role = environment.attribute(app, kAXRoleAttribute) as? String
+        let manual = environment.setBoolean(app, "AXManualAccessibility", true)
+        DirectPasteDiagnostics.log.debug("AX warmup pid=\(pid) applicationRole=\(role == kAXApplicationRole, privacy: .public) manualAccepted=\(manual, privacy: .public)")
+        // Unsupported flags on native apps remain harmless. Never set the
+        // undocumented AXEnhancedUserInterface or reset another AT's mode.
+        return manual || role == kAXApplicationRole
+    }
+
     private struct Capabilities {
         let textRole: Bool
         let focusContainer: Bool
@@ -43,6 +81,10 @@ import ApplicationServices
 
     static func focusedField(_ pid: pid_t) -> DirectPasteCoordinator.FocusedField? {
         focusedField(pid, environment: .system)
+    }
+
+    static func focusedField(_ pid: pid_t, before deadline: TimeInterval) -> DirectPasteCoordinator.FocusedField? {
+        focusedField(pid, environment: .system(deadline: deadline))
     }
 
     static func focusedField(_ pid: pid_t, environment: Environment) -> DirectPasteCoordinator.FocusedField? {
@@ -61,7 +103,8 @@ import ApplicationServices
                 secure: role == kAXSecureTextFieldSubrole || subrole == kAXSecureTextFieldSubrole)
         }
         func field(_ element: AnyObject, _ facts: Capabilities, ancestor: Bool = false) -> DirectPasteCoordinator.FocusedField {
-            .init(identity: element, editable: !facts.blocked && (ancestor || facts.textRole || facts.editable == true), secure: facts.secure)
+            .init(identity: element, editable: !facts.blocked && (ancestor || facts.textRole || facts.editable == true), secure: facts.secure,
+                awaitingAccessibility: !ancestor && !facts.blocked && facts.focusContainer && !facts.textRole && facts.editable != true)
         }
 
         guard let (leaf, leafFacts) = focusedLeaf(from: focused, environment: environment, capabilities: capabilities) else { return nil }

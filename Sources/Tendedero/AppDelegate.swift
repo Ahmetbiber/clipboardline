@@ -242,7 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         line.onImageMarkupRequested = { [weak self] id in self?.showPreview(id); self?.preview?.beginMarkup() }
-        Trim.shared.onSaved = { [weak self] url in self?.line.reloadThumbnail(for: url) }
+        Trim.shared.onSaved = { [weak self] _, url in self?.line.reloadThumbnail(for: url) }
         line.onFall = { [weak self] item in self?.fall(item) }
 
         line.$items
@@ -1807,7 +1807,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .takeDownLeft, .takeDownRight: if let id = snapshot.singleID { line.takeDown(id, toTheLeft: action == .takeDownLeft) }
         case .trimVideo:
             if let id = snapshot.singleID, line.items.contains(where: { $0.id == id }) { line.markup(id) }
-            else if let id = snapshot.singleID, let record = try? line.library?.item(id), let url = record.fileURL { Trim.shared.edit(url, size: NSSize(width: 720, height: 450)) }
+            else if let id = snapshot.singleID, let store = line.library { Trim.shared.edit(id, store: store, size: NSSize(width: 720, height: 450)) }
         case .resetZoom: markup(.resetZoom)
         case .markupUndo: markup(.undo)
         case .markupRedo: markup(.redo)

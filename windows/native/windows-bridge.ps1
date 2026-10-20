@@ -8,6 +8,7 @@ $automationReferences = @(
   [System.Windows.Automation.AutomationIdentifier].Assembly.Location
   [Accessibility.IAccessible].Assembly.Location
   [System.Collections.Generic.HashSet[int]].Assembly.Location
+  [System.Diagnostics.Stopwatch].Assembly.Location
 ) | Select-Object -Unique
 Add-Type -ReferencedAssemblies $automationReferences -TypeDefinition @'
 using System;
@@ -45,17 +46,87 @@ public static class ClipBoardLineNative {
     var method=Marshal.ReadIntPtr(Marshal.ReadIntPtr(pointer),42*IntPtr.Size);
     return ((IA2Window)Marshal.GetDelegateForFunctionPointer(method,typeof(IA2Window)))(pointer,out value);
   }
-  private static string Snapshot(IntPtr window,uint owner,string runtime,bool editable,bool secure) {
-    return "{\"handle\":\""+window.ToInt64()+"\",\"processId\":"+owner+",\"runtime\":\""+runtime+"\",\"editable\":"+(editable?"true":"false")+",\"secure\":"+(secure?"true":"false")+"}";
+  private sealed class FocusSample {
+    internal IntPtr Window;internal uint Owner;internal string Runtime;internal bool Editable,Secure,Loading;
+    internal string Json { get { return "{\"handle\":\""+Window.ToInt64()+"\",\"processId\":"+Owner+",\"runtime\":\""+Runtime+"\",\"editable\":"+(Editable?"true":"false")+",\"secure\":"+(Secure?"true":"false")+"}"; } }
+  }
+  private static FocusSample Snapshot(IntPtr window,uint owner,string runtime,bool editable,bool secure,bool loading=false) {
+    return new FocusSample {Window=window,Owner=owner,Runtime=runtime,Editable=editable,Secure=secure,Loading=loading};
+  }
+  private static bool LoadingDocument(int role,uint state,int states) {
+    // Chromium's loading root is a BUSY, READONLY DOCUMENT. It is never an
+    // editor; wait only for its explicit focus relation to become available.
+    // https://source.chromium.org/chromium/chromium/src/+/main:content/browser/accessibility/accessibility_win_browsertest.cc
+    return role==15&&(state&0x840)==0x840&&(state&0x20000001)==0&&(states&12)==0;
+  }
+  private static FocusSample CaptureReady(Func<FocusSample> read,Func<bool> sameWindow,Func<long> elapsed,Action pause) {
+    bool waiting=false;string firstEditor=null;int stable=0;
+    for(int sample=0;sample<80;sample++) {
+      if(elapsed()>=2500||!sameWindow())return null;
+      var actual=read();
+      if(elapsed()>=2500||!sameWindow()||actual==null)return null;
+      if(actual.Loading) {waiting=true;stable=0;}
+      else if(!waiting)return actual; // Existing warm/native capture fast path.
+      else {
+        if(!actual.Editable||actual.Secure)return actual;
+        if(firstEditor==null)firstEditor=actual.Runtime;
+        else if(firstEditor!=actual.Runtime)return null;
+        if(++stable>=2)return actual;
+      }
+      pause();
+    }
+    return null;
+  }
+  public static string CaptureFocus() {
+    var window=GetForegroundWindow();uint owner;GetWindowThreadProcessId(window,out owner);
+    if(window==IntPtr.Zero||owner==0)return null;
+    var clock=System.Diagnostics.Stopwatch.StartNew();
+    Func<bool> same=delegate {uint currentOwner;var current=GetForegroundWindow();GetWindowThreadProcessId(current,out currentOwner);return current==window&&currentOwner==owner&&IsWindow(window);};
+    var result=CaptureReady(delegate {var value=DescribeFocus(AutomationElement.FocusedElement,false);return value!=null&&value.Window==window&&value.Owner==owner?value:null;},same,delegate{return clock.ElapsedMilliseconds;},delegate{System.Threading.Thread.Sleep(30);});
+    return result==null?null:result.Json;
   }
   private static bool MayResolveLegacy(bool editable,bool enabled,bool secure,bool readOnly) {return !editable&&enabled&&!secure&&!readOnly;}
   private static bool IA2Editable(uint state,int states) {return (state&4)!=0&&(states&8)!=0&&(states&4)==0&&(state&0x20000041)==0;}
+  private static int CapturePolicyChecks() {
+    int checks=0;Action<bool,string> check=delegate(bool ok,string label){if(!ok)throw new InvalidOperationException("Capture readiness regression: "+label);checks++;};
+    check(LoadingDocument(15,0x844,0x400),"busy Chromium document");
+    check(!LoadingDocument(42,0x844,0x400),"readonly text is not a loading document");
+    check(!LoadingDocument(15,0x44,0x400),"ordinary readonly document");
+    check(!LoadingDocument(15,0x844|1,0x400),"disabled document");
+    check(!LoadingDocument(15,0x844|0x20000000,0x400),"protected document");
+    check(!LoadingDocument(15,0x844,0x404),"defunct document");
+    check(!LoadingDocument(15,0x844,0x408),"contradictory readonly editable document");
+    var busy=Snapshot(new IntPtr(1),2,"document",false,false,true);
+    var first=Snapshot(new IntPtr(1),2,"editor-a",true,false);
+    var second=Snapshot(new IntPtr(1),2,"editor-b",true,false);
+    var readOnly=Snapshot(new IntPtr(1),2,"readonly",false,false);
+    var secure=Snapshot(new IntPtr(1),2,"password",false,true);
+    long elapsed=0;int reads=0;
+    Func<FocusSample[],FocusSample> sequence=delegate(FocusSample[] values){elapsed=0;reads=0;return CaptureReady(delegate{return values[Math.Min(reads++,values.Length-1)];},delegate{return true;},delegate{return elapsed;},delegate{elapsed+=30;});};
+    check(sequence(new[]{busy,busy,first,first})==first&&reads==4,"busy tree resolves to stable editor");
+    check(sequence(new[]{first})==first&&reads==1,"warm capture stays immediate");
+    check(sequence(new[]{readOnly})==readOnly&&reads==1,"readonly leaf stays immediate");
+    check(sequence(new[]{secure})==secure&&reads==1,"password leaf stays immediate");
+    check(sequence(new[]{busy,readOnly})==readOnly&&reads==2,"loading cannot override readonly leaf");
+    check(sequence(new[]{busy,secure})==secure&&reads==2,"loading cannot override password leaf");
+    check(sequence(new[]{busy,first,second})==null&&reads==3,"first positive field stays latched");
+    check(sequence(new[]{busy,first,busy,first,first})==first,"intervening loading retains first identity");
+    check(sequence(new[]{busy})==null&&reads==80,"sample cap rejects permanent loading");
+    check(sequence(new FocusSample[]{busy,null})==null&&reads==2,"missing provider is not eligible");
+    elapsed=0;reads=0;
+    check(CaptureReady(delegate{reads++;elapsed+=2600;return first;},delegate{return true;},delegate{return elapsed;},delegate{})==null&&reads==1,"query time counts toward deadline");
+    elapsed=0;reads=0;
+    check(CaptureReady(delegate{reads++;return busy;},delegate{return reads==0;},delegate{return elapsed;},delegate{elapsed+=30;})==null&&reads==1,"foreground change during query cancels");
+    reads=0;
+    check(CaptureReady(delegate{reads++;return first;},delegate{return false;},delegate{return 0;},delegate{})==null&&reads==0,"changed window never queried");
+    return checks;
+  }
   public static string FocusPolicySelfTest() {
     if(!IA2Editable(4,8)||IA2Editable(4|0x40,8)||IA2Editable(4|0x20000000,8)||IA2Editable(4|1,8)||IA2Editable(4,8|4)||IA2Editable(0,8)||IA2Editable(4,0))throw new InvalidOperationException("IA2 focus policy regression");
     if(!MayResolveLegacy(false,true,false,false)||MayResolveLegacy(true,true,false,false)||MayResolveLegacy(false,false,false,false)||MayResolveLegacy(false,true,true,false)||MayResolveLegacy(false,true,false,true))throw new InvalidOperationException("Known UIA rejection was overridden");
-    return "{\"ok\":true,\"passed\":12}";
+    return "{\"ok\":true,\"passed\":12,\"capturePassed\":"+CapturePolicyChecks()+"}";
   }
-  private static string ResolveMSAA(IntPtr window,uint owner,out string diagnostic) {
+  private static FocusSample ResolveMSAA(IntPtr window,uint owner,out string diagnostic) {
     diagnostic="{\"stage\":\"unavailable\"}";
     try {
       if(window==IntPtr.Zero||GetForegroundWindow()!=window)return null;
@@ -102,14 +173,14 @@ public static class ClipBoardLineNative {
         // IA2_EDITABLE may coexist with MSAA_READONLY; explicit denial wins.
         bool editable=IA2Editable(state,states);
         diagnostic="{\"stage\":\"ia2-focus\",\"depth\":"+depth+",\"role\":"+role+",\"state\":"+state+",\"ia2States\":"+states+",\"uniqueId\":"+unique+",\"nativeFocusWindow\":\""+focusedWindow.ToInt64()+"\",\"window\":\""+handle.ToInt64()+"\"}";
-        return Snapshot(window,owner,"99."+window.ToInt64()+"."+unique,editable,secure);
+        return Snapshot(window,owner,"99."+window.ToInt64()+"."+unique,editable,secure,LoadingDocument(role,state,states));
       } finally {Marshal.Release(ia2);}
     }catch(Exception){diagnostic="{\"stage\":\"provider-unavailable\"}";return null;}
   }
   private static readonly object outputLock = new object();
   private static string lastFocus;
   private static AutomationFocusChangedEventHandler focusHandler;
-  public static string FocusSnapshot() { return DescribeFocus(AutomationElement.FocusedElement,false); }
+  public static string FocusSnapshot() { var value=DescribeFocus(AutomationElement.FocusedElement,false);return value==null?null:value.Json; }
   public static string FocusDiagnostics() {
     var window=GetForegroundWindow();uint owner=0;GetWindowThreadProcessId(window,out owner);
     var element=AutomationElement.FocusedElement;var entries=new System.Collections.Generic.List<string>();
@@ -127,7 +198,7 @@ public static class ClipBoardLineNative {
     return "{\"ok\":true,\"handle\":\""+window.ToInt64()+"\",\"processId\":"+owner+",\"chain\":["+String.Join(",",entries)+"],\"msaa\":"+msaa+"}";
   }
 
-  private static string DescribeFocus(AutomationElement element,bool fromEvent) {
+  private static FocusSample DescribeFocus(AutomationElement element,bool fromEvent) {
     var window=GetForegroundWindow(); uint owner=0; GetWindowThreadProcessId(window,out owner);
     bool editable=false,secure=false,enabled=true,readOnly=false; string runtime="";
     if(element!=null) {
@@ -156,7 +227,7 @@ public static class ClipBoardLineNative {
   }
   public static void ObserveFocus() {
     focusHandler=delegate(object sender,AutomationFocusChangedEventArgs args) {
-      try { EmitFocus(DescribeFocus(sender as AutomationElement,true)); } catch(Exception) {}
+      try { var value=DescribeFocus(sender as AutomationElement,true);EmitFocus(value==null?null:value.Json); } catch(Exception) {}
     };
     Automation.AddAutomationFocusChangedEventHandler(focusHandler);
   }
@@ -186,8 +257,8 @@ public static class ClipBoardLineNative {
   }
 }
 '@
-function FocusInfo {
-  $snapshot=[ClipBoardLineNative]::FocusSnapshot()
+function FocusInfo([bool]$WaitForLoading=$false) {
+  $snapshot=if($WaitForLoading){[ClipBoardLineNative]::CaptureFocus()}else{[ClipBoardLineNative]::FocusSnapshot()}
   if (-not $snapshot) { throw 'The focused element changed while it was being inspected.' }
   return $snapshot | ConvertFrom-Json
 }
@@ -236,7 +307,7 @@ try {
   } elseif ($Mode -eq 'CaptureDiagnostics') {
     [ClipBoardLineNative]::FocusDiagnostics()
   } elseif ($Mode -eq 'Capture') {
-    FocusInfo | ConvertTo-Json -Compress
+    FocusInfo -WaitForLoading $true | ConvertTo-Json -Compress
   } else {
     $phase=@{started=[DateTime]::UtcNow.ToString('o')}
     $expected = [Console]::In.ReadToEnd() | ConvertFrom-Json

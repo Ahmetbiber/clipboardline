@@ -24,6 +24,9 @@ struct LibraryRecord: Codable, Equatable, Identifiable {
     /// copy/export/OCR. The first unmarked pixels remain in a managed file.
     var imageMarkup: ImageMarkupDocument?
     var markupBasePath: String?
+    /// First private recording bytes survive every later trim. originalPath
+    /// remains filename/provenance metadata and is never used as a backup.
+    var recordingOriginalPath: String?
     var originalURL: String?
     var normalizedURL: String?
     var thumbnailPath: String?
@@ -40,6 +43,7 @@ struct LibraryRecord: Codable, Equatable, Identifiable {
     }
     var fileURL: URL? { path.map { URL(fileURLWithPath: $0) } }
     var markupSourceURL: URL? { (markupBasePath ?? path).map { URL(fileURLWithPath: $0) } }
+    var recordingOriginalURL: URL? { recordingOriginalPath.map { URL(fileURLWithPath: $0) } }
     var exportFileName: String? { fileURL.map { HistoryFiles.exportName(for: $0, originalPath: originalPath) } }
     var linkURL: URL? { originalURL.flatMap(URL.init(string:)) }
 }
@@ -164,6 +168,16 @@ extension String {
         let removedAt: Date?
     }
     private var shelfRemovalUndo = [[ShelfRemoval]]()
+    struct RecordingTrimContext: Equatable, Sendable {
+        let token: UUID
+        let id: UUID
+        let source: URL
+        let sourceFingerprint: String
+        let snapshot: URL
+        let output: URL
+    }
+    private var recordingTrims = [UUID: RecordingTrimContext]()
+    private var recordingTrimPending = Set<String>()
     var canUndoShelfRemoval: Bool { !shelfRemovalUndo.isEmpty }
     private let readerQueue = DispatchQueue(label: "local.clipboardline.library.reader", qos: .userInitiated)
     var retentionDays: Int { let days = defaults.integer(forKey: "historyRetentionDays"); return ImageHistory.dayChoices.contains(days) ? days : 30 }
@@ -550,7 +564,10 @@ extension String {
         changed([id]); return value
     }
     private func reserveMarkupAsset(extension ext: String) throws -> URL {
-        guard ["png", "jpg", "jpeg", "heic", "tif", "tiff", "gif", "webp", "bmp"].contains(ext.lowercased()),
+        try reserveManagedAsset(extension: ext, allowed: ["png", "jpg", "jpeg", "heic", "tif", "tiff", "gif", "webp", "bmp"])
+    }
+    private func reserveManagedAsset(extension ext: String, allowed: Set<String>) throws -> URL {
+        guard allowed.contains(ext.lowercased()),
               files.favoritesFolder.resolvingSymlinksInPath().path == files.favoritesFolder.path else { throw HistoryFiles.Failure.unsafeFile }
         try FileManager.default.createDirectory(at: files.favoritesFolder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: files.favoritesFolder.path)
@@ -570,7 +587,7 @@ extension String {
     private func drainMarkupGarbage() {
         guard let queued = try? db.rows("SELECT path FROM image_markup_garbage"), !queued.isEmpty,
               let records = try? LibrarySQL.decode(db.rows("SELECT payload FROM items WHERE kind='image'")) else { return }
-        let referenced = Set(records.flatMap { [$0.path, $0.markupBasePath].compactMap { $0 } })
+        let referenced = Set(records.flatMap { [$0.path, $0.markupBasePath, $0.recordingOriginalPath].compactMap { $0 } }).union(recordingTrimPending)
         for row in queued {
             guard let path = row["path"]?.string else { continue }
             if referenced.contains(path) { continue }
@@ -583,6 +600,67 @@ extension String {
                 try db.execute("DELETE FROM image_markup_garbage WHERE path=?", [.text(path)])
             } catch { /* Retry on the next save or launch; no permanent deletion. */ }
         }
+    }
+    /// Snapshot outside the main actor so a large recording never freezes the
+    /// shelves. A durable unpublished-asset intent covers interruption/crash.
+    func prepareRecordingTrim(_ id: UUID) async throws -> RecordingTrimContext {
+        guard let value = try item(id), value.kind == .image, value.deletedAt == nil,
+              let source = value.fileURL, isRecordingFile(source), files.isRegularFile(source),
+              value.recordingOriginalURL.map(files.isFavoriteCopy) != false else { throw HistoryFiles.Failure.unsafeFile }
+        var reserved = [URL]()
+        do {
+            let snapshot = try reserveManagedAsset(extension: source.pathExtension, allowed: ["mov", "mp4"]); reserved.append(snapshot)
+            let output = try reserveManagedAsset(extension: source.pathExtension, allowed: ["mov", "mp4"]); reserved.append(output)
+            recordingTrimPending.formUnion(reserved.map(\.path))
+            let worker = Task.detached(priority: .userInitiated) { try RecordingTrimFiles.snapshot(source, to: snapshot) }
+            let fingerprint = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+            try Task.checkCancellation()
+            guard let current = try item(id), current.deletedAt == nil, current.path == source.path else { throw HistoryFiles.Failure.unsafeFile }
+            let context = RecordingTrimContext(token: UUID(), id: id, source: source, sourceFingerprint: fingerprint, snapshot: snapshot, output: output)
+            recordingTrims[context.token] = context
+            return context
+        } catch {
+            recordingTrimPending.subtract(reserved.map(\.path)); drainMarkupGarbage(); throw error
+        }
+    }
+    func discardRecordingTrim(_ context: RecordingTrimContext) {
+        guard recordingTrims[context.token] == context else { return }
+        recordingTrims.removeValue(forKey: context.token)
+        recordingTrimPending.subtract([context.snapshot.path, context.output.path])
+        drainMarkupGarbage()
+    }
+    /// Publish the validated derivative under the existing ID only. Pinning,
+    /// retention, names, notes and memberships may change while export runs;
+    /// take them from the current record rather than its opening snapshot.
+    @discardableResult func commitRecordingTrim(_ context: RecordingTrimContext) async throws -> LibraryRecord {
+        guard recordingTrims[context.token] == context else { throw HistoryFiles.Failure.unsafeFile }
+        defer { discardRecordingTrim(context) }
+        let worker = Task.detached(priority: .userInitiated) {
+            try await RecordingTrimFiles.validateExport(context.output)
+            guard try RecordingTrimFiles.fingerprint(context.source) == context.sourceFingerprint else { throw HistoryFiles.Failure.unsafeFile }
+            try Task.checkCancellation()
+        }
+        try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+        try Task.checkCancellation()
+        guard recordingTrims[context.token] == context,
+              var value = try item(context.id), value.kind == .image, value.deletedAt == nil, value.path == context.source.path,
+              files.isFavoriteCopy(context.snapshot), files.isFavoriteCopy(context.output),
+              value.recordingOriginalURL.map(files.isFavoriteCopy) != false else { throw HistoryFiles.Failure.unsafeFile }
+        let previousPath = value.path
+        value.recordingOriginalPath = value.recordingOriginalPath ?? context.snapshot.path
+        value.originalPath = value.originalPath ?? context.source.path
+        value.path = context.output.path; value.updatedAt = now()
+        try db.transaction {
+            try put(value)
+            try db.execute("DELETE FROM image_analysis WHERE item=?", [.text(value.id.uuidString)])
+            for path in [value.path, value.recordingOriginalPath].compactMap({ $0 }) {
+                try db.execute("DELETE FROM image_markup_garbage WHERE path=?", [.text(path)])
+            }
+            if let path = previousPath, path != value.recordingOriginalPath, files.isFavoriteCopy(URL(fileURLWithPath: path)) {
+                try db.execute("INSERT OR IGNORE INTO image_markup_garbage VALUES(?)", [.text(path)])
+            }
+        }
+        changed([value.id]); return value
     }
     func update(_ id: UUID, _ transform: (inout LibraryRecord) throws -> Void) throws {
         guard var value = try item(id) else { throw HistoryFiles.Failure.unsafeFile }

@@ -653,3 +653,246 @@ import XCTest
         XCTAssertEqual(f.events, [f.targetPID]); XCTAssertEqual(f.writes.count, 1)
     }
 }
+
+@MainActor final class DirectPasteColdTreeTests: HistoryTestCase {
+    private func wait(_ predicate: () -> Bool) {
+        let end = Date().addingTimeInterval(5)
+        while !predicate() && Date() < end { RunLoop.current.run(until: Date().addingTimeInterval(0.005)) }
+        XCTAssertTrue(predicate(), "Cold-tree paste did not finish")
+    }
+    private func paste(_ service: DirectPasteCoordinator, fixture f: DirectPasteFixture) -> DirectPasteCoordinator.Outcome? {
+        var result: DirectPasteCoordinator.Outcome?
+        service.paste(items: ClipboardTransfer.textItems(["Cold-tree exact payload"]), dismiss: f.dismiss) { result = $0 }
+        wait { result != nil }; return result
+    }
+    private func placeholder() -> DirectPasteCoordinator.FocusedField {
+        .init(identity: NSObject(), editable: false, secure: false, awaitingAccessibility: true)
+    }
+    func testOneShotWarmupOutlastsElectronDebounceAndPreservesPendingCaptureAcrossOwnActivation() {
+        let f = DirectPasteFixture(); f.currentField = nil; var requests = [pid_t]()
+        var environment = f.environment; environment.prepareAccessibility = { requests.append($0); return true }
+        let service = DirectPasteCoordinator(environment: environment)
+        f.prepare(service); f.currentField = placeholder()
+        service.recordActivation(f.ownPID); service.captureTarget()
+        f.onPause = { if f.pauseCount == 110 { f.currentField = .init(identity: f.field, editable: true, secure: false) } }
+        XCTAssertEqual(paste(service, fixture: f), .pasted)
+        XCTAssertEqual(requests, [f.targetPID], "Per-poll setters would restart Electron's two-second debounce")
+        XCTAssertGreaterThan(f.pauseCount, 100); XCTAssertLessThan(f.pauseCount, 160)
+        XCTAssertEqual(f.writes, [["Cold-tree exact payload"]]); XCTAssertEqual(f.events, [f.targetPID])
+    }
+    func testColdEditorResolvedBeforeDismissalCannotBeReplacedByAnotherFieldOfTheSameProcess() {
+        let f = DirectPasteFixture(); f.currentField = nil
+        var environment = f.environment; environment.prepareAccessibility = { _ in true }
+        let service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+        f.currentField = .init(identity: f.field, editable: true, secure: false)
+        f.onDismiss = { f.currentField = .init(identity: NSObject(), editable: true, secure: false) }
+        XCTAssertEqual(paste(service, fixture: f), .focusChanged)
+        XCTAssertEqual(f.dismissals, 1); XCTAssertTrue(f.activated.isEmpty)
+        XCTAssertTrue(f.writes.isEmpty); XCTAssertTrue(f.events.isEmpty)
+    }
+    func testColdEditorFirstResolvedAfterDismissalIsPinnedBeforeActivatingTheApplication() {
+        let f = DirectPasteFixture(); f.currentField = nil
+        var environment = f.environment; environment.prepareAccessibility = { _ in true }
+        environment.activate = { pid in
+            f.activated.append(pid); f.frontmost = pid
+            f.currentField = .init(identity: NSObject(), editable: true, secure: false)
+            return true
+        }
+        let service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+        f.currentField = placeholder()
+        f.onDismiss = { f.currentField = .init(identity: f.field, editable: true, secure: false) }
+        XCTAssertEqual(paste(service, fixture: f), .focusChanged)
+        XCTAssertEqual(f.activated, [f.targetPID]); XCTAssertTrue(f.writes.isEmpty); XCTAssertTrue(f.events.isEmpty)
+    }
+    func testColdEditorResolvedBeforeDismissalMayBlurButMustRestoreThatExactIdentity() {
+        let f = DirectPasteFixture(); f.currentField = nil
+        var environment = f.environment; environment.prepareAccessibility = { _ in true }
+        let service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+        f.currentField = .init(identity: f.field, editable: true, secure: false)
+        f.onDismiss = { f.currentField = self.placeholder() }
+        f.onPause = { f.currentField = .init(identity: f.field, editable: true, secure: false) }
+        XCTAssertEqual(paste(service, fixture: f), .pasted)
+        XCTAssertEqual(f.events, [f.targetPID]); XCTAssertEqual(f.writes, [["Cold-tree exact payload"]])
+    }
+    func testImmediateWarmupCanExposeTheOriginalEditorWithoutExtendingItsPasteWait() {
+        let f = DirectPasteFixture(); f.currentField = nil; var requests = 0
+        var environment = f.environment; environment.prepareAccessibility = { _ in requests += 1; f.currentField = .init(identity: f.field, editable: true, secure: false); return true }
+        let service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+        XCTAssertEqual(paste(service, fixture: f), .pasted); XCTAssertEqual(requests, 1); XCTAssertEqual(f.pauseCount, 1)
+    }
+    func testWarmupNeverTurnsIneligibleOrSecureFocusIntoAnEditableFallback() {
+        for secure in [false, true] {
+            let f = DirectPasteFixture(); f.currentField = nil
+            var environment = f.environment; environment.prepareAccessibility = { _ in true }
+            let service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+            f.currentField = placeholder()
+            f.onPause = { if f.pauseCount == 110 { f.currentField = .init(identity: f.field, editable: false, secure: secure) } }
+            XCTAssertEqual(paste(service, fixture: f), .focusChanged)
+            XCTAssertTrue(f.writes.isEmpty); XCTAssertTrue(f.events.isEmpty)
+        }
+    }
+    func testColdTreeTimeoutIsBoundedAndNeverWritesOrSendsToAnUnknownContainer() {
+        for absent in [false, true] {
+            let f = DirectPasteFixture(); f.currentField = nil; var requests = 0
+            var environment = f.environment; environment.prepareAccessibility = { _ in requests += 1; return true }
+            let service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+            f.currentField = absent ? nil : placeholder()
+            XCTAssertEqual(paste(service, fixture: f), .focusChanged); XCTAssertEqual(f.pauseCount, 160); XCTAssertEqual(requests, 1)
+            XCTAssertTrue(f.writes.isEmpty); XCTAssertTrue(f.events.isEmpty)
+        }
+    }
+    func testWarmupStopsWhenThirdAppTakesFocusOrPermissionAndProcessDisappear() {
+        for mutation in 0..<3 {
+            let f = DirectPasteFixture(); f.currentField = nil
+            var environment = f.environment; environment.prepareAccessibility = { _ in true }
+            let service = DirectPasteCoordinator(environment: environment); f.prepare(service); f.currentField = placeholder()
+            f.onPause = { if f.pauseCount == 30 { if mutation == 0 { f.frontmost = 202 } else if mutation == 1 { f.trusted = false } else { f.running = false } } }
+            XCTAssertEqual(paste(service, fixture: f), mutation == 0 ? .focusChanged : mutation == 1 ? .permissionRequired : .noTarget)
+            XCTAssertEqual(f.pauseCount, 30); XCTAssertTrue(f.writes.isEmpty); XCTAssertTrue(f.events.isEmpty)
+        }
+    }
+    func testCancelDuringWarmupCannotLaterWriteOrPasteIntoTheOldField() {
+        let f = DirectPasteFixture(); f.currentField = nil
+        var environment = f.environment; environment.prepareAccessibility = { _ in true }
+        let service = DirectPasteCoordinator(environment: environment); f.prepare(service); f.currentField = placeholder()
+        var completed = false
+        f.onPause = { if f.pauseCount == 30 { service.cancel(); f.currentField = .init(identity: f.field, editable: true, secure: false) } }
+        service.paste(items: ClipboardTransfer.textItems(["Must never paste"]), dismiss: f.dismiss) { _ in completed = true }
+        wait { f.pauseCount >= 30 }; RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertFalse(completed); XCTAssertTrue(f.writes.isEmpty); XCTAssertTrue(f.events.isEmpty)
+    }
+    func testFirstResolvedColdEditorStillRequiresStableExactIdentityAndPostWriteRevalidation() {
+        for changeDuringWrite in [false, true] {
+            let f = DirectPasteFixture(); f.currentField = nil
+            var environment = f.environment; environment.prepareAccessibility = { _ in true }
+            let service = DirectPasteCoordinator(environment: environment); f.prepare(service); f.currentField = placeholder()
+            f.onPause = { if f.pauseCount == 110 { f.currentField = .init(identity: f.field, editable: true, secure: false) }
+                if !changeDuringWrite && f.pauseCount == 111 { f.currentField = .init(identity: NSObject(), editable: true, secure: false) } }
+            if changeDuringWrite { f.onWrite = { f.currentField = .init(identity: NSObject(), editable: true, secure: false) } }
+            XCTAssertEqual(paste(service, fixture: f), .focusChanged); XCTAssertTrue(f.events.isEmpty)
+            XCTAssertEqual(f.writes.count, changeDuringWrite ? 1 : 0)
+        }
+    }
+    func testColdTreeDeadlineIncludesSlowAXQueriesInsteadOfOnlyCountingPollingPauses() {
+        let f = DirectPasteFixture(); f.currentField = nil
+        var clock: TimeInterval = 0, queryCost: TimeInterval = 0, reads = 0
+        var environment = f.environment
+        environment.now = { clock }
+        environment.prepareAccessibility = { _ in true }
+        environment.focusedField = { _ in reads += 1; clock += queryCost; return f.currentField }
+        let service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+        f.currentField = placeholder(); queryCost = 0.8; reads = 0
+        XCTAssertEqual(paste(service, fixture: f), .focusChanged)
+        XCTAssertLessThanOrEqual(reads, 5); XCTAssertLessThan(f.pauseCount, 160)
+        XCTAssertTrue(f.writes.isEmpty); XCTAssertTrue(f.events.isEmpty)
+    }
+    func testDeadlineAwareResolverOwnsEveryPasteQueryIncludingMissingResultsWithoutUnboundedFallback() {
+        let f = DirectPasteFixture(); var unboundedReads = 0, boundedReads = 0
+        var environment = f.environment; environment.now = { 123 }
+        environment.focusedField = { _ in unboundedReads += 1; return f.currentField }
+        environment.focusedFieldBeforeDeadline = { pid, deadline in
+            XCTAssertEqual(pid, f.targetPID); XCTAssertEqual(deadline, 124)
+            boundedReads += 1
+            return boundedReads <= 3 ? nil : f.currentField
+        }
+        let service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+        XCTAssertEqual(paste(service, fixture: f), .pasted)
+        XCTAssertEqual(unboundedReads, 1, "Only capture may use the ordinary resolver; nil from the bounded resolver is final")
+        XCTAssertGreaterThan(boundedReads, 3); XCTAssertEqual(f.events, [f.targetPID])
+    }
+    func testDeadlineExpiredByFinalAXReadNeverDispatchesPaste() {
+        let f = DirectPasteFixture(); var clock: TimeInterval = 0, slowFinal = false
+        var environment = f.environment; environment.now = { clock }
+        environment.focusedField = { _ in if slowFinal { clock += 2 }; return f.currentField }
+        f.onWrite = { slowFinal = true }
+        let service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+        XCTAssertEqual(paste(service, fixture: f), .focusChanged)
+        XCTAssertEqual(f.writes.count, 1); XCTAssertTrue(f.events.isEmpty)
+    }
+    func testPermissionOrProcessLossDuringFinalEligibilityQueryCannotWriteClipboard() {
+        for losesPermission in [false, true] {
+            let f = DirectPasteFixture(); var queriesAfterPause = 0
+            var environment = f.environment
+            environment.focusedField = { _ in
+                if f.pauseCount > 0 {
+                    queriesAfterPause += 1
+                    // The second eligible poll reaches its final pre-write
+                    // validation after two stable-focus observations.
+                    if queriesAfterPause == 2 { if losesPermission { f.trusted = false } else { f.running = false } }
+                }
+                return f.currentField
+            }
+            let service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+            XCTAssertEqual(paste(service, fixture: f), losesPermission ? .permissionRequired : .noTarget)
+            XCTAssertTrue(f.writes.isEmpty); XCTAssertTrue(f.events.isEmpty)
+        }
+    }
+    func testPermissionOrProcessLossDuringClipboardWriteCannotDispatchPaste() {
+        for losesPermission in [false, true] {
+            let f = DirectPasteFixture()
+            f.onWrite = { if losesPermission { f.trusted = false } else { f.running = false } }
+            let service = DirectPasteCoordinator(environment: f.environment); f.prepare(service)
+            XCTAssertEqual(paste(service, fixture: f), losesPermission ? .permissionRequired : .noTarget)
+            XCTAssertEqual(f.writes.count, 1); XCTAssertTrue(f.events.isEmpty)
+        }
+    }
+    func testCancellationDuringFinalEligibilityQueryCannotWriteClipboard() {
+        let f = DirectPasteFixture(); var queriesAfterPause = 0, service: DirectPasteCoordinator!
+        var environment = f.environment
+        environment.focusedField = { _ in
+            if f.pauseCount > 0 { queriesAfterPause += 1; if queriesAfterPause == 2 { service.cancel() } }
+            return f.currentField
+        }
+        service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+        var completed = false
+        service.paste(items: ClipboardTransfer.textItems(["Must never paste"]), dismiss: f.dismiss) { _ in completed = true }
+        wait { queriesAfterPause >= 2 }; RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertFalse(completed); XCTAssertTrue(f.writes.isEmpty); XCTAssertTrue(f.events.isEmpty)
+    }
+    func testForegroundOrOwnKeyboardFocusChangingDuringFinalEligibilityQueryCannotWriteClipboard() {
+        for mutation in 0..<3 {
+            let f = DirectPasteFixture(); var queriesAfterPause = 0
+            var environment = f.environment
+            environment.focusedField = { _ in
+                if f.pauseCount > 0 {
+                    queriesAfterPause += 1
+                    if queriesAfterPause == 2 {
+                        if mutation == 0 { f.frontmost = 202 }
+                        else if mutation == 1 { f.frontmost = f.ownPID }
+                        else { f.ownsKeyboardFocusOverride = true }
+                    }
+                }
+                return f.currentField
+            }
+            let service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+            XCTAssertEqual(paste(service, fixture: f), .focusChanged)
+            XCTAssertTrue(f.writes.isEmpty); XCTAssertTrue(f.events.isEmpty)
+        }
+    }
+    func testForegroundOrOwnKeyboardFocusChangingDuringFinalPostWriteQueryCannotDispatchPaste() {
+        for mutation in 0..<3 {
+            let f = DirectPasteFixture()
+            var environment = f.environment
+            environment.focusedField = { _ in
+                if !f.writes.isEmpty {
+                    if mutation == 0 { f.frontmost = 202 }
+                    else if mutation == 1 { f.frontmost = f.ownPID }
+                    else { f.ownsKeyboardFocusOverride = true }
+                }
+                return f.currentField
+            }
+            let service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+            XCTAssertEqual(paste(service, fixture: f), .focusChanged)
+            XCTAssertEqual(f.writes.count, 1); XCTAssertTrue(f.events.isEmpty)
+        }
+    }
+    func testKnownFieldAndIneligibleCaptureDoNotWarmOrReplaceAnEarlierIdentity() {
+        for secure in [false, true] {
+            let f = DirectPasteFixture(); var requests = 0
+            if secure { f.currentField = .init(identity: f.field, editable: true, secure: true) }
+            var environment = f.environment; environment.prepareAccessibility = { _ in requests += 1; return true }
+            let service = DirectPasteCoordinator(environment: environment); f.prepare(service)
+            XCTAssertEqual(paste(service, fixture: f), secure ? .noTarget : .pasted); XCTAssertEqual(requests, 0)
+        }
+    }
+}

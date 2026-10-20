@@ -52,7 +52,7 @@ import XCTest
         leaf.attributes["AXHighestEditableAncestor"] = highest
         fixture.focused = leaf
         let field = try XCTUnwrap(fixture.resolve())
-        XCTAssertTrue(field.identity === highest); XCTAssertTrue(field.editable)
+        XCTAssertTrue(field.identity === highest); XCTAssertTrue(field.editable); XCTAssertFalse(field.awaitingAccessibility)
         let nextLeaf = PasteAccessibilityFixture.Element(role: kAXStaticTextRole)
         nextLeaf.attributes["AXEditableAncestor"] = highest
         fixture.focused = nextLeaf
@@ -255,6 +255,52 @@ import XCTest
             XCTAssertEqual(field.editable, role == kAXStaticTextRole)
             XCTAssertTrue(field.identity === (role == kAXStaticTextRole ? ancestor : leaf))
             leaf.attributes.removeAll()
+        }
+    }
+}
+
+@MainActor final class DirectPasteWarmupTests: HistoryTestCase {
+    func testColdTreePreparationReadsOnlyApplicationRoleAndEnablesOnlyManualAccessibilityOnce() {
+        let app = NSObject(); var calls = [String]()
+        let environment = DirectPasteAccessibility.WarmupEnvironment(ownPID: 900, trusted: { true },
+            application: { pid in XCTAssertEqual(pid, 101); calls.append("application"); return app },
+            attribute: { object, name in XCTAssertTrue(object === app); calls.append(name); return kAXApplicationRole as NSString },
+            setBoolean: { object, name, value in XCTAssertTrue(object === app); XCTAssertTrue(value); calls.append(name); return true })
+        XCTAssertTrue(DirectPasteAccessibility.prepareAccessibility(101, environment: environment))
+        XCTAssertEqual(calls, ["application", kAXRoleAttribute, "AXManualAccessibility"])
+        XCTAssertFalse(calls.contains("AXEnhancedUserInterface")); XCTAssertFalse(calls.contains(kAXValueAttribute))
+    }
+    func testColdTreePreparationRejectsOwnProcessMissingTrustAndUnsupportedAppsWithoutPrompts() {
+        var trust = false, calls = [String]()
+        let environment = DirectPasteAccessibility.WarmupEnvironment(ownPID: 900, trusted: { trust },
+            application: { _ in calls.append("application"); return NSObject() },
+            attribute: { _, name in calls.append(name); return nil },
+            setBoolean: { _, name, _ in calls.append(name); return false })
+        XCTAssertFalse(DirectPasteAccessibility.prepareAccessibility(101, environment: environment)); XCTAssertTrue(calls.isEmpty)
+        trust = true
+        for pid: pid_t in [0, -1, 900] { XCTAssertFalse(DirectPasteAccessibility.prepareAccessibility(pid, environment: environment)) }
+        XCTAssertTrue(calls.isEmpty)
+        XCTAssertFalse(DirectPasteAccessibility.prepareAccessibility(101, environment: environment))
+        XCTAssertEqual(calls, ["application", kAXRoleAttribute, "AXManualAccessibility"])
+    }
+    func testColdTreeApplicationRoleCanActivateNativeAPIsWhenManualAttributeIsUnsupported() {
+        let environment = DirectPasteAccessibility.WarmupEnvironment(ownPID: 900, trusted: { true },
+            application: { _ in NSObject() }, attribute: { _, _ in kAXApplicationRole as NSString },
+            setBoolean: { _, name, value in XCTAssertEqual(name, "AXManualAccessibility"); XCTAssertTrue(value); return false })
+        XCTAssertTrue(DirectPasteAccessibility.prepareAccessibility(101, environment: environment))
+    }
+    func testOnlyEligibleFocusContainersCanAwaitTheColdAccessibilityTree() throws {
+        for role in [kAXGroupRole, "AXWebArea", kAXScrollAreaRole, kAXWindowRole, kAXSplitGroupRole] {
+            let f = PasteAccessibilityFixture(), element = PasteAccessibilityFixture.Element(role: role)
+            f.focused = element
+            let field = try XCTUnwrap(f.resolve()); XCTAssertFalse(field.editable); XCTAssertTrue(field.awaitingAccessibility)
+            element.set("AXEditable", false); XCTAssertFalse(try XCTUnwrap(f.resolve()).awaitingAccessibility)
+            element.attributes.removeValue(forKey: "AXEditable"); element.set(kAXEnabledAttribute, false)
+            XCTAssertFalse(try XCTUnwrap(f.resolve()).awaitingAccessibility)
+        }
+        for role in [kAXButtonRole, kAXStaticTextRole, "AXUnknown", kAXTextAreaRole] {
+            let f = PasteAccessibilityFixture(); f.focused = PasteAccessibilityFixture.Element(role: role)
+            XCTAssertFalse(try XCTUnwrap(f.resolve()).awaitingAccessibility)
         }
     }
 }
