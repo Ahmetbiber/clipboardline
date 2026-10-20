@@ -8,6 +8,9 @@ using System;
 using System.Runtime.InteropServices;
 public static class FixtureFocus {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr window);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
   [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int key);
   [DllImport("user32.dll")] public static extern uint SendInput(uint count, INPUT[] inputs, int size);
   [StructLayout(LayoutKind.Sequential)] public struct INPUT { public uint type; public InputUnion union; }
@@ -20,6 +23,14 @@ public static class FixtureFocus {
     inputs[1].type=1; inputs[1].union.keyboard.key=(ushort)(release?0x11:0x0D);
     if(release){inputs[0].union.keyboard.flags=2;inputs[1].union.keyboard.flags=2;}
     if(SendInput(2,inputs,Marshal.SizeOf(typeof(INPUT)))!=2)throw new Exception("Fixture SendInput was blocked.");
+  }
+  public static void ActivateExpectedWindow(IntPtr window,uint processId,uint fixtureProcessId) {
+    uint foregroundOwner=0,targetOwner=0;
+    GetWindowThreadProcessId(GetForegroundWindow(),out foregroundOwner);
+    if(foregroundOwner!=fixtureProcessId)throw new Exception("Only the foreground fixture may hand off focus.");
+    GetWindowThreadProcessId(window,out targetOwner);
+    if(processId==0||processId==fixtureProcessId||!IsWindow(window)||targetOwner!=processId)throw new Exception("The exact source window/process is no longer available.");
+    if(!SetForegroundWindow(window))throw new Exception("Windows rejected the fixture focus handoff.");
   }
 }
 '@
@@ -82,6 +93,9 @@ $timer.Add_Tick({
           if ($command.seed -ne $null) { $secondInput.Text=[string]$command.seed }
           $secondForm.Show();$secondForm.Activate();$secondForm.ActiveControl=$secondInput;[void]$secondInput.Focus()
           if ($command.selectAll) { $secondInput.SelectAll() }
+        } elseif ($command.action -eq 'activate-window') {
+          if ($command.handle -notmatch '^\d{1,20}$' -or $command.processId -le 0) { throw 'Invalid source window/process.' }
+          [FixtureFocus]::ActivateExpectedWindow([IntPtr][Int64]::Parse([string]$command.handle),[uint32]$command.processId,[uint32]$PID)
         } elseif ($command.action -eq 'keys') { [System.Windows.Forms.SendKeys]::SendWait([string]$command.keys) }
         elseif ($command.action -eq 'hold-paste') { if($command.duration -lt 100 -or $command.duration -gt 1800){throw 'Invalid fixture key duration.'};if(-not $command.expectedForeground -or [FixtureFocus]::GetForegroundWindow().ToInt64().ToString() -ne [string]$command.expectedForeground){throw 'The source host is not the actual Win32 foreground; no test keys were sent.'};$script:keyDeadline=[DateTime]::UtcNow.AddMilliseconds($command.duration);[FixtureFocus]::PasteShortcut($false) }
         elseif ($command.action -eq 'release-keys') { [FixtureFocus]::PasteShortcut($true);$script:keyDeadline=$null }
