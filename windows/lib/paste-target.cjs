@@ -20,6 +20,13 @@ class PasteTargetTracker {
   }
   capture(value){if(value?.processId!==this.ownPID)this.external=snapshot(value,this.ownPID);return this.external;}
   reenter(){return this.external;}
+  resolve(captured){
+    // A visible Library can regain native foreground without another Electron
+    // focus callback. At a new paste command, use the exact observed external
+    // field, while preserving an explicitly missing/invalid capture as a veto.
+    // The returned immutable identity stays fixed throughout native validation.
+    return snapshot(captured,this.ownPID)?this.external:null;
+  }
   clear(){this.external=null;}
 }
 module.exports={PasteTargetTracker};

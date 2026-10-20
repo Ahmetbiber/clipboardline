@@ -262,12 +262,13 @@ async function main(){
   // browsing command or substituting the target being tested.
   const reentrySource=await application.evaluate(()=>({handle:global.__clipboardLineTest.getWindow().getNativeWindowHandle().readBigUInt64LE().toString(),processId:process.pid}));
   await fixtureCommand({action:'activate-window',...reentrySource});
-  // Require the actual foreground transition and the exact newly observed
-  // field before sending the shortcut through the genuine focus handler.
-  const reentry=await until(async()=>({...(await application.evaluate(()=>{const h=global.__clipboardLineTest,w=h.getWindow();return{focused:w.isFocused(),sourceHandle:w.getNativeWindowHandle().readBigUInt64LE().toString(),target:h.getTarget()};})),foreground:fixtureState().foreground}),value=>value.focused&&value.foreground===value.sourceHandle&&value.target?.handle===observedReentryTarget.handle&&value.target?.processId===observedReentryTarget.processId&&value.target?.runtime===observedReentryTarget.runtime);
-  assert.deepEqual(reentry.target,observedReentryTarget);
+  // Require actual native activation and the exact observer identity. The paste
+  // command must synchronize that identity even if Electron missed its focus
+  // callback; no stale rich-editor target may be reused during reentry.
+  const reentry=await until(async()=>({...(await application.evaluate(()=>{const h=global.__clipboardLineTest,w=h.getWindow();return{focused:w.isFocused(),sourceHandle:w.getNativeWindowHandle().readBigUInt64LE().toString(),observed:h.getObservedTarget()};})),foreground:fixtureState().foreground}),value=>value.focused&&value.foreground===value.sourceHandle&&value.observed?.handle===observedReentryTarget.handle&&value.observed?.processId===observedReentryTarget.processId&&value.observed?.runtime===observedReentryTarget.runtime);
+  assert.deepEqual(reentry.observed,observedReentryTarget);const beforeReentry=fixtureState();
   await page.locator(`[data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');
-  await until(fixtureState,value=>value.plainText===textItem.text&&value.focused==='plain'&&value.foreground===value.handle);
+  const pastedReentry=await until(fixtureState,value=>value.plainText===textItem.text&&value.focused==='plain'&&value.foreground===value.handle);assert.equal(pastedReentry.text,beforeReentry.text);
   await fixtureCommand({action:'keys',keys:' REENTRY_FOCUS_OK'});await until(fixtureState,value=>value.plainText.endsWith(' REENTRY_FOCUS_OK'));
   check('returning to an already visible Library captures the newly visited native editor and retains focus after paste');
   const unchanged=value=>({rich:value.text,plain:value.plainText,readonly:value.readOnlyText,passwordLength:value.passwordLength});

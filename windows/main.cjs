@@ -177,8 +177,10 @@ async function writeClipboard(selected) {
 }
 async function copy(payload,paste=false) {
   if(pastePromise)return pastePromise;
-  const selected=store.selected(ids(payload.ids));const target=previous;
+  const selected=store.selected(ids(payload.ids));
   if(!selected.length)throw new Error('Select an item first');
+  const target=paste?pasteTargets.resolve(previous):previous;
+  if(paste)previous=target;
   if(paste&&(!target||!target.editable||target.secure))throw new Error('Select an editable field in another application, then reopen the shelves.');
   if(paste){
     const generation=++pasteGeneration;

@@ -21,6 +21,25 @@ test('fresh explicit capture replaces stale state and own events preserve only a
   tracker.capture(field());assert.deepEqual(tracker.capture(field('90.1',{processId:100})),field());
 });
 
+test('a paste command resolves the latest exact external field even when a visible Library missed its focus callback',()=>{
+  const tracker=new PasteTargetTracker(100),captured=tracker.capture(field('42.17'));
+  tracker.observe(field('42.18',{name:'never retained',value:'never retained'}));
+  tracker.observe(field('90.1',{handle:'1001',processId:100}));
+  const target=tracker.resolve(captured);assert.deepEqual(target,field('42.18'));assert.ok(Object.isFrozen(target));
+  // Once the operation starts, later focus events cannot retarget its snapshot;
+  // the native prepare/validation gate must reject that changed destination.
+  tracker.observe(field('42.19'));assert.deepEqual(target,field('42.18'));assert.deepEqual(tracker.resolve(captured),field('42.19'));
+});
+
+test('command-boundary resolution never upgrades missing, readonly, password or invalid external focus into an old eligible target',()=>{
+  const tracker=new PasteTargetTracker(100);
+  for(const observed of [field('42.18',{editable:false}),field('42.18',{secure:true}),null,field('invalid')]){
+    const captured=tracker.capture(field());tracker.observe(observed);assert.ok(!tracker.resolve(captured)?.editable,JSON.stringify(observed));
+  }
+  tracker.capture(field());assert.equal(tracker.resolve(null),null);assert.equal(tracker.resolve(field('invalid')),null);
+  const captured=tracker.capture(field());tracker.clear();assert.equal(tracker.resolve(captured),null);
+});
+
 test('canceling a paste terminates its native helpers without interrupting ordinary focus restoration',async()=>{
   const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
   const file=path.resolve(__dirname,'../lib/native.cjs'),requireFrom=require('node:module').createRequire(file),children=[];
