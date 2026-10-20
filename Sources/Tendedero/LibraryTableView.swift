@@ -143,7 +143,13 @@ private final class LibraryNativeTable: NSTableView {
         model.setSort(descriptor.key == "title" ? descriptor.ascending ? .title : .titleDescending : descriptor.ascending ? .oldest : .newest)
     }
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-        guard model.ids.indices.contains(row) else { return nil }; let id = model.ids[row], event = NSApp.currentEvent?.eventNumber
+        guard model.ids.indices.contains(row) else { return nil }
+        let id = model.ids[row]
+        // AppKit may request writers during layout or accessibility handling.
+        // eventNumber is only valid for mouse events, never KitDefined events.
+        let event = NSApp.currentEvent.flatMap { current -> Int? in
+            [.leftMouseDown, .leftMouseDragged].contains(current.type) ? current.eventNumber : nil
+        }
         if dragEvent != event || dragSelection != model.selectedIDs || dragWriters[id] == nil {
             dragEvent = event; dragWriters = Dictionary(uniqueKeysWithValues: model.dragItems(id).map { ($0.id, $0.writer) })
             dragSelection = model.selectedIDs

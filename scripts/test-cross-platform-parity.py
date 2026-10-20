@@ -149,6 +149,14 @@ class CrossPlatformParityTests(unittest.TestCase):
         self.contract['scenarios'][0]['steps'][0]['action'] = 'pretend-open'
         self.contract_path.write_text(json.dumps(self.contract)); self.rejected()
 
+    def test_malformed_shortcut_steps_cannot_skip_or_change_executed_input(self):
+        original = copy.deepcopy(self.contract)
+        for step in [{'action':'remap','binding':'down'}, {'action':'remap','binding':'up','key':'KeyX'},
+                     {'action':'remap','binding':'down','key':[]}, {'action':'key','code':'KeyY'}]:
+            self.contract = copy.deepcopy(original)
+            self.contract['scenarios'][0]['steps'][0].update(step)
+            self.contract_path.write_text(json.dumps(self.contract)); self.rejected()
+
     def test_malformed_contract_collections_fail_closed(self):
         for key, value in [('itemSet', {}), ('pinnedOnlyKinds', [{}])]:
             contract = copy.deepcopy(self.contract); contract['scenarios'][0][key] = value

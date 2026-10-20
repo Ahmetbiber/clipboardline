@@ -11,7 +11,7 @@ permissions:
 jobs:
   windows:
     runs-on: windows-2025
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: windows
@@ -27,9 +27,15 @@ jobs:
           cache-dependency-path: windows/package-lock.json
       - name: Install pinned dependencies
         run: npm ci --no-fund
+      - name: Prepare pinned offline image search models
+        run: |
+          python ../scripts/test-windows-search-models.py
+          python ../scripts/prepare-windows-search-models.py
+          python ../scripts/prepare-windows-search-models.py --check
       - name: Shared version and parity guard tests
         run: |
           python ../scripts/check-release-version.py --require-windows
+          python ../scripts/sync-windows-locales.py --check
           python ../scripts/test-cross-platform-parity.py
       - name: Audit dependencies and run model/security tests
         run: |

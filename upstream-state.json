@@ -2,8 +2,8 @@
   "upstreamRepository": "https://github.com/alejandrobujan/tendedero",
   "upstreamTag": "v1.5.0",
   "upstreamCommit": "cf87e6ebc275d4f2cc42900e55f88a52d3ce9e46",
-  "forkVersion": "1.7.2",
-  "buildNumber": "69",
+  "forkVersion": "1.7.3",
+  "buildNumber": 70,
   "adaptedContributions": [
     {
       "pullRequest": 58,

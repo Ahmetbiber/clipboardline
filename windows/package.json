@@ -1,6 +1,6 @@
 {
   "name": "clipboardline-desktop",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "Keyboard-first local clipboard shelves and saved library for Windows",
   "author": "ClipBoardLine contributors",
   "license": "MIT",
@@ -15,6 +15,7 @@
   "dependencies": {
     "@tesseract.js-data/eng": "1.0.0",
     "@tesseract.js-data/tur": "1.0.0",
+    "onnxruntime-web": "1.30.0",
     "tesseract.js": "7.0.0"
   },
   "devDependencies": {
@@ -38,10 +39,13 @@
       "lib/**/*.cjs",
       "native/*.ps1",
       "index.html",
+      "locales.js",
       "renderer.js",
       "styles.css",
       "assets/**/*",
-      "package.json"
+      "search-model-config.json",
+      "package.json",
+      "!assets/CLIP/**"
     ],
     "extraResources": [
       {
@@ -73,6 +77,13 @@
       {
         "from": "assets/licenses",
         "to": "licenses"
+      },
+      {
+        "from": "assets/CLIP",
+        "to": "CLIP",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
@@ -92,7 +103,12 @@
       "allowElevation": false,
       "deleteAppDataOnUninstall": false,
       "runAfterFinish": false
-    }
+    },
+    "asarUnpack": [
+      "lib/*.cjs",
+      "node_modules/onnxruntime-web/**",
+      "node_modules/onnxruntime-common/**"
+    ]
   },
-  "clipboardLineBuild": 65
+  "clipboardLineBuild": 66
 }

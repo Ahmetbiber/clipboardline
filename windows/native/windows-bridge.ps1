@@ -1,10 +1,15 @@
-param([ValidateSet('Capture','Restore','PreparePaste','Paste','Monitor','CopyImages')][string]$Mode)
+param([ValidateSet('Capture','Restore','PreparePaste','ValidatePaste','Paste','Monitor','CopyImages')][string]$Mode)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-Add-Type -ReferencedAssemblies ([System.Windows.Automation.ClientSettings].Assembly.Location) -TypeDefinition @'
+$automationReferences = @(
+  [System.Windows.Automation.ClientSettings].Assembly.Location
+  [System.Windows.Automation.AutomationIdentifier].Assembly.Location
+) | Select-Object -Unique
+Add-Type -ReferencedAssemblies $automationReferences -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
+using System.Windows.Automation;
 public static class ClipBoardLineNative {
   private static bool automationInitialized;
   [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
@@ -14,6 +19,42 @@ public static class ClipBoardLineNative {
     System.Windows.Automation.ClientSettings.RegisterClientSideProviderAssembly(providers.GetName());
     automationInitialized=true;
   }
+  private static readonly object outputLock = new object();
+  private static string lastFocus;
+  private static AutomationFocusChangedEventHandler focusHandler;
+  public static string FocusSnapshot() { return DescribeFocus(AutomationElement.FocusedElement,false); }
+  private static string DescribeFocus(AutomationElement element,bool fromEvent) {
+    var window=GetForegroundWindow(); uint owner=0; GetWindowThreadProcessId(window,out owner);
+    bool editable=false,secure=false; string runtime="";
+    if(element!=null) {
+      var current=element.Current; secure=current.IsPassword;
+      runtime=String.Join(".",element.GetRuntimeId());
+      object pattern;
+      if(current.IsEnabled&&!secure&&current.ProcessId==owner&&runtime.Length>0) {
+        if(element.TryGetCurrentPattern(ValuePattern.Pattern,out pattern)) editable=!((ValuePattern)pattern).Current.IsReadOnly;
+        else if(element.TryGetCurrentPattern(TextPattern.Pattern,out pattern)) {
+          var readOnly=((TextPattern)pattern).DocumentRange.GetAttributeValue(TextPattern.IsReadOnlyAttribute);
+          if(readOnly is bool) editable=!(bool)readOnly;
+        }
+      }
+      // A focus callback may arrive after the foreground has already changed.
+      // Never mistake a background provider's event for a fresh destination.
+      if(fromEvent&&current.ProcessId!=owner)return null;
+    }
+    return "{\"handle\":\""+window.ToInt64()+"\",\"processId\":"+owner+",\"runtime\":\""+runtime+"\",\"editable\":"+(editable?"true":"false")+",\"secure\":"+(secure?"true":"false")+"}";
+  }
+  private static void EmitFocus(string snapshot) {
+    if(snapshot==null)return;
+    lock(outputLock) { if(lastFocus==snapshot)return;lastFocus=snapshot;Console.Out.WriteLine("{\"focus\":"+snapshot+"}");Console.Out.Flush(); }
+  }
+  public static void ObserveFocus() {
+    focusHandler=delegate(object sender,AutomationFocusChangedEventArgs args) {
+      try { EmitFocus(DescribeFocus(sender as AutomationElement,true)); } catch(Exception) {}
+    };
+    Automation.AddAutomationFocusChangedEventHandler(focusHandler);
+  }
+  public static void EmitCurrentFocus() { try { EmitFocus(FocusSnapshot()); } catch(Exception) {} }
+  public static void EmitSequence(uint sequence) { lock(outputLock) { Console.Out.WriteLine("{\"sequence\":"+sequence+"}");Console.Out.Flush(); } }
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
@@ -26,7 +67,9 @@ public static class ClipBoardLineNative {
   [StructLayout(LayoutKind.Explicit)] public struct InputUnion { [FieldOffset(0)] public KEYBDINPUT keyboard; [FieldOffset(0)] public MOUSEINPUT mouse; }
   [StructLayout(LayoutKind.Sequential)] public struct KEYBDINPUT { public ushort key; public ushort scan; public uint flags; public uint time; public UIntPtr extra; }
   [StructLayout(LayoutKind.Sequential)] public struct MOUSEINPUT { public int dx,dy; public uint data,flags,time; public UIntPtr extra; }
-  public static bool Paste() {
+  public static bool Paste(IntPtr expectedWindow,uint expectedOwner) {
+    uint owner=0;var foreground=GetForegroundWindow();GetWindowThreadProcessId(foreground,out owner);
+    if(foreground!=expectedWindow||owner!=expectedOwner)return false;
     INPUT[] events = new INPUT[4];
     events[0].type = 1; events[0].union.keyboard.key = 0x11;
     events[1].type = 1; events[1].union.keyboard.key = 0x56;
@@ -37,32 +80,13 @@ public static class ClipBoardLineNative {
 }
 '@
 function FocusInfo {
-  $window = [ClipBoardLineNative]::GetForegroundWindow()
-  [uint32]$owner = 0
-  [void][ClipBoardLineNative]::GetWindowThreadProcessId($window, [ref]$owner)
-  $element = [System.Windows.Automation.AutomationElement]::FocusedElement
-  $editable = $false; $secure = $false; $runtime = ''
-  if ($null -ne $element) {
-    $current = $element.Current
-    $secure = $current.IsPassword
-    $runtime = [string]::Join('.', $element.GetRuntimeId())
-    $value = $null
-    if ($current.IsEnabled -and -not $secure -and $current.ProcessId -eq $owner -and $runtime) {
-      if ($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$value)) { $editable = -not $value.Current.IsReadOnly }
-      else {
-        $textPattern = $null
-        if ($element.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$textPattern)) {
-          $readOnly = $textPattern.DocumentRange.GetAttributeValue([System.Windows.Automation.TextPattern]::IsReadOnlyAttribute)
-          if ($readOnly -is [bool]) { $editable = -not $readOnly }
-        }
-      }
-    }
-  }
-  return @{handle=$window.ToInt64().ToString();processId=$owner;runtime=$runtime;editable=$editable;secure=$secure}
+  $snapshot=[ClipBoardLineNative]::FocusSnapshot()
+  if (-not $snapshot) { throw 'The focused element changed while it was being inspected.' }
+  return $snapshot | ConvertFrom-Json
 }
 function HeldShortcutKeys { @(0x11,0x12,0x10,0x0D,0x5B,0x5C) | Where-Object { [ClipBoardLineNative]::GetAsyncKeyState($_) -lt 0 } }
 try {
-  if ($Mode -notin @('CopyImages','Monitor')) {
+  if ($Mode -ne 'CopyImages') {
     # PowerShell's dynamic caller can prevent UIA's one-time default proxy load.
     # Register Microsoft's strongly named Win32 providers before reading UIA.
     # https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/register-a-client-side-provider-assembly
@@ -79,19 +103,25 @@ try {
     $data = New-Object System.Windows.Forms.DataObject
     $data.SetData([System.Windows.Forms.DataFormats]::FileDrop, [string[]]$payload.files)
     $bitmap = [System.Drawing.Image]::FromFile($payload.files[0])
+    $pngStream = [System.IO.MemoryStream]::new([System.IO.File]::ReadAllBytes($payload.files[0]))
     try {
       $data.SetImage($bitmap)
+      # Preserve the exact full-resolution PNG (including alpha) for editors
+      # that prefer PNG over the first-image Windows bitmap fallback.
+      $data.SetData('PNG',$pngStream)
       if ($payload.text) { $data.SetText([string]$payload.text) }
       $markerStream = [System.IO.MemoryStream]::new([Convert]::FromBase64String($payload.marker))
       $data.SetData('ClipBoardLine.Internal.v1', $markerStream)
       [System.Windows.Forms.Clipboard]::SetDataObject($data,$true,5,100)
-    } finally { $bitmap.Dispose() }
+    } finally { $bitmap.Dispose();$pngStream.Dispose();if($markerStream){$markerStream.Dispose()} }
     @{ok=$true} | ConvertTo-Json -Compress
   } elseif ($Mode -eq 'Monitor') {
+    [ClipBoardLineNative]::ObserveFocus()
     $last = [uint32]0
     while ($true) {
       $sequence = [ClipBoardLineNative]::GetClipboardSequenceNumber()
-      if ($sequence -ne $last) { @{sequence=$sequence} | ConvertTo-Json -Compress; $last=$sequence }
+      if ($sequence -ne $last) { [ClipBoardLineNative]::EmitSequence($sequence); $last=$sequence }
+      [ClipBoardLineNative]::EmitCurrentFocus()
       Start-Sleep -Milliseconds 250
     }
   } elseif ($Mode -eq 'Capture') {
@@ -128,7 +158,15 @@ try {
       if ($held.Count -gt 0 -or $null -eq $releasedSince -or ([DateTime]::UtcNow-$releasedSince).TotalMilliseconds -lt 150) { throw 'Release the shortcut keys, then try paste again.' }
       $phase.released=[DateTime]::UtcNow.ToString('o')
     }
-    if ($Mode -eq 'Paste' -and $expected.prepared) {
+    # A long key-release interval can outlive a closed/reused HWND or a
+    # different foreground application. Check both again before activation.
+    [uint32]$readyOwner=0
+    [void][ClipBoardLineNative]::GetWindowThreadProcessId($window,[ref]$readyOwner)
+    if (-not [ClipBoardLineNative]::IsWindow($window) -or $readyOwner -ne $expected.processId) { throw 'The previous application has closed.' }
+    [uint32]$readyForeground=0
+    [void][ClipBoardLineNative]::GetWindowThreadProcessId([ClipBoardLineNative]::GetForegroundWindow(),[ref]$readyForeground)
+    if ($readyForeground -ne $expected.processId -and $readyForeground -ne $expected.sourceProcessId) { throw 'Another application became active. No focus was changed.' }
+    if ($Mode -in @('Paste','ValidatePaste') -and $expected.prepared) {
       if ([ClipBoardLineNative]::GetForegroundWindow() -ne $window) { throw 'Focus changed before paste. No keys were sent.' }
     } else {
       [void][ClipBoardLineNative]::ShowWindow($window,9)
@@ -148,18 +186,20 @@ try {
       } elseif ($Mode -eq 'Restore') { if ($held.Count -eq 0) { break } }
       else {
         $actual = FocusInfo
-        if ($actual.secure -or ($actual.editable -and $actual.runtime -ne $expected.runtime)) { throw 'Focus changed. Select an editable field and reopen the shelves.' }
+        if ($actual.processId -ne $expected.processId -or $actual.handle -ne $expected.handle -or $actual.secure -or ($actual.editable -and $actual.runtime -ne $expected.runtime)) { throw 'Focus changed. Select an editable field and reopen the shelves.' }
         if ($held.Count -eq 0 -and $expected.editable -and -not $expected.secure -and $actual.editable -and $actual.runtime -eq $expected.runtime) { $stable++ } else { $stable=0 }
       }
     } while ($stable -lt 2 -and [DateTime]::UtcNow -lt $deadline)
     if ([ClipBoardLineNative]::GetForegroundWindow() -ne $window -or $held.Count -gt 0) { throw 'Windows did not restore the intended field after the shortcut was released.' }
     if ($Mode -ne 'Restore' -and $stable -lt 2) { throw 'Focus changed. Select an editable field and reopen the shelves.' }
     $phase.targetStable=[DateTime]::UtcNow.ToString('o')
-    if ($Mode -eq 'Paste') {
+    if ($Mode -in @('Paste','ValidatePaste')) {
       $final=FocusInfo
-      if (-not $final.editable -or $final.secure -or $final.processId -ne $expected.processId -or $final.runtime -ne $expected.runtime) { throw 'Focus changed immediately before paste. No keys were sent.' }
-      if (-not [ClipBoardLineNative]::Paste()) { throw 'Windows blocked keyboard input. Elevated applications may require manual paste.' }
-      $phase.inputSent=[DateTime]::UtcNow.ToString('o')
+      if (-not $final.editable -or $final.secure -or $final.processId -ne $expected.processId -or $final.handle -ne $expected.handle -or $final.runtime -ne $expected.runtime) { throw 'Focus changed immediately before paste. No keys were sent.' }
+      if ($Mode -eq 'Paste') {
+        if (-not [ClipBoardLineNative]::Paste($window,[uint32]$expected.processId)) { throw 'Windows blocked keyboard input or focus changed. Elevated applications may require manual paste.' }
+        $phase.inputSent=[DateTime]::UtcNow.ToString('o')
+      }
     }
     @{ok=$true;mode=$Mode;phase=$phase} | ConvertTo-Json -Compress
   }

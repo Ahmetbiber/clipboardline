@@ -13,7 +13,7 @@ const output=path.resolve(process.env.CLIPBOARDLINE_VALIDATION||'validation/upgr
 const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-upgrade-'));
 const installer=path.resolve('dist',`ClipBoardLine-Setup-${pkg.version}-x64.exe`),candidate=path.resolve('dist/win-unpacked/ClipBoardLine.exe');
 const installedDirectory=path.join(temporary,'installed'),installed=path.join(installedDirectory,'ClipBoardLine.exe');
-const upgradeProfiles={63:{version:'1.7.0',build:62,sha256:'0f6f1aa59a406b5d7d2e2a64eb1dc1797fde4fc205e8781eb381645137923541'},64:{version:'1.7.1',build:63,sha256:'f8e45afd1ce3ae4d5bbe1c6f355697cbe9f258e5297685a49d94cd05644631b1'},65:{version:'1.7.2',build:64,sha256:'6bd6d9cb53efbb343e35e59206ee220166fc0c8838811cd03c241a340c3e583b'}};
+const upgradeProfiles={63:{version:'1.7.0',build:62,sha256:'0f6f1aa59a406b5d7d2e2a64eb1dc1797fde4fc205e8781eb381645137923541'},64:{version:'1.7.1',build:63,sha256:'f8e45afd1ce3ae4d5bbe1c6f355697cbe9f258e5297685a49d94cd05644631b1'},65:{version:'1.7.2',build:64,sha256:'6bd6d9cb53efbb343e35e59206ee220166fc0c8838811cd03c241a340c3e583b'},66:{version:'1.7.2',build:65,sha256:'62cebf204958ca8729c8fd569d7c5a6f83c73aeced6d1f63760500a6b2cf5a8f'}};
 const previousProfile=upgradeProfiles[pkg.clipboardLineBuild];
 assert.ok(previousProfile,'The candidate needs a reviewed, pinned previous-installation profile.');
 const previousVersion=previousProfile.version,previousBuild=previousProfile.build;

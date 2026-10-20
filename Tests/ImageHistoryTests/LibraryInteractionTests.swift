@@ -324,6 +324,7 @@ import XCTest
         let link = try store.captureLink(URL(string: "https://example.com/reference")!); try store.update(link.id) { $0.title = "A saved web reference with a long title İstanbul 中文" }; try store.toggleFavorite([link.id])
         for tag in ["research", "İstanbul 中文", "ideas"] { try store.addTag(tag, to: [link.id]) }
         let controller = LibraryWindowController(store: store, line: line, copyPasteboard: NSPasteboard(name: NSPasteboard.Name("offscreen-library-test-\(UUID())")))
+        defer { controller.window?.contentView = nil; controller.close(); controller.model.copyPasteboard.releaseGlobally() }
         let previousAppearance = NSApp.appearance
         defer { NSApp.appearance = previousAppearance }
         guard let host = controller.window?.contentView else { throw HistoryFiles.Failure.unsafeFile }
@@ -352,15 +353,17 @@ import XCTest
         controller.model.listMode = true; try capture("list")
         controller.window?.setContentSize(NSSize(width: 870, height: 560)); try capture("small")
         controller.model.listMode = false
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         // Search now belongs to the native window toolbar, outside contentView.
         let field = try XCTUnwrap(controller.toolbarController?.searchField)
         func collectionView(_ view: NSView) -> NSCollectionView? {
             if let collection = view as? NSCollectionView { return collection }
             return view.subviews.lazy.compactMap { collectionView($0) }.first
         }
+        wait {
+            host.needsLayout = true; host.layoutSubtreeIfNeeded()
+            return collectionView(host)?.numberOfItems(inSection: 0) == 21
+        }
         let collection = try XCTUnwrap(collectionView(host))
-        wait { collection.numberOfItems(inSection: 0) == 21 }
         let unfilteredHeight = collection.frame.height
         controller.model.search = "Synthetic idea"
         wait { controller.model.ids.count == 8 && field.stringValue == "Synthetic idea" }
@@ -370,6 +373,5 @@ import XCTest
         controller.model.clearFilters()
         wait { controller.model.ids.count == 21 && field.stringValue.isEmpty }
         wait { if let current = collectionView(host) { return current.numberOfItems(inSection: 0) == 21 && current.frame.height > filteredHeight }; return false }
-        controller.window?.contentView = nil; controller.close(); controller.model.copyPasteboard.releaseGlobally()
     }
 }

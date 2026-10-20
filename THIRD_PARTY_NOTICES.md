@@ -26,6 +26,22 @@ The optional offline model assets are pinned to Apple Core ML model revision `3e
 
 When models are included, the builder preserves `LICENSE-MobileCLIP-S2`, `LICENSE-Apple-code`, `ACKNOWLEDGEMENTS-MobileCLIP` and `model-source.json` in `Contents/Resources/CLIP/`. Keep these files with any redistributed model bundle. Source builds without these models continue to offer the local OCR path.
 
+## Windows offline semantic models and ONNX Runtime
+
+Windows bundles the same original MobileCLIP-S2 model family as separately
+pinned FP32 ONNX graphs, exported from Apple's original checkpoint and clean
+source. The exact export, checkpoint/tokenizer hashes, numerical verification
+and provenance are described in [Windows model preparation](docs/windows-search-models.md).
+The archive includes the complete Apple model license, code license,
+acknowledgements and `model-source.json`; installed resources preserve them in
+`resources/CLIP/`. They retain Apple's separate terms and are not relicensed
+under this project's MIT source license.
+
+ONNX Runtime Web/Common 1.30.0 supplies the local WASM CPU engine. Preserve the
+[complete Microsoft MIT license](windows/assets/licenses/LICENSE-ONNXRuntime.txt)
+and [complete upstream third-party notices](windows/assets/licenses/THIRD_PARTY_NOTICES-ONNXRuntime.txt)
+with the installed application, alongside the Windows dependency notices.
+
 ## Platform components
 
 macOS uses operating-system frameworks including AppKit, SwiftUI, Vision, Core ML and SQLite's system interface. They are not copied into this source repository. Windows dependencies and their bundled notices are described in the Windows package documentation and dependency lockfile; audit them independently when adding or changing a package.

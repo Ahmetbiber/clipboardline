@@ -23,3 +23,6 @@ playwright-report/
 
 # Generated acceptance evidence is local, never public source.
 validation/
+
+# Pinned, reproducible offline search assets are prepared at build time.
+windows/assets/CLIP/

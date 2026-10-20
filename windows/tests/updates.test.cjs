@@ -14,3 +14,20 @@ test('failed installer launch stays retryable with verified download and never r
 test('bad bytes never reach installer launcher and incomplete cache writes do not leave temporary files',async t=>{const s=setup(t);await s.updates.check();s.updates.fetcher=async()=>({bytes:Buffer.alloc(s.f.bytes.length)});let launched=false;await assert.rejects(s.updates.install(async()=>{launched=true;}),/integrity/);assert.equal(launched,false);assert.equal(s.updates.state.canInstall,true);assert.ok(!fs.readdirSync(s.directory).some(name=>name.includes('.tmp-')));});
 test('a cache envelope without the pinned signature cannot create an update offer',async t=>{const s=setup(t);await s.updates.check();const cache=path.join(s.directory,'update-state.json'),data=JSON.parse(fs.readFileSync(cache));const raw=JSON.parse(Buffer.from(data.envelope,'base64'));raw.payload=Buffer.from(JSON.stringify({...s.f.manifest,build:999})).toString('base64');data.envelope=Buffer.from(JSON.stringify(raw)).toString('base64');fs.writeFileSync(cache,JSON.stringify(data));const restored=new Updates(s.directory,s.options);assert.equal(restored.state.status,'idle');assert.equal(restored.manifest,null);});
 test('turning automatic checks off preserves manual checking and never invokes downloads',async t=>{const s=setup(t),schedule=new AutomaticUpdateScheduler(s.updates,{enabled:()=>false});await schedule.tick({force:true});assert.equal(s.calls.length,0);await s.updates.check();assert.equal(s.updates.state.status,'available');assert.deepEqual(s.calls,[FEED]);});
+
+test('large authenticated offline-model installer requests a bounded long timeout but rejects incomplete data',async t=>{
+  const s=setup(t);s.f.manifest.size=550*1024*1024;let received;
+  s.updates.fetcher=async(url,options)=>{
+    if(url===FEED){assert.equal(options.maximum,200000);assert.equal(options.timeout,undefined);return{bytes:s.f.envelope(s.f.manifest)};}
+    received=options;return{bytes:s.f.bytes};
+  };
+  await s.updates.check();assert.equal(s.updates.state.status,'available');let launched=false;
+  await assert.rejects(s.updates.install(async()=>{launched=true;}),/integrity/);
+  assert.equal(received.maximum,s.f.manifest.size);assert.equal(received.timeout,300000);assert.equal(launched,false);
+  assert.equal(s.updates.installer,null);assert.equal(s.updates.state.canInstall,true);assert.ok(!fs.readdirSync(s.directory).some(file=>file.endsWith('.exe')||file.includes('.tmp-')));
+});
+test('installer timeout remains retryable without bypassing signature or integrity checks',async t=>{
+  const s=setup(t);await s.updates.check();s.updates.fetcher=async(_url,options)=>{assert.equal(options.maximum,s.f.manifest.size);assert.equal(options.timeout,300000);throw new Error('Network request timed out');};
+  await assert.rejects(s.updates.download(),/timed out/);assert.equal(s.updates.state.status,'available');assert.equal(s.updates.installer,null);
+  s.updates.fetcher=async()=>({bytes:s.f.bytes});const file=await s.updates.download();assert.deepEqual(fs.readFileSync(file),s.f.bytes);assert.equal(s.updates.state.status,'ready');
+});

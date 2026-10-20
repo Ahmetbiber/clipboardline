@@ -35,7 +35,7 @@ function fixture({deferInitialState=false,initialVisible=true}={}){
  const api={emit(patch){Object.assign(state,patch);subscriber?.(clone(state));},state:async()=>{const initial=clone(state);if(deferInitialState)await new Promise(resolve=>{releaseInitialState=resolve;});return initial;},subscribe(fn){subscriber=fn;return()=>{};},async command(action,payload={}){commands.push({action,payload:clone(payload)});const selected=state.items.filter(item=>(payload.ids||[payload.id]).includes(item.id));
   let cleanupError;if(action==='cleanup'){if(cleanupFailures){cleanupFailures--;cleanupError='Permanent deletion cleanup is still pending.';}else state.needsDeletionCleanup=false;}
   if(action==='editText'){if(editFailures){editFailures--;cleanupError='Synthetic draft write failure';}else selected.forEach(item=>item.text=payload.text);}
-  if(action==='setSettings'){const patch=payload.patch||{};state.settings={...state.settings,...patch,localShortcuts:{...state.settings.localShortcuts,...patch.localShortcuts}};}
+  if(action==='setSettings'){const patch=payload.patch||{},localShortcuts={...state.settings.localShortcuts,...patch.localShortcuts};for(const [action,value]of Object.entries(localShortcuts))if(value===null)delete localShortcuts[action];state.settings={...state.settings,...patch,localShortcuts};}
   if(action==='saveImage')selected.forEach(item=>{item.crop=clone(payload.crop);item.annotations=clone(payload.annotations);});
   if(action==='pin')selected.forEach(item=>item.pinned=typeof payload.value==='boolean'?payload.value:!item.pinned);
   if(action==='name')selected.forEach(item=>{item.name=payload.name;item.pinned=true;});
@@ -276,6 +276,8 @@ test('shared macOS/Windows shelf contract runs through actual renderer handlers'
    const searchEditing=/class="search-hud"/.test(f.main);
    if(step.action==='open')await f.api.command('show');
    else if(step.action==='close')await f.api.command('hide');
+   else if(step.action==='remap'){const localShortcuts={...f.state.settings.localShortcuts};if(step.key===null)delete localShortcuts[step.binding];else localShortcuts[step.binding]=step.key==='KeyX'?'X':step.key;f.api.emit({settings:{...f.state.settings,localShortcuts}});}
+   else if(step.action==='key')await f.key(step.code,searchEditing?{target:editor}:{});
    else if(['up','down','left','right'].includes(step.action))await f.key({up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight'}[step.action],searchEditing?{target:editor}:{});
    else if(step.action==='toggle')await f.key({image:'KeyI',text:'KeyT',link:'KeyL'}[step.kind],{shift:true});
    else if(step.action==='openSearch')await f.key('KeyS',{shift:true});
@@ -344,4 +346,99 @@ test('late initial hidden state cannot replace a newer visible global search',as
  assert.match(f.main,/id="search-input"/);assert.deepEqual(selectedCards(f),[f.image]);
  f.releaseInitialState();await f.ready();
  assert.match(f.main,/id="search-input"/);assert.deepEqual(selectedCards(f),[f.image]);
+});
+
+
+test('custom shortcut overrides win over newly introduced defaults and hints show only the winning binding',async()=>{
+ const f=fixture();await f.ready();await f.key('ArrowDown');await f.key('ArrowRight');
+ f.api.emit({settings:{...f.state.settings,localShortcuts:{previous:'P'}}});await f.ready();
+ await f.key('KeyP');assert.equal(focusedCard(f),f.text1);assert.equal(f.state.items.find(value=>value.id===f.text1).pinned,false);
+ await f.key('KeyK',{ctrl:true});
+ assert.match(f.overlay,/data-command="previous"[\s\S]*?<kbd>P<\/kbd>/);
+ const pinRow=f.overlay.match(/<button[^>]*data-command="pin"[\s\S]*?<\/button>/)?.[0];assert.ok(pinRow);assert.doesNotMatch(pinRow,/<kbd>P(?: |<)/);assert.match(pinRow,/<kbd>Ctrl\+P<\/kbd>/);
+ await f.key('Escape');await f.key('KeyP',{ctrl:true});assert.equal(f.state.items.find(value=>value.id===f.text1).pinned,true);
+});
+
+test('disabling or remapping copy, aliases, quick slots and range extension does not leave hardcoded keys active',async()=>{
+ const f=fixture();await f.ready();await f.key('ArrowDown');
+ f.api.emit({settings:{...f.state.settings,localShortcuts:{copy:'',pin:'',select2:'Q',extendNext:'Shift+J'}}});await f.ready();
+ const before=f.commands.length;
+ for(const [code,modifiers]of [['Enter',{}],['KeyC',{ctrl:true}],['KeyP',{}],['KeyP',{ctrl:true}]])await f.key(code,modifiers);
+ assert.equal(f.commands.length,before);assert.equal(f.state.windowVisible,true);
+ await f.key('KeyQ');assert.equal(focusedCard(f),f.text2);
+ await f.key('ArrowLeft');await f.key('ArrowRight',{shift:true});assert.deepEqual(selectedCards(f),[f.text1],'Old Shift+Right binding is disabled after remapping');
+ await f.key('KeyJ',{shift:true});assert.deepEqual(selectedCards(f),[f.text1,f.text2]);
+ await f.key('ArrowLeft');await f.key('Digit2');assert.equal(focusedCard(f),f.text1,'Old number binding is disabled after remapping');
+});
+
+test('Library Backspace remains Trash when shelf undo has a custom binding',async()=>{
+ const f=fixture();await f.ready();await f.key('KeyP');await f.key('KeyL');
+ f.api.emit({settings:{...f.state.settings,localShortcuts:{undo:'U'}}});await f.ready();
+ await f.key('Backspace');assert.match(f.overlay,/Move to Trash/);assert.equal(f.commands.filter(value=>value.action==='undo').length,0);
+});
+
+test('shortcut recorder rejects overlapping conflicts but allows a key owned by markup in a different context',async()=>{
+ const f=fixture();await f.ready();await f.api.command('settings');await f.ready();await f.click('record-local',{keyAction:'pin'});
+ await f.key('KeyS');await f.click('confirm-modal');assert.match(f.overlay,/Record shortcut/);assert.match(f.nodes.get('toast').textContent,/already used for Take down/);
+ assert.equal(f.state.settings.localShortcuts.pin,undefined);
+ await f.key('KeyO');await f.click('confirm-modal');assert.equal(f.overlay,'');assert.equal(f.state.settings.localShortcuts.pin,'O');
+ await f.api.command('show');await f.ready();await f.key('KeyO');assert.equal(f.state.items.find(value=>value.id===f.image).pinned,true);
+ await f.key('Space');await f.key('KeyM');await f.key('KeyO');assert.match(f.overlay,/data-tool="ellipse" aria-pressed="true"/);
+ await f.click('save-image');await f.api.command('settings');await f.click('reset-local-shortcuts');assert.deepEqual(f.state.settings.localShortcuts,{});
+ await f.api.command('show');await f.key('KeyP',{ctrl:true});assert.equal(f.state.items.find(value=>value.id===f.image).pinned,false,'Reset restores the Ctrl+P alias');
+});
+
+test('remapped Actions works in native search but disabled Actions leaves editor typing alone',async()=>{
+ const f=fixture();await f.ready();f.api.emit({settings:{...f.state.settings,localShortcuts:{actions:'Ctrl+J'}}});await f.ready();
+ await f.key('KeyS',{shift:true});const editor=f.nodes.get('search-input');editor.matches=selector=>selector.includes('input');
+ assert.equal((await f.key('KeyK',{ctrl:true,target:editor})).prevented,undefined);assert.equal(f.overlay,'');
+ await f.key('KeyJ',{ctrl:true,target:editor});assert.match(f.overlay,/Search actions/);
+ await f.key('Escape');f.api.emit({settings:{...f.state.settings,localShortcuts:{actions:''}}});await f.ready();
+ assert.equal((await f.key('KeyK',{ctrl:true,target:editor})).prevented,undefined);assert.equal(f.overlay,'');
+});
+
+test('CtrlEnter finishes text and image editing without accidentally pasting; native field CtrlC is not intercepted',async()=>{
+ const f=fixture();await f.ready();await f.key('ArrowDown');await f.key('Space');await f.key('KeyE');
+ await f.input('text-editor','A retained edit');const editor=f.nodes.get('text-editor');editor.matches=selector=>selector.includes('textarea');
+ assert.equal((await f.key('KeyC',{ctrl:true,target:editor})).prevented,undefined);
+ await f.key('Enter',{ctrl:true,target:editor});assert.doesNotMatch(f.overlay,/id="text-editor"/);assert.equal(f.state.items.find(value=>value.id===f.text1).text,'A retained edit');
+ assert.equal(f.commands.filter(value=>value.action==='paste').length,0);await f.key('ArrowUp');await f.key('KeyM');
+ await f.key('Enter',{ctrl:true});assert.doesNotMatch(f.overlay,/id="markup-canvas"/);assert.match(f.overlay,/id="preview-dialog"/);assert.equal(f.commands.filter(value=>value.action==='paste').length,0);
+ await f.key('Enter',{ctrl:true});assert.equal(f.commands.at(-1).action,'paste');assert.deepEqual(f.commands.at(-1).payload.ids,[f.image]);
+});
+
+test('text Finish editing can be remapped separately from paste and never consumes ordinary typing',async()=>{
+ const f=fixture();await f.ready();await f.key('ArrowDown');await f.key('Space');await f.key('KeyE');
+ f.api.emit({settings:{...f.state.settings,localShortcuts:{finishEditing:'Ctrl+D'}}});await f.ready();
+ await f.input('text-editor','Remapped edit');const editor=f.nodes.get('text-editor');editor.matches=selector=>selector.includes('textarea');
+ await f.key('Enter',{ctrl:true,target:editor});assert.match(f.overlay,/id="text-editor"/);assert.equal(f.commands.filter(value=>value.action==='paste').length,0);
+ await f.key('KeyD',{ctrl:true,target:editor});assert.doesNotMatch(f.overlay,/id="text-editor"/);assert.equal(f.state.items.find(value=>value.id===f.text1).text,'Remapped edit');
+});
+
+test('action bar snapshots the focused member of a batch for Preview and keeps ordered IDs for batch naming',async()=>{
+ const f=fixture();await f.ready();await f.key('ArrowDown');await f.key('ArrowRight',{shift:true});
+ assert.equal(focusedCard(f),f.text2);assert.deepEqual(selectedCards(f),[f.text1,f.text2]);
+ await f.key('KeyK',{ctrl:true});await f.input('modal-query','Preview');await f.key('Enter');assert.match(f.overlay,/aria-label="Text two"/);
+ await f.key('Escape');await f.key('KeyK',{ctrl:true});await f.input('modal-query','Name and pin');await f.key('Enter');assert.match(f.overlay,/1 \/ 2/);await f.input('name-input','First batched note');await f.key('Enter');
+ assert.equal(f.state.items.find(value=>value.id===f.text1).name,'First batched note');assert.match(f.overlay,/2 \/ 2/);
+});
+
+test('action bar exposes real navigation, image tools, Library views and Settings destinations without synthetic key presses',async()=>{
+ const f=fixture();await f.ready();await f.key('KeyK',{ctrl:true});await f.input('modal-query','Marker');await f.key('Enter');assert.match(f.overlay,/id="markup-canvas"/);assert.match(f.overlay,/data-tool="marker" aria-pressed="true"/);
+ await f.key('Enter',{ctrl:true});await f.key('KeyK',{ctrl:true});await f.input('modal-query','Next item');assert.match(f.overlay,/data-command="next"/);await f.key('Escape');await f.key('Escape');
+ await f.key('KeyP');await f.key('KeyL');await f.key('KeyK',{ctrl:true});await f.input('modal-query','List view');await f.key('Enter');assert.match(f.main,/library-grid list/);
+ await f.key('KeyK',{ctrl:true});await f.input('modal-query','Settings · History');await f.key('Enter');assert.match(f.main,/data-retention="text"/);assert.match(f.main,/data-retention="link"/);
+});
+
+test('action bar content search follows Library scope and disabled image commands cannot run on text',async()=>{
+ const f=fixture();await f.ready();await f.key('ArrowDown');await f.key('KeyP');await f.key('KeyL');
+ await f.key('KeyK',{ctrl:true});await f.input('modal-query','Search contents');await f.key('Enter');assert.equal(f.state.view,'library');assert.doesNotMatch(f.main,/search-hud/);
+ await f.key('KeyK',{ctrl:true});await f.input('modal-query','Crop image');assert.match(f.overlay,/data-command="crop" disabled/);const before=f.commands.length;await f.key('Enter');assert.equal(f.commands.length,before);assert.doesNotMatch(f.overlay,/markup-canvas/);assert.match(f.overlay,/Search actions/);
+});
+
+test('crop Escape cancels direct crop to browsing while markup crop apply returns to the markup workspace',async()=>{
+ const f=fixture();await f.ready();await f.key('Space');await f.key('KeyC');await f.pointer('pointerdown',60,30);await f.pointer('pointermove',500,150);await f.pointer('pointerup',500,150);
+ await f.key('Escape');assert.doesNotMatch(f.overlay,/markup-canvas/);assert.match(f.overlay,/preview-dialog/);assert.equal(f.commands.filter(value=>value.action==='saveImage').length,0);
+ await f.key('KeyM');await f.key('KeyC');await f.pointer('pointerdown',60,30);await f.pointer('pointermove',500,150);await f.pointer('pointerup',500,150);await f.key('Enter');
+ assert.match(f.overlay,/markup-canvas/);assert.match(f.overlay,/data-tool="select" aria-pressed="true"/);assert.deepEqual(f.state.items.find(value=>value.id===f.image).crop,{x:60,y:30,width:440,height:120});
 });

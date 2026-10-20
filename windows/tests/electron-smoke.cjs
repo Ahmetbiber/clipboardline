@@ -7,6 +7,9 @@ const {_electron:electron}=require('playwright');
 const {windowsEnvironment}=require('../lib/windows-environment.cjs');
 const expectedVersion=require('../package.json').version;
 const keyboardLibrary=require('./keyboard-library-acceptance.cjs');
+const shortcutParity=require('./shortcut-parity-acceptance.cjs');
+const libraryPreview=require('./library-preview-acceptance.cjs');
+const semanticImages=require('./semantic-image-acceptance.cjs');
 const edgeConsumer=require('./consumer-edge-acceptance.cjs');
 const notepadConsumer=require('./notepad-acceptance.cjs');
 if(process.platform!=='win32')throw new Error('Run native acceptance on the actual Windows runner.');
@@ -124,6 +127,9 @@ async function main(){
   assert.equal(await application.evaluate(()=>global.__clipboardLineTest.getWindow().isFullScreen()),false);await page.screenshot({path:path.join(output,'library.png')});
   await page.evaluate(()=>window.clipboardLine.command('show'));await page.waitForTimeout(250);await page.screenshot({path:path.join(output,'shelves.png')});check('three kinds render in shelves and normal library window');
   await keyboardLibrary({page,application,textItem,folder,check,until,output});
+  await shortcutParity({page,application,check,until,output});
+  await libraryPreview({page,application,check,until,output});
+  await semanticImages({page,application,check,until,output});
   await edgeConsumer({page,application,textItem,imageItem,check,until,report});
   // An actual separate WinForms process owns the destination, so focus/paste
   // cannot pass by sending synthetic keys back to the Electron test window.
@@ -135,6 +141,12 @@ async function main(){
   await until(fixtureState,s=>s.ready);
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const target=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(target?.editable&&!target?.secure,JSON.stringify(target));
+  await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before empty selection'));
+  const emptyPaste=await page.evaluate(()=>window.clipboardLine.command('paste',{ids:[]}));assert.ok(emptyPaste.result?.error);
+  assert.deepEqual(await application.evaluate(()=>({visible:global.__clipboardLineTest.getWindow().isVisible(),focused:global.__clipboardLineTest.getWindow().isFocused()})),{visible:true,focused:true});
+  assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before empty selection');
+  check('empty paste selection leaves clipboard and source focus unchanged');
+
   // Hold a real native restore in flight so reopening races with Enter in a
   // deterministic way. No fake focus result or timeout can satisfy this case.
   await application.evaluate(()=>{const h=global.__clipboardLineTest,original=h.native.restore;let release;const gate=new Promise(resolve=>{release=resolve;});global.__rapidReopen={started:false,settled:false,original,release};h.native.restore=async target=>{global.__rapidReopen.started=true;await gate;return original(target);};});
@@ -155,10 +167,10 @@ async function main(){
     check('rapid Enter close and reopen waits for native restoration and retains focus, selection and arrow navigation');
   }finally{await application.evaluate(()=>{const pending=global.__rapidReopen;if(pending){pending.release();global.__clipboardLineTest.native.restore=pending.original;delete global.__rapidReopen;}});}
   await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');
-  await until(fixtureState,s=>s.text.includes('Windows clipboard text acceptance'));check('CtrlEnter text paste restores prior external editable field');
+  await until(fixtureState,s=>s.text.includes('Windows clipboard text acceptance'));await fixtureCommand({action:'keys',keys:' TEXT_FOCUS_OK'});await until(fixtureState,s=>s.text.endsWith(' TEXT_FOCUS_OK')&&s.focused==='rich'&&s.foreground===s.handle);check('CtrlEnter text paste restores prior external editable field and keeps typing focus');
   await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   await page.locator(`[data-shelf="image"] [data-item-id="${imageItem.id}"]`).click();await page.keyboard.press('Control+Enter');
-  await until(fixtureState,s=>s.hasImage);check('CtrlEnter image paste works in separate native rich-text editor');
+  await until(fixtureState,s=>s.hasImage);await fixtureCommand({action:'keys',keys:' IMAGE_FOCUS_OK'});await until(fixtureState,s=>s.text.endsWith(' IMAGE_FOCUS_OK')&&s.focused==='rich'&&s.foreground===s.handle);check('CtrlEnter image paste works in separate native rich-text editor and keeps typing focus');
   await application.evaluate(()=>global.__clipboardLineTest.enableShortcuts());await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'plain',seed:'Held shortcut fixture selection',selectAll:true});
   await fixtureCommand({action:'keys',keys:'^% '});await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>value.windowVisible===true);
   const hostHandle=await application.evaluate(()=>global.__clipboardLineTest.getWindow().getNativeWindowHandle().readBigUInt64LE().toString());await until(fixtureState,value=>value.foreground===hostHandle);
@@ -183,6 +195,19 @@ async function main(){
   await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});await page.keyboard.press('Control+Enter');
   await until(fixtureState,value=>value.plainText===textItem.text);assert.equal((await page.evaluate(()=>window.clipboardLine.state())).windowVisible,false);
   check('preview CtrlEnter returns to and replaces the exact plain-text selection');
+  // A normal Library can remain visible while another application is used.
+  // Return by native window focus rather than command('library'): that path
+  // must capture the newly visited editor, not the previous Library opening.
+  await fixtureCommand({action:'focus',target:'rich'});await application.evaluate(()=>global.__clipboardLineTest.command('library'));
+  const originalLibraryTarget=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(originalLibraryTarget.editable);
+  await fixtureCommand({action:'focus',target:'plain',seed:'Mouse reentry plain selection',selectAll:true});
+  await until(()=>application.evaluate(()=>global.__clipboardLineTest.getObservedTarget()),value=>value?.editable&&value.runtime!==originalLibraryTarget.runtime&&value.processId===originalLibraryTarget.processId);
+  await application.evaluate(()=>global.__clipboardLineTest.getWindow().focus());
+  const reentry=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.notEqual(reentry.runtime,originalLibraryTarget.runtime);
+  await page.locator(`[data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');
+  await until(fixtureState,value=>value.plainText===textItem.text&&value.focused==='plain'&&value.foreground===value.handle);
+  await fixtureCommand({action:'keys',keys:' REENTRY_FOCUS_OK'});await until(fixtureState,value=>value.plainText.endsWith(' REENTRY_FOCUS_OK'));
+  check('returning to an already visible Library captures the newly visited native editor and retains focus after paste');
   const unchanged=value=>({rich:value.text,plain:value.plainText,readonly:value.readOnlyText,passwordLength:value.passwordLength});
   for(const control of ['readonly','password']){
     await fixtureCommand({action:'focus',target:control});await application.evaluate(()=>global.__clipboardLineTest.command('show'));
@@ -194,12 +219,16 @@ async function main(){
   }
   check('readonly and password destinations reject paste without changing clipboard or field contents');
   await fixtureCommand({action:'focus',target:'rich'});await application.evaluate(()=>global.__clipboardLineTest.command('show'));
-  const staleTarget=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(staleTarget.editable);
-  await fixtureCommand({action:'focus',target:'plain'});await application.evaluate(()=>global.__clipboardLineTest.getWindow().focus());
-  const beforeChanged=unchanged(fixtureState());await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click({modifiers:['Control']});await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before changed field'));
-  await page.keyboard.press('Control+Enter');await until(()=>page.evaluate(()=>window.clipboardLine.state()),value=>!!value.message);
-  assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before changed field');assert.deepEqual(unchanged(fixtureState()),beforeChanged);
-  check('changing the captured native field cancels paste before overwriting the clipboard');
+  await application.evaluate(()=>{const native=global.__clipboardLineTest.native;let release;const gate=new Promise(resolve=>{release=resolve;});global.__changedPaste={original:native.validatePaste,release,waiting:false};native.validatePaste=async target=>{global.__changedPaste.waiting=true;await gate;return global.__changedPaste.original(target);};});
+  const beforeChanged=unchanged(fixtureState());await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before changed field'));
+  const changedRequest=page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id);
+  try{
+    await until(()=>application.evaluate(()=>global.__changedPaste.waiting),Boolean);
+    await fixtureCommand({action:'focus',target:'plain'});await application.evaluate(()=>global.__changedPaste.release());
+    const changed=await changedRequest;assert.ok(changed.result?.error,JSON.stringify(changed.result));
+    assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before changed field');assert.deepEqual(unchanged(fixtureState()),beforeChanged);
+    check('changing the captured native field during paste cancels before overwriting the clipboard');
+  }finally{await application.evaluate(()=>{const value=global.__changedPaste;if(value){value.release();global.__clipboardLineTest.native.validatePaste=value.original;delete global.__changedPaste;}});}
   await application.evaluate(()=>global.__clipboardLineTest.setTarget(null));await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before missing target'));
   const noTarget=await page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id);assert.ok(noTarget.result?.error);assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before missing target');
   check('missing paste target is explicit and leaves clipboard and app focus unchanged');
@@ -221,9 +250,9 @@ async function main(){
   // The original and this PNG are different managed originals, so the FileDrop
   // batch contains two actual files, with the first raster as an app fallback.
   const batch=await page.evaluate(ids=>window.clipboardLine.command('copy',{ids,keepOpen:true}),[imageItem.id,secondImage]);assert.ok(!batch.result?.error,batch.result?.error);
-  await until(fixtureState,s=>s.dropCount===2);
+  await until(fixtureState,s=>s.dropCount===2&&s.pngAvailable);
   await application.evaluate(()=>global.__clipboardLineTest.readClipboard());assert.equal((await page.evaluate(()=>window.clipboardLine.state())).items.length,batch.items.length);
-  check('multi-image copy supplies native Windows FileDrop batch without recapture');
+  check('multi-image copy supplies native Windows FileDrop batch and full-resolution PNG fallback without recapture');
   const copied=await page.evaluate(id=>window.clipboardLine.command('copy',{ids:[id]}),textItem.id);assert.ok(!copied.result?.error);assert.equal(await application.evaluate(()=>global.__clipboardLineTest.getWindow().isVisible()),false);check('plain Enter copy dismisses shelves/preview host and restores previous application');
   await fixtureCommand({action:'focus',target:'plain'});await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const closedTarget=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(closedTarget.editable);

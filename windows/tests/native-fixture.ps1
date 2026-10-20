@@ -80,7 +80,7 @@ $timer.Add_Tick({
   try {
     $files=[System.Windows.Forms.Clipboard]::GetFileDropList()
     $focused=(@($controls.Keys|Where-Object {$controls[$_].Focused})|Select-Object -First 1)
-    $value=@{ready=$true;handle=$form.Handle.ToInt64().ToString();foreground=[FixtureFocus]::GetForegroundWindow().ToInt64().ToString();processId=$PID;text=$controls.rich.Text;plainText=$controls.plain.Text;readOnlyText=$controls.readonly.Text;passwordLength=$controls.password.Text.Length;hasImage=$controls.rich.Rtf.Contains('\pict');dropCount=$files.Count;focused=$focused;lastSerial=$script:lastSerial;commandError=$script:commandError;inputEvents=@($script:inputEvents.ToArray());shortcutHeld=([FixtureFocus]::GetAsyncKeyState(0x11) -lt 0 -and [FixtureFocus]::GetAsyncKeyState(0x0D) -lt 0)}
+    $value=@{ready=$true;handle=$form.Handle.ToInt64().ToString();foreground=[FixtureFocus]::GetForegroundWindow().ToInt64().ToString();processId=$PID;text=$controls.rich.Text;plainText=$controls.plain.Text;readOnlyText=$controls.readonly.Text;passwordLength=$controls.password.Text.Length;hasImage=$controls.rich.Rtf.Contains('\pict');dropCount=$files.Count;pngAvailable=[System.Windows.Forms.Clipboard]::ContainsData('PNG');focused=$focused;lastSerial=$script:lastSerial;commandError=$script:commandError;inputEvents=@($script:inputEvents.ToArray());shortcutHeld=([FixtureFocus]::GetAsyncKeyState(0x11) -lt 0 -and [FixtureFocus]::GetAsyncKeyState(0x0D) -lt 0)}
     $temporary=$Output+'.tmp'
     [System.IO.File]::WriteAllText($temporary,($value|ConvertTo-Json -Compress))
     [System.IO.File]::Copy($temporary,$Output,$true)

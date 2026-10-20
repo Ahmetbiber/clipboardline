@@ -19,9 +19,9 @@ import XCTest
         switch kind { case "image": return .images; case "text": return .texts; case "link": return .links
         default: throw CocoaError(.coderReadCorrupt) }
     }
-    private func key(_ code: UInt16) throws -> NSEvent {
+    private func key(_ code: UInt16, characters: String = "") throws -> NSEvent {
         try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-            windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code))
+            windowNumber: 0, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
     }
     private func revision() throws -> String {
         let environment = ProcessInfo.processInfo.environment
@@ -80,6 +80,17 @@ import XCTest
                 switch try required(step["action"], String.self) {
                 case "open": line.revealed = true
                 case "close": line.revealed = false
+                case "remap":
+                    let action = try XCTUnwrap(KeyboardAction(rawValue: try required(step["binding"], String.self)))
+                    if step["key"] is NSNull { try line.keyboardBindings.reset(action) }
+                    else {
+                        let value = try required(step["key"], String.self)
+                        guard value.isEmpty || value == "KeyX" else { throw CocoaError(.coderReadCorrupt) }
+                        try line.keyboardBindings.set(value.isEmpty ? [] : [KeyShortcut(keyCode: 7, modifiers: 0, keyLabel: "X")], for: action)
+                    }
+                case "key":
+                    guard try required(step["code"], String.self) == "KeyX" else { throw CocoaError(.coderReadCorrupt) }
+                    _ = keyboard.handle(try key(7, characters: "x"))
                 case "up": _ = keyboard.handle(try key(126))
                 case "down": _ = keyboard.handle(try key(125))
                 case "left": _ = keyboard.handle(try key(123))

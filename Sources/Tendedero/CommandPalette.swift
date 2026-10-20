@@ -122,7 +122,7 @@ import AppKit
         empty.stringValue = L("No matching actions"); empty.font = .systemFont(ofSize: 13); empty.textColor = .secondaryLabelColor
         empty.alignment = .center
         let footer = NSStackView(views: [keyHint("↑ ↓"), label(L("Browse results")), NSView(), keyHint("↵"), label(L("Run action")), keyHint("esc"), label(L("Close"))])
-        footer.spacing = 6
+        footer.spacing = 6; footer.alignment = .centerY
         for view in [header, input, separator, scroll, empty, footer] { view.translatesAutoresizingMaskIntoConstraints = false; surface.addSubview(view) }
         listHeight = scroll.heightAnchor.constraint(equalToConstant: 328)
         NSLayoutConstraint.activate([
@@ -140,25 +140,9 @@ import AppKit
         label.setContentHuggingPriority(.required, for: .horizontal); return label
     }
     private func keyHint(_ title: String) -> NSView {
-        let label = NSTextField(labelWithString: title)
-        label.font = .monospacedSystemFont(ofSize: 9, weight: .medium); label.textColor = .secondaryLabelColor
-        label.alignment = .center; label.usesSingleLineMode = true
-        // NSTextField draws at the top of a taller frame. Keep its natural
-        // height and center it inside the keycap instead of stretching it.
-        let keycap = NSView()
-        keycap.wantsLayer = true; keycap.layer?.cornerRadius = 4
-        keycap.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.055).cgColor
-        keycap.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
-        keycap.layer?.borderWidth = 0.5
-        keycap.setContentHuggingPriority(.required, for: .horizontal)
-        label.translatesAutoresizingMaskIntoConstraints = false
-        keycap.addSubview(label)
+        let keycap = ShortcutKeycapView(title)
         NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: keycap.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: keycap.centerYAnchor),
-            label.leadingAnchor.constraint(greaterThanOrEqualTo: keycap.leadingAnchor, constant: 5),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: keycap.trailingAnchor, constant: -5),
-            keycap.widthAnchor.constraint(equalToConstant: max(title == "↑ ↓" ? 28 : 22, label.intrinsicContentSize.width + 10)),
+            keycap.widthAnchor.constraint(equalToConstant: keycap.intrinsicContentSize.width),
             keycap.heightAnchor.constraint(equalToConstant: 18)
         ])
         return keycap
@@ -291,6 +275,7 @@ import AppKit
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let rowView = NSStackView(views: [icon, labels, NSView()])
+        rowView.alignment = .centerY
         if command.isActive {
             let active = NSImageView(image: NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)!)
             active.symbolConfiguration = .init(pointSize: 11, weight: .semibold); active.contentTintColor = .controlAccentColor

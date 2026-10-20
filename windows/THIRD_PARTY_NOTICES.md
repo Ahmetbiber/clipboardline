@@ -11,6 +11,8 @@ all accompanying notices when redistributing a Windows build.
 | Tesseract.js 7.0.0 | Apache-2.0; [complete text](assets/licenses/LICENSE-Tesseract-js.txt). |
 | Tesseract.js Core / Tesseract OCR | Apache-2.0; [complete text](assets/licenses/LICENSE-Tesseract-core-and-data.txt). Preserve any additional notices shipped by the engine. |
 | English / Turkish traineddata | The `@tesseract.js-data/eng` and `/tur` 1.0.0 package metadata declares MIT for its packaging. The underlying Tesseract language-data distribution has [Apache-2.0 terms](https://github.com/naptha/tessdata/blob/gh-pages/LICENSE), also retained in the complete Apache text above. Do not infer that the model weights were relicensed under ClipBoardLine's MIT source license. |
+| ONNX Runtime Web / Common 1.30.0 | MIT; [complete Microsoft license](assets/licenses/LICENSE-ONNXRuntime.txt) and [complete upstream third-party notices](assets/licenses/THIRD_PARTY_NOTICES-ONNXRuntime.txt). The bundled WASM CPU runtime performs image/text inference locally. |
+| Original Apple MobileCLIP-S2 | Apple Sample Code model/data terms, separate MIT code terms, and preserved acknowledgements. All complete texts and exact weight/tokenizer provenance are bundled in `resources/CLIP/`; see [model preparation and source revisions](../docs/windows-search-models.md). |
 | Electron Builder | MIT; a development/build dependency. Its bundled installer tools have their own notices. |
 
 Official dependency sources: [Electron](https://github.com/electron/electron),
@@ -18,8 +20,12 @@ Official dependency sources: [Electron](https://github.com/electron/electron),
 [Tesseract.js Core](https://github.com/naptha/tesseract.js-core), and
 [Tesseract language data](https://github.com/naptha/tessdata).
 
-Windows does not bundle Apple Vision or the macOS MobileCLIP Core ML models.
-Its OCR data is packaged for local English/Turkish recognition. See the project
+Windows bundles the original Apple MobileCLIP-S2 encoders as pinned FP32 ONNX
+graphs, with the same tokenizer as Mac. The app retains `LICENSE-MobileCLIP-S2`,
+`LICENSE-Apple-code`, `ACKNOWLEDGEMENTS-MobileCLIP` and `model-source.json` in
+`resources/CLIP/`. These weights are not relicensed as MIT. Apple Vision and the
+macOS Core ML binaries are not redistributed in the Windows package. Its OCR
+data is packaged for local English/Turkish recognition. See the project
 [third-party inventory](../THIRD_PARTY_NOTICES.md) for the macOS-specific components
 and the preserved Tendedero source ancestry.
 
@@ -30,4 +36,9 @@ verilerinin lisansının yerine geçmez. Yukarıdaki tam lisans metinlerini,
 Electron'ın `LICENSES.chromium.html` dosyasını ve bağımlılıkların kendi
 bildirimlerini dağıtımla birlikte koruyun. `@tesseract.js-data` paketinin MIT
 metadata'sı ile özgün Tesseract dil verilerinin Apache-2.0 koşullarını ayırın.
-Windows sürümü Apple Vision veya macOS Core ML modellerini paketlemez.
+Windows sürümü özgün Apple MobileCLIP-S2 modellerini aynı tokenizer ile ONNX
+biçiminde paketler; ağırlıklar projenin MIT lisansı altında yeniden
+lisanslanmaz. Apple model/kod lisansları ve tam teşekkür/bildirim dosyaları
+`resources/CLIP/` içinde korunur. Microsoft ONNX Runtime lisansı ve üçüncü taraf
+bildirimleri de dağıtıma dahildir. Apple Vision ve macOS Core ML ikili dosyaları
+Windows paketinde yer almaz.

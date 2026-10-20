@@ -7,12 +7,14 @@ const {windowsEnvironment}=require('./windows-environment.cjs');
 
 const KINDS = ['image', 'text', 'link'];
 const DEFAULTS = Object.freeze({
-  visibleKinds: KINDS, captureText: false, captureImages: false, captureLinks: false,fetchLinkMetadata:false,
+  visibleKinds: KINDS, captureText: false, captureImages: false, captureLinks: true,fetchLinkMetadata:true,
   retentionDays: {image: 30, text: 30, link: 30},
   shortcuts: {toggle: 'Control+Alt+Space', search: 'Control+Alt+S', screenshot: 'Control+Alt+A'},
   localShortcuts: {},
   autoCheckUpdates: true, watchFolders: [], openAfterScreenshot: true,
-  theme:'soft', cardSize:'medium', sounds:false, launchAtLogin:false, language:'en',indexImages:true
+  theme:'soft', cardSize:'medium', sounds:false, launchAtLogin:false, language:'system',indexImages:true,
+  libraryListMode:false,libraryInspectorVisible:true,librarySidebarVisible:true,librarySidebarWidth:220,libraryInspectorWidth:300,
+  libraryListColumns:{title:300,kind:80,tags:150,created:130}
 });
 const clone = value => structuredClone(value);
 const fail = message => { throw new Error(message); };
@@ -29,7 +31,7 @@ function settings(patch, previous = DEFAULTS) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) fail('Invalid settings');
   const out = clone(previous);
   for (const [key, value] of Object.entries(patch)) {
-    if (['captureText', 'captureImages', 'captureLinks', 'fetchLinkMetadata','autoCheckUpdates', 'openAfterScreenshot','sounds','launchAtLogin','indexImages'].includes(key)) {
+    if (['captureText', 'captureImages', 'captureLinks', 'fetchLinkMetadata','autoCheckUpdates', 'openAfterScreenshot','sounds','launchAtLogin','indexImages','libraryListMode','libraryInspectorVisible','librarySidebarVisible'].includes(key)) {
       if (typeof value !== 'boolean') fail('Invalid preference');
       out[key] = value;
     } else if (key === 'visibleKinds') {
@@ -47,11 +49,22 @@ function settings(patch, previous = DEFAULTS) {
       }
     } else if (key === 'localShortcuts') {
       for (const [action, shortcut] of Object.entries(value || {})) {
-        if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,60}$/.test(action) || ['constructor','prototype','__proto__'].includes(action) || typeof shortcut !== 'string' || shortcut.length > 80 || /[\r\n\0]/.test(shortcut)) fail('Invalid local shortcut');
+        if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,60}$/.test(action) || ['constructor','prototype','__proto__'].includes(action)) fail('Invalid local shortcut');
+        if(shortcut===null){delete out.localShortcuts[action];continue;}
+        if(typeof shortcut !== 'string' || shortcut.length > 80 || /[\r\n\0]/.test(shortcut)) fail('Invalid local shortcut');
         out.localShortcuts[action] = shortcut;
       }
+    } else if(key==='libraryListColumns') {
+      if(!value||typeof value!=='object'||Array.isArray(value))fail('Invalid library columns');
+      for(const [column,width] of Object.entries(value)){
+        const limits=new Map([['title',[180,1200]],['kind',[70,400]],['tags',[80,800]],['created',[100,500]]]).get(column);
+        if(!limits||!Number.isInteger(width)||width<limits[0]||width>limits[1])fail('Invalid library column width');out.libraryListColumns[column]=width;
+      }
+    } else if(['librarySidebarWidth','libraryInspectorWidth'].includes(key)) {
+      const [low,high]=key==='librarySidebarWidth'?[180,320]:[270,400];
+      if(!Number.isInteger(value)||value<low||value>high)fail('Invalid library panel width');out[key]=value;
     } else if (['theme','cardSize','language'].includes(key)) {
-      const values={theme:['soft','neutral'],cardSize:['small','medium','large'],language:['en','tr']};
+      const values={theme:['soft','neutral'],cardSize:['small','medium','large'],language:['system','en','tr','es','fr','pt-BR','az','zh-Hans','ja','ko']};
       if(!values[key].includes(value))fail('Invalid appearance preference');out[key]=value;
     } else if (key === 'watchFolders') {
       if (!Array.isArray(value) || value.length > 20 || value.some(v => typeof v !== 'string' || !path.isAbsolute(v) || v.length > 4096)) fail('Invalid watched folder');
@@ -60,7 +73,7 @@ function settings(patch, previous = DEFAULTS) {
   }
   return out;
 }
-function saved(item) { return item.pinned || item.folderIds.length > 0 || item.tags.length > 0; }
+function saved(item) { return item.retainedAt != null || item.pinned || item.folderIds.length > 0 || item.tags.length > 0; }
 function plainURL(value) {
   if (typeof value !== 'string' || /\s/.test(value) || value.length > 8192) return null;
   try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password ? u.href : null; } catch { return null; }
@@ -98,6 +111,10 @@ class Store {
   validateStored(item) {
     ids([item.id]); if (!KINDS.includes(item.kind) || !Array.isArray(item.folderIds) || !Array.isArray(item.tags)) fail('Invalid library record');
     if (item.text != null) text(item.text, 1024 * 1024, true);
+    if(item.note!=null)text(item.note,1024*1024,true);
+    if(item.retainedAt!=null&&(!Number.isFinite(item.retainedAt)||item.retainedAt<0))fail('Invalid saved timestamp');
+    if(item.lastCopiedAt!=null&&(!Number.isFinite(item.lastCopiedAt)||item.lastCopiedAt<0))fail('Invalid copy timestamp');
+    if(item.retainedAt==null&&(item.pinned||item.folderIds.length||item.tags.length))item.retainedAt=item.updatedAt||item.createdAt||this.clock();
     for (const key of ['imageFile', 'renderedFile','thumbnailFile']) if (item[key] && !/^[a-f0-9]{64}\.png$/.test(item[key])) fail('Unsafe managed media path');
   }
   persist() {
@@ -141,6 +158,7 @@ class Store {
   }
   selected(value) { const selected = ids(value); const result = selected.map(id => this.data.items.find(i => i.id === id)); if (result.some(i => !i)) fail('An item no longer exists'); return result; }
   item(id) { return this.selected([id])[0]; }
+  markCopied(value){this.modify('markCopied',{ids:value});}
   putPNG(buffer) {
     if (!Buffer.isBuffer(buffer) || buffer.length < 24 || buffer.length > 64 * 1024 * 1024 || buffer.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') fail('Invalid PNG image');
     const width = buffer.readUInt32BE(16), height = buffer.readUInt32BE(20);
@@ -169,13 +187,15 @@ class Store {
     if(!prior&&this.data.items.length>=20000)fail('Library item limit reached');
     const now = this.clock();
     const item = prior || {id: crypto.randomUUID(), kind, text: textValue, url, title: '', name: '', pinned: false, folderIds: [], tags: [],
-      imageFile, renderedFile: '', ocrText: '', annotations: [], crop: null, createdAt: now, updatedAt: now, trashedAt: null, hiddenFromShelf: false};
+      imageFile, renderedFile: '', ocrText: '', annotations: [], crop: null, note:'', retainedAt:null, lastCopiedAt:null, createdAt: now, updatedAt: now, trashedAt: null, hiddenFromShelf: false};
     item.createdAt = now; item.updatedAt = now; item.hiddenFromShelf = false;
     if (extra.title) item.title = text(extra.title, 500, true);
     if (matching.length > 1) {
       item.pinned ||= matching.some(i => i.pinned);
       item.folderIds = [...new Set(matching.flatMap(i => i.folderIds))]; item.tags = [...new Set(matching.flatMap(i => i.tags))];
       item.name ||= matching.find(i => i.name)?.name || '';
+      item.note ||= matching.find(i => i.note)?.note || '';
+      const dates=matching.map(i=>i.retainedAt).filter(Number.isFinite);if(dates.length)item.retainedAt=Math.min(...dates);
     }
     this.data.items = [item, ...this.data.items.filter(i => i.id !== item.id && !matching.includes(i))];
     this.expire(false); this.persist(); return item;
@@ -221,14 +241,28 @@ class Store {
     }
     const targetPin = typeof payload.value === 'boolean' ? payload.value : items.some(i => !i.pinned);
     for (const item of items) {
-      if (action === 'pin') item.pinned = targetPin;
-      else if (action === 'name') { item.name = text(payload.name, 200, true).trim(); item.pinned = true; }
+      if (action === 'pin') {item.pinned = targetPin;if(targetPin)item.retainedAt??=now;}
+      else if(action==='retain')item.retainedAt??=now;
+      else if(action==='note')item.note=text(payload.note,1024*1024,true);
+      else if(action==='details') {
+        if(payload.name!==undefined)item.name=text(payload.name,200,true).trim();
+        if(payload.note!==undefined)item.note=text(payload.note,1024*1024,true);
+        if(payload.text!==undefined){if(item.kind!=='text')fail('Only text can be edited');item.text=text(payload.text,1024*1024,true);}
+      }
+      else if(action==='markCopied')item.lastCopiedAt=now;
+      else if (action === 'name') { item.name = text(payload.name, 200, true).trim(); item.pinned = true; item.retainedAt??=now; }
       else if (action === 'folder') {
         if (!this.data.folders.some(f => f.id === payload.folderId)) fail('Folder unavailable');
-        item.folderIds = [...new Set([...item.folderIds, payload.folderId])]; item.pinned = true;
+        item.folderIds = [...new Set([...item.folderIds, payload.folderId])]; item.pinned = true;item.retainedAt??=now;
+      } else if(action==='unassign') {
+        if(typeof payload.folderId!=='string'||!this.data.folders.some(f=>f.id===payload.folderId))fail('Folder unavailable');
+        item.folderIds=item.folderIds.filter(id=>id!==payload.folderId);
+      } else if(action==='removeTag') {
+        const tag=text(payload.tag,80).trim();item.tags=item.tags.filter(value=>value!==tag);
       } else if (action === 'tag') {
         if (!Array.isArray(payload.tags) || payload.tags.length > 50) fail('Invalid tags');
         item.tags = [...new Set(payload.tags.map(tag => text(tag, 80).trim()).filter(Boolean))];
+        if(item.tags.length)item.retainedAt??=now;
       } else if (action === 'remove') { if (saved(item)) item.hiddenFromShelf = true; else item.trashedAt = now; }
       else if (action === 'trash') item.trashedAt = now;
       else if (action === 'restore') { item.trashedAt = null; item.hiddenFromShelf = false; }
@@ -241,7 +275,7 @@ class Store {
         item.renderedFile = this.putPNG(Buffer.from(payload.dataUrl.split(',')[1], 'base64')); item.annotations = clone(annotations); item.crop = clone(crop); item.ocrText = '';
       } else if (action === 'delete') { if (!item.trashedAt) fail('Move items to Trash before permanent deletion'); }
       else fail('Unknown library action');
-      item.updatedAt = now;
+      if(action!=='markCopied')item.updatedAt = now;
     }
     if (action === 'delete') this.data.items = this.data.items.filter(i => !items.includes(i));
     if (['delete', 'trash', 'restore'].includes(action)) this.undoStack = this.undoStack.filter(batch => !batch.some(old => items.some(i => i.id === old.id)));

@@ -8,6 +8,10 @@ const PUBLIC_KEY = 's9DO901wav4VK/hfnLROxJYk4+oNFYvxdOK974E3PgI=';
 const REPOSITORY = 'orkunisitmak/clipboardline-desktop';
 const UPDATE_ARGUMENTS=Object.freeze(['/S','--updated','--force-run']);
 const REFRESH_THROTTLE=60_000;
+// Offline OCR/semantic models increase the signed installer size. Permit a
+// bounded five-minute socket wait; the authenticated exact byte/PE/hash gates
+// still apply and feed checks retain their short network timeout.
+const INSTALLER_DOWNLOAD_TIMEOUT=300_000;
 function verifyEnvelope(bytes, publicKey = PUBLIC_KEY) {
   if (!Buffer.isBuffer(bytes) || bytes.length > 200000) throw new Error('Update manifest is too large');
   const envelope = JSON.parse(bytes.toString('utf8'));
@@ -104,7 +108,7 @@ class Updates {
       this.set({status:'downloading',message:'Downloading verified update…',error:null});
       let temporary;
       try {
-        const response = await this.fetcher(manifest.url,{maximum:manifest.size});
+        const response = await this.fetcher(manifest.url,{maximum:manifest.size,timeout:INSTALLER_DOWNLOAD_TIMEOUT});
         if (!Buffer.isBuffer(response.bytes)||response.bytes.length !== manifest.size || crypto.createHash('sha256').update(response.bytes).digest('hex') !== manifest.sha256 || response.bytes.subarray(0,2).toString() !== 'MZ') throw new Error('Installer integrity check failed');
         this.safeDirectory();const destination=path.join(this.directory,`ClipBoardLine-Setup-${manifest.build}.exe`);
         if(fs.existsSync(destination)&&fs.lstatSync(destination).isSymbolicLink())throw new Error('Unsafe update installer');

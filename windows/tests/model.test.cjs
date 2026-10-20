@@ -63,3 +63,42 @@ test('final cleanup-state write failure cannot resurrect records or removed rast
   assert.equal(s.data.items.length,0);assert.equal(fs.existsSync(file),false);assert.equal(s.publicState().needsDeletionCleanup,true);assert.equal(JSON.parse(fs.readFileSync(s.file,'utf8')).items.length,0);
   s.modify('cleanup');assert.equal(s.publicState().needsDeletionCleanup,false);assert.equal(JSON.parse(fs.readFileSync(s.file+'.backup','utf8')).items.length,0);
 }));
+test('unpinning or removing organization never expires a previously saved item',()=>fixture((s,time,dir)=>{
+ const item=s.insert('text','Saved once');time(2000);s.modify('pin',{id:item.id,value:true});const retained=item.retainedAt;
+ s.modify('pin',{id:item.id,value:false});s.modify('tag',{id:item.id,tags:['keep']});s.modify('removeTag',{id:item.id,tag:'keep'});
+ const folder=s.modify('createFolder',{name:'Temporary folder'});s.modify('folder',{id:item.id,folderId:folder.id});s.modify('unassign',{id:item.id,folderId:folder.id});s.modify('pin',{id:item.id,value:false});
+ time(4000*86400000);s.expire();assert.equal(item.trashedAt,null);assert.equal(item.retainedAt,retained);
+ const restored=new Store(dir);assert.equal(restored.item(item.id).retainedAt,retained);assert.equal(restored.item(item.id).pinned,false);
+ s.modify('remove',{id:item.id});assert.equal(item.hiddenFromShelf,true);assert.equal(item.trashedAt,null);
+}));
+test('retaining and inspector details save without pinning and preserve content and organization on recopy',()=>fixture((s,time)=>{
+ const item=s.insert('text','Exact value');s.modify('retain',{id:item.id});time(2000);s.modify('details',{id:item.id,name:'Friendly name',note:'Searchable note',text:'Exact value'});
+ assert.equal(item.pinned,false);assert.equal(item.retainedAt,1000);assert.equal(item.name,'Friendly name');assert.equal(item.note,'Searchable note');
+ time(3000);assert.equal(s.insert('text','Exact value').id,item.id);assert.equal(item.note,'Searchable note');assert.equal(item.name,'Friendly name');assert.equal(item.retainedAt,1000);
+ const image=s.insert('image',png);assert.throws(()=>s.modify('details',{ids:[item.id,image.id],name:'Must roll back',text:'Invalid mixed edit'}));assert.equal(s.item(item.id).name,'Friendly name');
+}));
+test('old pinned and organized records migrate to sticky Saved without changing original dates',()=>fixture((s,time,dir)=>{
+ const item=s.insert('text','Legacy saved');s.modify('pin',{id:item.id});delete item.retainedAt;s.persist();time(9000);
+ const restored=new Store(dir,{clock:()=>9000}),value=restored.item(item.id);assert.equal(value.retainedAt,1000);assert.equal(value.createdAt,1000);assert.equal(value.updatedAt,1000);
+ restored.modify('pin',{id:item.id,value:false});assert.equal(restored.item(item.id).retainedAt,1000);
+}));
+test('successful copy timestamps do not alter edited or captured dates and failed persistence rolls back',()=>fixture((s,time)=>{
+ const item=s.insert('text','Copy metadata');time(5000);s.markCopied([item.id]);assert.equal(item.lastCopiedAt,5000);assert.equal(item.createdAt,1000);assert.equal(item.updatedAt,1000);
+ time(6000);const persist=s.persist;s.persist=()=>{throw new Error('Synthetic disk failure');};try{assert.throws(()=>s.markCopied([item.id]),/Synthetic disk failure/);}finally{s.persist=persist;}
+ assert.equal(s.item(item.id).lastCopiedAt,5000);
+}));
+test('shortcut reset removes override while Off remains an explicit disabled binding',()=>fixture(s=>{
+ s.modify('setSettings',{patch:{localShortcuts:{down:'X'}}});s.modify('setSettings',{patch:{localShortcuts:{down:''}}});assert.equal(s.data.settings.localShortcuts.down,'');
+ s.modify('setSettings',{patch:{localShortcuts:{down:null}}});assert.equal(Object.hasOwn(s.data.settings.localShortcuts,'down'),false);
+}));
+test('fresh defaults match Mac link capture and system language while existing opt-outs remain respected',()=>fixture((s,_time,dir)=>{
+ assert.equal(s.data.settings.captureLinks,true);assert.equal(s.data.settings.fetchLinkMetadata,true);assert.equal(s.data.settings.language,'system');
+ s.modify('setSettings',{patch:{captureLinks:false,fetchLinkMetadata:false,language:'ja',libraryListMode:true,librarySidebarVisible:false,libraryInspectorVisible:false,librarySidebarWidth:310,libraryInspectorWidth:390}});
+ const restored=new Store(dir);for(const key of ['captureLinks','fetchLinkMetadata','librarySidebarVisible','libraryInspectorVisible'])assert.equal(restored.data.settings[key],false);assert.equal(restored.data.settings.language,'ja');assert.equal(restored.data.settings.librarySidebarWidth,310);
+ assert.throws(()=>s.modify('setSettings',{patch:{librarySidebarWidth:2000}}));assert.throws(()=>s.modify('setSettings',{patch:{language:'unsupported'}}));
+}));
+test('Library column preferences persist partial updates and reject unknown or unsafe sizes atomically',()=>fixture((s,_time,dir)=>{
+ s.modify('setSettings',{patch:{libraryListColumns:{title:500}}});assert.equal(s.data.settings.libraryListColumns.title,500);assert.equal(s.data.settings.libraryListColumns.tags,150);
+ assert.throws(()=>s.modify('setSettings',{patch:{libraryListColumns:{title:600,tags:1}}}));assert.equal(s.data.settings.libraryListColumns.title,500);
+ assert.throws(()=>s.modify('setSettings',{patch:{libraryListColumns:{unknown:150}}}));assert.throws(()=>s.modify('setSettings',{patch:{libraryListColumns:[]}}));assert.equal(new Store(dir).data.settings.libraryListColumns.title,500);
+}));
