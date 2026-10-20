@@ -45,7 +45,7 @@ async function runNativeVideo({fixtureDirectory=path.join(__dirname,'fixtures','
   const unsupported=path.join(directory,'unsupported.mp4');fs.writeFileSync(unsupported,Buffer.from('00000000000000000000000066747970','hex'));await assert.rejects(jobs.probe(unsupported),/codec|incomplete|decode|process/i);assert.equal(fs.readdirSync(jobs.directory).length,0);assert.equal(crypto.createHash('sha256').update(fs.readFileSync(source)).digest('hex'),before);
   evidence.checks.push({cancellation:true,unsupportedRejected:true,originalPreserved:true,tempJobsCleaned:true});
   fs.writeFileSync(path.join(outputDirectory,'native-video.json'),JSON.stringify(evidence,null,2)+'\n');return evidence;
- }catch(error){evidence.error=String(error.message);evidence.errorDiagnostic={code:error.code,stage:error.stage,hresult:error.hresult,exceptionType:error.exceptionType,errorId:error.errorId,scriptLine:error.scriptLine};fs.writeFileSync(path.join(outputDirectory,'native-video.json'),JSON.stringify(evidence,null,2)+'\n');throw error;}
+ }catch(error){evidence.error=String(error.message);evidence.errorDiagnostic={code:error.code,stage:error.stage,hresult:error.hresult,exceptionType:error.exceptionType,errorId:error.errorId,scriptLine:error.scriptLine,exitCode:error.exitCode,stdoutBytes:error.stdoutBytes,stderrBytes:error.stderrBytes};fs.writeFileSync(path.join(outputDirectory,'native-video.json'),JSON.stringify(evidence,null,2)+'\n');throw error;}
  finally{jobs.dispose();fs.rmSync(directory,{recursive:true,force:true});}
 }
 module.exports={runNativeVideo,pngCenter,pcmTone};

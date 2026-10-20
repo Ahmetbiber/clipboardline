@@ -35,13 +35,13 @@ function Await-Action($Operation){
   if(-not $method){throw 'Windows asynchronous action bridge is unavailable.'}
   $task=$method.Invoke($null,@($Operation))
   if(-not $task.Wait([TimeSpan]::FromMinutes(10))){$Operation.Cancel();throw 'Video operation timed out.'}
-  $task.GetAwaiter().GetResult()
+  $null=$task.GetAwaiter().GetResult()
 }
 function Await-ProgressAction($Operation){
   $method=[System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {$_.Name -eq 'AsTask' -and $_.IsGenericMethodDefinition -and $_.GetGenericArguments().Length -eq 1 -and $_.GetParameters().Length -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncActionWithProgress`1'} | Select-Object -First 1
   $task=$method.MakeGenericMethod([Type[]]@([double])).Invoke($null,@($Operation))
   if(-not $task.Wait([TimeSpan]::FromMinutes(10))){$Operation.Cancel();throw 'Video operation timed out.'}
-  $task.GetAwaiter().GetResult()
+  $null=$task.GetAwaiter().GetResult()
 }
 function Open-Clip([string]$File){
   $storage=Await-Operation ([Windows.Storage.StorageFile]::GetFileFromPathAsync($File)) ([Windows.Storage.StorageFile])
