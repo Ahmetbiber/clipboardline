@@ -35,3 +35,14 @@ test('canceling a paste terminates its native helpers without interrupting ordin
   const restored=native.restore(field());native.cancelPaste();
   assert.deepEqual(children.map(child=>child.killed),[true,true,true,true,false]);children.at(-1).complete();await restored;await Promise.all(canceled);
 });
+
+test('native startup stderr is bounded and visible only in an explicitly isolated acceptance process',async()=>{
+  const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+  const file=path.resolve(__dirname,'../lib/native.cjs'),requireFrom=require('node:module').createRequire(file);
+  for(const [argv,exposed]of [[[],false],[['--test-mode'],false],[['--test-mode','--test-data=C:\\synthetic-fixture'],true]]){
+    const sandbox={module:{exports:{}},__dirname:path.dirname(file),process:{platform:'win32',env:{},pid:100,argv},Buffer,
+      require:name=>name==='node:child_process'?{execFile(_file,_args,_options,done){queueMicrotask(()=>done(new Error('compiler'),'', 'Synthetic compiler diagnostic '+ 'x'.repeat(6000)));return{stdin:{end(){}}};}}:requireFrom(name)};
+    vm.runInNewContext(fs.readFileSync(file,'utf8'),sandbox,{filename:file});
+    await assert.rejects(sandbox.module.exports.capture(),error=>{assert.equal(error.message.includes('Synthetic compiler diagnostic'),exposed);assert.ok(error.message.length<2600);return true;});
+  }
+});

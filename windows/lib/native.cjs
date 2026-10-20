@@ -11,9 +11,13 @@ function invocation(mode) { return ['-NoLogo','-NoProfile',mode==='CopyImages'?'
 function run(mode, target) {
   if (process.platform !== 'win32') return mode === 'Capture' ? Promise.resolve(null) : Promise.reject(new Error('External application focus is supported on Windows.'));
   return new Promise((resolve,reject) => {
-    const child=execFile(powershell, invocation(mode), {windowsHide:true,timeout:12000,maxBuffer:64000,env:windowsEnvironment()},(error,stdout) => {
+    const child=execFile(powershell, invocation(mode), {windowsHide:true,timeout:12000,maxBuffer:64000,env:windowsEnvironment()},(error,stdout,stderr) => {
       pasteChildren.delete(child);
-      let value; try { value=JSON.parse(stdout.trim()); } catch { reject(new Error('Windows focus helper did not respond.')); return; }
+      let value; try { value=JSON.parse(stdout.trim()); } catch {
+        const isolated=process.argv?.includes('--test-mode')&&process.argv.some(value=>value.startsWith('--test-data='));
+        const diagnostic=isolated&&stderr?' Native helper startup: '+String(stderr).replace(/\x1b\[[0-9;]*m/g,'').slice(0,2500):'';
+        reject(new Error('Windows focus helper did not respond.'+diagnostic)); return;
+      }
       if (error || value.ok === false) reject(new Error(value.error || 'Windows focus operation failed.')); else resolve(value);
     });
     if(['PreparePaste','ValidatePaste','Paste','CopyImages'].includes(mode))pasteChildren.add(child);

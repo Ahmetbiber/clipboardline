@@ -28,17 +28,13 @@ public static class ClipBoardLineNative {
     var element=AutomationElement.FocusedElement;var entries=new System.Collections.Generic.List<string>();
     // Capability metadata only: never Name, Value, text, selection or ranges.
     for(int depth=0;element!=null&&depth<5;depth++) {
-      var current=element.Current;object value;bool hasValue=false,hasText=false,hasLegacy=false;string valueReadOnly="null",textReadOnly="null",legacyRole="null",legacyState="null";
+      var current=element.Current;object value;bool hasValue=false,hasText=false;string valueReadOnly="null",textReadOnly="null";
       if(current.IsEnabled&&!current.IsPassword) {
-        hasValue=element.TryGetCurrentPattern(ValuePattern.Pattern,out value);
-        if(hasValue)valueReadOnly=((ValuePattern)value).Current.IsReadOnly?"true":"false";
-        hasText=element.TryGetCurrentPattern(TextPattern.Pattern,out value);
-        if(hasText) { var readOnly=((TextPattern)value).DocumentRange.GetAttributeValue(TextPattern.IsReadOnlyAttribute);if(readOnly is bool)textReadOnly=(bool)readOnly?"true":"false"; }
-        hasLegacy=element.TryGetCurrentPattern(LegacyIAccessiblePattern.Pattern,out value);
-        if(hasLegacy) { var legacy=((LegacyIAccessiblePattern)value).Current;legacyRole=legacy.Role.ToString();legacyState=legacy.State.ToString(); }
+        try { hasValue=element.TryGetCurrentPattern(ValuePattern.Pattern,out value);if(hasValue)valueReadOnly=((ValuePattern)value).Current.IsReadOnly?"true":"false"; } catch(Exception) {}
+        try { hasText=element.TryGetCurrentPattern(TextPattern.Pattern,out value);if(hasText) { var readOnly=((TextPattern)value).DocumentRange.GetAttributeValue(TextPattern.IsReadOnlyAttribute);if(readOnly is bool)textReadOnly=(bool)readOnly?"true":"false"; } } catch(Exception) {}
       }
-      entries.Add("{\"processId\":"+current.ProcessId+",\"runtime\":\""+String.Join(".",element.GetRuntimeId())+"\",\"controlType\":"+current.ControlType.Id+",\"nativeHandle\":"+current.NativeWindowHandle+",\"enabled\":"+(current.IsEnabled?"true":"false")+",\"secure\":"+(current.IsPassword?"true":"false")+",\"keyboardFocusable\":"+(current.IsKeyboardFocusable?"true":"false")+",\"keyboardFocused\":"+(current.HasKeyboardFocus?"true":"false")+",\"valuePattern\":"+(hasValue?"true":"false")+",\"valueReadOnly\":"+valueReadOnly+",\"textPattern\":"+(hasText?"true":"false")+",\"textReadOnly\":"+textReadOnly+",\"legacyPattern\":"+(hasLegacy?"true":"false")+",\"legacyRole\":"+legacyRole+",\"legacyState\":"+legacyState+"}");
-      element=TreeWalker.RawViewWalker.GetParent(element);
+      entries.Add("{\"processId\":"+current.ProcessId+",\"runtime\":\""+String.Join(".",element.GetRuntimeId())+"\",\"controlType\":"+current.ControlType.Id+",\"nativeHandle\":"+current.NativeWindowHandle+",\"enabled\":"+(current.IsEnabled?"true":"false")+",\"secure\":"+(current.IsPassword?"true":"false")+",\"keyboardFocusable\":"+(current.IsKeyboardFocusable?"true":"false")+",\"keyboardFocused\":"+(current.HasKeyboardFocus?"true":"false")+",\"valuePattern\":"+(hasValue?"true":"false")+",\"valueReadOnly\":"+valueReadOnly+",\"textPattern\":"+(hasText?"true":"false")+",\"textReadOnly\":"+textReadOnly+"}");
+      try { element=TreeWalker.RawViewWalker.GetParent(element); } catch(Exception) { element=null; }
     }
     return "{\"ok\":true,\"handle\":\""+window.ToInt64()+"\",\"processId\":"+owner+",\"chain\":["+String.Join(",",entries)+"]}";
   }
