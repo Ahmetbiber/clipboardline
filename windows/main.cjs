@@ -23,6 +23,7 @@ const {PasteTargetTracker}=require('./lib/paste-target.cjs');
 const {DragFiles}=require('./lib/drag-files.cjs');
 const {metadataFetch,linkMetadata} = require('./lib/network.cjs');
 const {Updates,AutomaticUpdateScheduler} = require('./lib/updates.cjs');
+const {GlobalShortcuts}=require('./lib/global-shortcuts.cjs');
 const {ImageSearch,modelPaths}=require('./lib/image-search.cjs');
 const BUILD_NUMBER=Number(require('./package.json').clipboardLineBuild)||63;
 const testMode = process.argv.includes('--test-mode');
@@ -223,12 +224,22 @@ function configureWatchers() {
   for(const watcher of watchers)watcher.close();watchers=[];
   for(const folder of store.data.settings.watchFolders){try{if(!fs.statSync(folder).isDirectory())continue;const timers=new Map();const watcher=fs.watch(folder,(_event,name)=>{if(!name||!/[.](png|jpe?g|webp|bmp)$/i.test(name))return;clearTimeout(timers.get(name));timers.set(name,setTimeout(()=>{timers.delete(name);try{const file=path.join(folder,path.basename(name));const item=importFile(file);Promise.resolve(item).then(record=>{broadcast();if(store.data.settings.openAfterScreenshot)void show('shelves',{selectId:record.id,kind:'image'});}).catch(()=>{});}catch{}},700));});watcher.on('error',()=>{});watchers.push(watcher);}catch{}}
 }
-function configureShortcuts() {
-  globalShortcut.unregisterAll();
-  for(const [action,shortcut]of Object.entries(store.data.settings.shortcuts)){if(!shortcut)continue;let okay=false;try{okay=globalShortcut.register(shortcut,()=>{if(action==='screenshot')void capture().catch(error=>notify(error.message));else if(action==='search')void show('shelves',{search:true});else if(window.isVisible())void hide();else void show('shelves');});}catch{}
-    if(!okay)message=`Shortcut ${shortcut} is unavailable. Choose another in Settings.`;
+let shortcutRegistry;
+function configureShortcuts(previousPreferences=null) {
+  shortcutRegistry??=new GlobalShortcuts(globalShortcut,{
+    toggle:()=>window.isVisible()?hide():show('shelves'),
+    search:()=>show('shelves',{search:true}),library:()=>show('library'),
+    copyLatest:async()=>{const image=store.data.items.filter(item=>item.kind==='image'&&!item.trashedAt&&!item.hiddenFromShelf).sort((a,b)=>b.createdAt-a.createdAt)[0];if(image){await writeClipboard([image]);notify('Copied');if(store.data.settings.sounds)shell.beep();}},
+    screenshot:capture
+  },{failed:error=>notify(error.message)});
+  const rejected=shortcutRegistry.update(store.data.settings.shortcuts);
+  if(rejected.length){
+    if(previousPreferences)store.modify('setSettings',{patch:{shortcuts:Object.fromEntries(rejected.map(value=>[value.action,previousPreferences[value.action]||'']))}});
+    message='Shortcut '+rejected.map(value=>value.shortcut).join(', ')+' is unavailable. '+(rejected.some(value=>value.previous)?'Working previous shortcuts are kept.':'Choose another combination in Settings.');
   }
+  return rejected;
 }
+
 const modelActions=new Set(['pin','name','details','retain','note','unassign','removeTag','folder','createFolder','renameFolder','removeFolder','tag','remove','undo','trash','restore','delete','editText','saveImage','cleanup']);
 async function command(action,payload={}) {
   if(typeof action!=='string'||!payload||typeof payload!=='object'||Array.isArray(payload)||JSON.stringify(payload).length>92_000_000)throw new Error('Invalid command');
@@ -277,7 +288,8 @@ async function command(action,payload={}) {
   else if(action==='setSettings'){
     const patch={...payload.patch};
     if(Object.hasOwn(patch,'watchFolders'))throw new Error('Choose watched folders with the folder picker.');
-    store.modify('setSettings',{patch});if(Object.hasOwn(patch,'retentionDays'))refreshImageSearch();configureShortcuts();
+    const previousShortcuts={...store.data.settings.shortcuts};
+    store.modify('setSettings',{patch});if(Object.hasOwn(patch,'retentionDays'))refreshImageSearch();if(Object.hasOwn(patch,'shortcuts')&&configureShortcuts(previousShortcuts).length)result={error:message};
     if(['captureText','captureImages','captureLinks'].some(key=>Object.hasOwn(patch,key)))lastFingerprint='';
     if(Object.hasOwn(patch,'launchAtLogin')&&!testMode)app.setLoginItemSettings({openAtLogin:patch.launchAtLogin});
     if(Object.hasOwn(patch,'autoCheckUpdates')&&patch.autoCheckUpdates&&!development)void updateScheduler.tick({force:true});
@@ -349,4 +361,4 @@ else app.whenReady().then(async()=>{
 }).catch(error=>{dialog.showErrorBox('ClipBoardLine could not start',error.message);app.exit(1);});
 app.on('second-instance',()=>{if(window)void show('shelves');});
 app.on('activate',()=>{if(window)void show('shelves');});
-app.on('before-quit',()=>{closing=true;dragFiles?.dispose();clearTimeout(imageSearchTimer);void imageSearch?.stop();clearInterval(clipboardTimer);clearInterval(retentionTimer);clearInterval(updateTimer);clearTimeout(updateLaunchTimer);monitor?.kill();watchers.forEach(w=>w.close());globalShortcut.unregisterAll();});
+app.on('before-quit',()=>{closing=true;dragFiles?.dispose();clearTimeout(imageSearchTimer);void imageSearch?.stop();clearInterval(clipboardTimer);clearInterval(retentionTimer);clearInterval(updateTimer);clearTimeout(updateLaunchTimer);monitor?.kill();watchers.forEach(w=>w.close());shortcutRegistry?.dispose();globalShortcut.unregisterAll();});

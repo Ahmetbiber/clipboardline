@@ -4,12 +4,13 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const {execFileSync}=require('node:child_process');
 const {windowsEnvironment}=require('./windows-environment.cjs');
+const {textIdentity}=require('./text-identity.cjs');
 
 const KINDS = ['image', 'text', 'link'];
 const DEFAULTS = Object.freeze({
   visibleKinds: KINDS, captureText: false, captureImages: false, captureLinks: true,fetchLinkMetadata:true,
   retentionDays: {image: 30, text: 30, link: 30},
-  shortcuts: {toggle: 'Control+Alt+Space', search: 'Control+Alt+S', screenshot: 'Control+Alt+A'},
+  shortcuts: {toggle: 'Control+Alt+T', search: 'Control+Alt+S', library:'', copyLatest:'', screenshot: 'Control+Alt+A'},
   localShortcuts: {},
   autoCheckUpdates: true, watchFolders: [], openAfterScreenshot: true,
   theme:'soft', cardSize:'medium', sounds:false, launchAtLogin:false, language:'system',indexImages:true,
@@ -44,7 +45,7 @@ function settings(patch, previous = DEFAULTS) {
       }
     } else if (key === 'shortcuts') {
       for (const [action, shortcut] of Object.entries(value || {})) {
-        if (!['toggle', 'search', 'screenshot'].includes(action) || typeof shortcut !== 'string' || shortcut.length > 80 || /[\r\n\0]/.test(shortcut)) fail('Invalid shortcut');
+        if (!['toggle', 'search', 'library', 'copyLatest', 'screenshot'].includes(action) || typeof shortcut !== 'string' || shortcut.length > 80 || /[\r\n\0]/.test(shortcut)) fail('Invalid shortcut');
         out.shortcuts[action] = shortcut;
       }
     } else if (key === 'localShortcuts') {
@@ -81,7 +82,7 @@ function plainURL(value) {
 
 class Store {
   constructor(directory, {clock = Date.now} = {}) {
-    this.directory = path.resolve(directory); this.clock = clock; this.undoStack = [];
+    this.directory = path.resolve(directory); this.clock = clock; this.undoStack = []; this.textIdentities = new WeakMap();
     fs.mkdirSync(this.directory, {recursive: true, mode: 0o700});
     if(fs.lstatSync(this.directory).isSymbolicLink())fail('Application data must not be a symlink.');
     if(process.platform==='win32'){
@@ -181,14 +182,16 @@ class Store {
     if (kind === 'image') imageFile = this.putPNG(value);
     else if (kind === 'link') { url = plainURL(value) || fail('Invalid URL'); }
     else textValue = text(value);
+    const identity=kind==='text'?textIdentity(textValue):null;
     const matching = this.data.items.filter(i => i.kind === kind && !i.trashedAt &&
-      (kind === 'text' ? i.text === textValue : kind === 'link' ? i.url === url : i.imageFile === imageFile));
+      (kind === 'text' ? this.textIdentity(i) === identity : kind === 'link' ? i.url === url : i.imageFile === imageFile));
     const prior = matching.sort((a, b) => b.updatedAt - a.updatedAt)[0];
     if(!prior&&this.data.items.length>=20000)fail('Library item limit reached');
     const now = this.clock();
     const item = prior || {id: crypto.randomUUID(), kind, text: textValue, url, title: '', name: '', pinned: false, folderIds: [], tags: [],
       imageFile, renderedFile: '', ocrText: '', annotations: [], crop: null, note:'', retainedAt:null, lastCopiedAt:null, createdAt: now, updatedAt: now, trashedAt: null, hiddenFromShelf: false};
     item.createdAt = now; item.updatedAt = now; item.hiddenFromShelf = false;
+    if(kind==='text')item.text=textValue;
     if (extra.title) item.title = text(extra.title, 500, true);
     if (matching.length > 1) {
       item.pinned ||= matching.some(i => i.pinned);
@@ -199,6 +202,12 @@ class Store {
     }
     this.data.items = [item, ...this.data.items.filter(i => i.id !== item.id && !matching.includes(i))];
     this.expire(false); this.persist(); return item;
+  }
+  textIdentity(item) {
+    if(typeof item.text!=='string')return null;
+    let cached=this.textIdentities.get(item);
+    if(!cached||cached.text!==item.text){cached={text:item.text,key:textIdentity(item.text)};this.textIdentities.set(item,cached);}
+    return cached.key;
   }
   expire(persist = true) {
     let changed = false;

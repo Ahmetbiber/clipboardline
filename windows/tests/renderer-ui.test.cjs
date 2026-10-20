@@ -442,3 +442,12 @@ test('crop Escape cancels direct crop to browsing while markup crop apply return
  await f.key('KeyM');await f.key('KeyC');await f.pointer('pointerdown',60,30);await f.pointer('pointermove',500,150);await f.pointer('pointerup',500,150);await f.key('Enter');
  assert.match(f.overlay,/markup-canvas/);assert.match(f.overlay,/data-tool="select" aria-pressed="true"/);assert.deepEqual(f.state.items.find(value=>value.id===f.image).crop,{x:60,y:30,width:440,height:120});
 });
+
+test('Settings records and directly disables optional global Library and copy-latest-image shortcuts',async()=>{
+ const f=fixture();await f.ready();await f.api.command('settings');await f.ready();await f.click('settings-tab',{tab:'shortcuts'});
+ assert.match(f.main,/data-action="record-global" data-key-action="library"/);assert.match(f.main,/data-action="record-global" data-key-action="copyLatest"/);
+ await f.click('record-global',{keyAction:'library'});await f.key('KeyL');await f.click('confirm-modal');assert.match(f.overlay,/Record shortcut/);assert.match(f.nodes.get('toast').textContent,/Use Control or Alt/);
+ await f.key('KeyL',{ctrl:true,alt:true});await f.click('confirm-modal');assert.equal(f.commands.at(-1).payload.patch.shortcuts.library,'Control+Alt+L');
+ await f.click('record-global',{keyAction:'copyLatest'});await f.key('KeyC',{ctrl:true,alt:true});await f.click('confirm-modal');assert.equal(f.commands.at(-1).payload.patch.shortcuts.copyLatest,'Control+Alt+C');
+ await f.click('disable-global',{keyAction:'copyLatest'});assert.equal(f.commands.at(-1).payload.patch.shortcuts.copyLatest,'');
+});

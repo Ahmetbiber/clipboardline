@@ -1,10 +1,13 @@
-param([ValidateSet('Capture','CaptureDiagnostics','Restore','PreparePaste','ValidatePaste','Paste','Monitor','CopyImages')][string]$Mode)
+param([ValidateSet('Capture','CaptureDiagnostics','FocusPolicySelfTest','Restore','PreparePaste','ValidatePaste','Paste','Monitor','CopyImages')][string]$Mode)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName Accessibility
 $automationReferences = @(
   [System.Windows.Automation.ClientSettings].Assembly.Location
   [System.Windows.Automation.AutomationIdentifier].Assembly.Location
+  [Accessibility.IAccessible].Assembly.Location
+  [System.Collections.Generic.HashSet[int]].Assembly.Location
 ) | Select-Object -Unique
 Add-Type -ReferencedAssemblies $automationReferences -TypeDefinition @'
 using System;
@@ -18,6 +21,90 @@ public static class ClipBoardLineNative {
     var providers=System.Reflection.Assembly.Load("UIAutomationClientsideProviders, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35");
     System.Windows.Automation.ClientSettings.RegisterClientSideProviderAssembly(providers.GetName());
     automationInitialized=true;
+  }
+  // Chrome can expose only generic panes through the managed UIA/MSAA proxy.
+  // Resolve its explicit native accFocus chain and require IA2 editable state.
+  // No accName, accValue, text, selection or editable-text method is called.
+  [ComImport,Guid("6D5140C1-7436-11CE-8034-00AA006009FA"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  private interface IAccessibleServiceProvider {
+    [PreserveSig] int QueryService(ref Guid service,ref Guid iid,out IntPtr result);
+  }
+  [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int IA2Int(IntPtr self,out int value);
+  [UnmanagedFunctionPointer(CallingConvention.StdCall)] private delegate int IA2Window(IntPtr self,out IntPtr value);
+  [StructLayout(LayoutKind.Sequential)] private struct GUITHREADINFO {
+    public int size;public uint flags;public IntPtr active,focus,capture,menuOwner,moveSize,caret;public int left,top,right,bottom;
+  }
+  [DllImport("user32.dll")] private static extern bool GetGUIThreadInfo(uint thread,ref GUITHREADINFO info);
+  [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window,uint flags);
+  [DllImport("oleacc.dll")] private static extern int AccessibleObjectFromWindow(IntPtr window,uint objectId,ref Guid iid,[MarshalAs(UnmanagedType.Interface)] out Accessibility.IAccessible result);
+  private static int IA2Number(IntPtr pointer,int slot,out int value) {
+    var method=Marshal.ReadIntPtr(Marshal.ReadIntPtr(pointer),slot*IntPtr.Size);
+    return ((IA2Int)Marshal.GetDelegateForFunctionPointer(method,typeof(IA2Int)))(pointer,out value);
+  }
+  private static int IA2Handle(IntPtr pointer,out IntPtr value) {
+    var method=Marshal.ReadIntPtr(Marshal.ReadIntPtr(pointer),42*IntPtr.Size);
+    return ((IA2Window)Marshal.GetDelegateForFunctionPointer(method,typeof(IA2Window)))(pointer,out value);
+  }
+  private static string Snapshot(IntPtr window,uint owner,string runtime,bool editable,bool secure) {
+    return "{\"handle\":\""+window.ToInt64()+"\",\"processId\":"+owner+",\"runtime\":\""+runtime+"\",\"editable\":"+(editable?"true":"false")+",\"secure\":"+(secure?"true":"false")+"}";
+  }
+  private static bool MayResolveLegacy(bool editable,bool enabled,bool secure,bool readOnly) {return !editable&&enabled&&!secure&&!readOnly;}
+  private static bool IA2Editable(uint state,int states) {return (state&4)!=0&&(states&8)!=0&&(states&4)==0&&(state&0x20000041)==0;}
+  public static string FocusPolicySelfTest() {
+    if(!IA2Editable(4,8)||IA2Editable(4|0x40,8)||IA2Editable(4|0x20000000,8)||IA2Editable(4|1,8)||IA2Editable(4,8|4)||IA2Editable(0,8)||IA2Editable(4,0))throw new InvalidOperationException("IA2 focus policy regression");
+    if(!MayResolveLegacy(false,true,false,false)||MayResolveLegacy(true,true,false,false)||MayResolveLegacy(false,false,false,false)||MayResolveLegacy(false,true,true,false)||MayResolveLegacy(false,true,false,true))throw new InvalidOperationException("Known UIA rejection was overridden");
+    return "{\"ok\":true,\"passed\":12}";
+  }
+  private static string ResolveMSAA(IntPtr window,uint owner,out string diagnostic) {
+    diagnostic="{\"stage\":\"unavailable\"}";
+    try {
+      if(window==IntPtr.Zero||GetForegroundWindow()!=window)return null;
+      uint actualOwner;uint thread=GetWindowThreadProcessId(window,out actualOwner);if(actualOwner!=owner)return null;
+      var gui=new GUITHREADINFO();gui.size=Marshal.SizeOf(typeof(GUITHREADINFO));var focusedWindow=window;
+      if(GetGUIThreadInfo(thread,ref gui)&&gui.focus!=IntPtr.Zero&&GetAncestor(gui.focus,2)==window)focusedWindow=gui.focus;
+      uint focusOwner;GetWindowThreadProcessId(focusedWindow,out focusOwner);if(focusOwner!=owner)return null;
+      Guid accessibleId=new Guid("618736E0-3C3D-11CF-810C-00AA00389B71");Accessibility.IAccessible accessible;
+      if(AccessibleObjectFromWindow(focusedWindow,0xFFFFFFFC,ref accessibleId,out accessible)<0||accessible==null)return null;
+      var visited=new System.Collections.Generic.HashSet<long>();int depth;
+      for(depth=0;depth<12;depth++) {
+        IntPtr identity=Marshal.GetIUnknownForObject(accessible);long identityNumber=identity.ToInt64();Marshal.Release(identity);
+        if(!visited.Add(identityNumber)){diagnostic="{\"stage\":\"focus-cycle\"}";return null;}
+        uint flags=Convert.ToUInt32(accessible.get_accState(0));
+        // Disabled/protected focus proxies cannot expose an eligible descendant.
+        if((flags&0x20000001)!=0){diagnostic="{\"stage\":\"blocked-focus-chain\",\"state\":"+flags+"}";return Snapshot(window,owner,"99."+window.ToInt64()+".0",false,(flags&0x20000000)!=0);}
+        object focus=accessible.accFocus;var next=focus as Accessibility.IAccessible;
+        if(next!=null){
+          IntPtr nextIdentity=Marshal.GetIUnknownForObject(next);bool self=nextIdentity.ToInt64()==identityNumber;Marshal.Release(nextIdentity);
+          if(self)break;accessible=next;continue;
+        }
+        if(focus is int&&(int)focus!=0){next=accessible.get_accChild(focus) as Accessibility.IAccessible;if(next==null){diagnostic="{\"stage\":\"unresolved-focused-child\"}";return null;}accessible=next;continue;}
+        break;
+      }
+      if(depth>=12){diagnostic="{\"stage\":\"focus-depth\"}";return null;}
+      uint state=Convert.ToUInt32(accessible.get_accState(0));int role=Convert.ToInt32(accessible.get_accRole(0));
+      diagnostic="{\"stage\":\"focused-msaa\",\"depth\":"+depth+",\"role\":"+role+",\"state\":"+state+",\"nativeFocusWindow\":\""+focusedWindow.ToInt64()+"\"}";
+      if((state&4)==0)return null;
+      var service=accessible as IAccessibleServiceProvider;if(service==null){diagnostic="{\"stage\":\"no-ia2-service\",\"role\":"+role+",\"state\":"+state+"}";return null;}
+      Guid ia2Id=new Guid("E89F726E-C4F4-4C19-BB19-B647D7FA8478");IntPtr ia2=IntPtr.Zero;
+      if(service.QueryService(ref accessibleId,ref ia2Id,out ia2)<0||ia2==IntPtr.Zero) {
+        if(ia2!=IntPtr.Zero)Marshal.Release(ia2);ia2=IntPtr.Zero;Guid serviceId=ia2Id;
+        if(service.QueryService(ref serviceId,ref ia2Id,out ia2)<0||ia2==IntPtr.Zero){if(ia2!=IntPtr.Zero)Marshal.Release(ia2);diagnostic="{\"stage\":\"ia2-query-unavailable\",\"role\":"+role+",\"state\":"+state+"}";return null;}
+      }
+      try {
+        // IAccessible2 inherits the complete IUnknown/IDispatch/IAccessible ABI.
+        // Slots35/41/42 are states/uniqueID/windowHandle in the published IDL:
+        // https://github.com/LinuxA11y/IAccessible2/blob/master/api/Accessible2.idl
+        int states,unique;IntPtr handle;
+        if(IA2Number(ia2,35,out states)!=0||IA2Number(ia2,41,out unique)!=0||IA2Handle(ia2,out handle)!=0||unique==0){diagnostic="{\"stage\":\"ia2-identity-unavailable\"}";return null;}
+        uint handleOwner;GetWindowThreadProcessId(handle,out handleOwner);
+        if(handle==IntPtr.Zero||GetAncestor(handle,2)!=window||handleOwner!=owner||GetForegroundWindow()!=window){diagnostic="{\"stage\":\"ia2-owner-mismatch\"}";return null;}
+        bool secure=(state&0x20000000)!=0;
+        // IA2_EDITABLE may coexist with MSAA_READONLY; explicit denial wins.
+        bool editable=IA2Editable(state,states);
+        diagnostic="{\"stage\":\"ia2-focus\",\"depth\":"+depth+",\"role\":"+role+",\"state\":"+state+",\"ia2States\":"+states+",\"uniqueId\":"+unique+",\"nativeFocusWindow\":\""+focusedWindow.ToInt64()+"\",\"window\":\""+handle.ToInt64()+"\"}";
+        return Snapshot(window,owner,"99."+window.ToInt64()+"."+unique,editable,secure);
+      } finally {Marshal.Release(ia2);}
+    }catch(Exception){diagnostic="{\"stage\":\"provider-unavailable\"}";return null;}
   }
   private static readonly object outputLock = new object();
   private static string lastFocus;
@@ -36,29 +123,33 @@ public static class ClipBoardLineNative {
       entries.Add("{\"processId\":"+current.ProcessId+",\"runtime\":\""+String.Join(".",element.GetRuntimeId())+"\",\"controlType\":"+current.ControlType.Id+",\"nativeHandle\":"+current.NativeWindowHandle+",\"enabled\":"+(current.IsEnabled?"true":"false")+",\"secure\":"+(current.IsPassword?"true":"false")+",\"keyboardFocusable\":"+(current.IsKeyboardFocusable?"true":"false")+",\"keyboardFocused\":"+(current.HasKeyboardFocus?"true":"false")+",\"valuePattern\":"+(hasValue?"true":"false")+",\"valueReadOnly\":"+valueReadOnly+",\"textPattern\":"+(hasText?"true":"false")+",\"textReadOnly\":"+textReadOnly+"}");
       try { element=TreeWalker.RawViewWalker.GetParent(element); } catch(Exception) { element=null; }
     }
-    return "{\"ok\":true,\"handle\":\""+window.ToInt64()+"\",\"processId\":"+owner+",\"chain\":["+String.Join(",",entries)+"]}";
+    string msaa;ResolveMSAA(window,owner,out msaa);
+    return "{\"ok\":true,\"handle\":\""+window.ToInt64()+"\",\"processId\":"+owner+",\"chain\":["+String.Join(",",entries)+"],\"msaa\":"+msaa+"}";
   }
 
   private static string DescribeFocus(AutomationElement element,bool fromEvent) {
     var window=GetForegroundWindow(); uint owner=0; GetWindowThreadProcessId(window,out owner);
-    bool editable=false,secure=false; string runtime="";
+    bool editable=false,secure=false,enabled=true,readOnly=false; string runtime="";
     if(element!=null) {
-      var current=element.Current; secure=current.IsPassword;
+      var current=element.Current;secure=current.IsPassword;enabled=current.IsEnabled;
       runtime=String.Join(".",element.GetRuntimeId());
+      if(fromEvent&&current.ProcessId!=owner)return null;
       object pattern;
-      if(current.IsEnabled&&!secure&&current.ProcessId==owner&&runtime.Length>0) {
-        if(element.TryGetCurrentPattern(ValuePattern.Pattern,out pattern)) editable=!((ValuePattern)pattern).Current.IsReadOnly;
+      if(enabled&&!secure&&current.ProcessId==owner&&runtime.Length>0) {
+        if(element.TryGetCurrentPattern(ValuePattern.Pattern,out pattern)) {readOnly=((ValuePattern)pattern).Current.IsReadOnly;editable=!readOnly;}
         else if(element.TryGetCurrentPattern(TextPattern.Pattern,out pattern)) {
-          var readOnly=((TextPattern)pattern).DocumentRange.GetAttributeValue(TextPattern.IsReadOnlyAttribute);
-          if(readOnly is bool) editable=!(bool)readOnly;
+          var value=((TextPattern)pattern).DocumentRange.GetAttributeValue(TextPattern.IsReadOnlyAttribute);
+          if(value is bool){readOnly=(bool)value;editable=!readOnly;}
         }
       }
-      // A focus callback may arrive after the foreground has already changed.
-      // Never mistake a background provider's event for a fresh destination.
-      if(fromEvent&&current.ProcessId!=owner)return null;
     }
-    return "{\"handle\":\""+window.ToInt64()+"\",\"processId\":"+owner+",\"runtime\":\""+runtime+"\",\"editable\":"+(editable?"true":"false")+",\"secure\":"+(secure?"true":"false")+"}";
+    if(MayResolveLegacy(editable,enabled,secure,readOnly)) {
+      string diagnostic;var legacy=ResolveMSAA(window,owner,out diagnostic);
+      if(legacy!=null)return legacy;
+    }
+    return Snapshot(window,owner,runtime,editable,secure);
   }
+
   private static void EmitFocus(string snapshot) {
     if(snapshot==null)return;
     lock(outputLock) { if(lastFocus==snapshot)return;lastFocus=snapshot;Console.Out.WriteLine("{\"focus\":"+snapshot+"}");Console.Out.Flush(); }
@@ -140,6 +231,8 @@ try {
       [ClipBoardLineNative]::EmitCurrentFocus()
       Start-Sleep -Milliseconds 250
     }
+  } elseif ($Mode -eq 'FocusPolicySelfTest') {
+    [ClipBoardLineNative]::FocusPolicySelfTest()
   } elseif ($Mode -eq 'CaptureDiagnostics') {
     [ClipBoardLineNative]::FocusDiagnostics()
   } elseif ($Mode -eq 'Capture') {

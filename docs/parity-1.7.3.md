@@ -1,5 +1,9 @@
 # ClipBoardLine 1.7.3 platform parity
 
+**Candidate, not published.** Native platform acceptance and final publication
+are pending. The table describes implemented source behavior, not a claim that
+every native check has passed or all product features are identical.
+
 macOS and Windows share one product version and one behavior contract. Command
 maps to Control, and Option maps to Alt, on Windows. Every future feature is a
 two-platform change unless a native exception is recorded in the contract.
@@ -7,6 +11,7 @@ two-platform change unless a native exception is recorded in the contract.
 | Area | Shared behavior and corrections |
 | --- | --- |
 | Shelves | Opening selects the first available image only; empty/hidden rows are skipped. Up/Down cross rows, Left/Right move items, Command/Control-arrows reach endpoints and Option/Alt-arrows change pages. |
+| Text identity | Both stores match NFC Unicode and CRLF/CR line endings, ignoring only outer paragraph breaks. Newest literal clipboard bytes replace the body while names, pins, folders, tags and notes survive. Spaces, indentation, case, invisible characters and internal blank lines remain significant. The shared `contracts/text-identity.json` fixture exercises both actual stores. |
 | Shortcuts | Remapping, disabling and restoring defaults affect actual dispatch and displayed hints. Custom bindings take precedence over new defaults. Quick slots, selection extension, image tools and context-dependent editing commands are configurable. |
 | Actions | Search, navigation, Library views, folders/tags, settings destinations, crop and markup use real controllers. Batch actions retain captured order; preview follows the focused batch member. |
 | Library | Notes and inspector edits save automatically before navigation. Saved status survives unpinning or removing folders/tags. Multiple tags filter with AND; title descending, last-copied and relevance sorting are available. |
@@ -38,6 +43,20 @@ Mac acceptance uses XCTest, isolated native Library/preview fixtures and actual
 external editors. Computer Use cannot automate its own host ChatGPT/Codex
 application; website or synthetic tests must never be reported as native ChatGPT
 desktop acceptance. No security permission is granted automatically.
+
+## Open functional gap: screen recordings
+
+Video parity is not implemented by this candidate. Mac recognizes only `.mov`
+and `.mp4` as recordings. The screenshot watcher accepts recordings only in the
+application Inbox; `Line.quickLook`/`AppDelegate.showPreview` opens them through
+Quick Look, and `Trim.swift` presents AVKit trimming. Confirmed trimming exports
+the selected range to a temporary file and replaces the original recording.
+Windows import and folder watching accept still images/text, its preview renders
+images/text/links, and it has no recording playback or trimming command. External
+Open file for an image does not fill this gap. This is an **open functional
+difference**, not a rendering-only or unavoidable OS exception. The 1.7.3
+acceptance scope covers shortcuts, Library, still-image/text/link previews and
+text/image paste; it does not establish complete parity for recordings.
 
 ## Native platform details
 

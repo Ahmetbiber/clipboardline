@@ -34,4 +34,4 @@ function monitor(changed, failed, focused = () => {}) {
   });
   child.on('error',failed); child.on('exit',code => { if(code) failed(new Error('Native clipboard monitor stopped.')); }); return child;
 }
-module.exports = {cancelPaste:()=>{for(const child of pasteChildren)child.kill();pasteChildren.clear();},capture:()=>run('Capture'),captureDiagnostics:()=>run('CaptureDiagnostics'), restore:target=>run('Restore',target),preparePaste:target=>run('PreparePaste',target),validatePaste:target=>run('ValidatePaste',{...target,prepared:true}),paste:target=>run('Paste',target),copyImages:payload=>run('CopyImages',payload),monitor};
+module.exports = {cancelPaste:()=>{for(const child of pasteChildren)child.kill();pasteChildren.clear();},capture:()=>run('Capture'),captureDiagnostics:()=>run('CaptureDiagnostics'),selfTestFocusPolicy:()=>run('FocusPolicySelfTest'), restore:target=>run('Restore',target),preparePaste:target=>run('PreparePaste',target),validatePaste:target=>run('ValidatePaste',{...target,prepared:true}),paste:target=>run('Paste',target),copyImages:payload=>run('CopyImages',payload),monitor};

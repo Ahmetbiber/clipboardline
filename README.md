@@ -8,6 +8,8 @@ Images, text and links, close at hand. Keep recent copies on three shelves, save
 
 > The macOS edition uses Swift, AppKit, SwiftUI, Vision and Core ML on macOS 14 or later, for Apple silicon and Intel. The separate Electron edition is available for Windows x64; see the platform matrix for differences and native validation evidence.
 
+**1.7.3 candidate:** the source and feature reference include the current cross-platform work. Publication is pending both native platform suites; see the [parity scope and verification requirements](docs/parity-1.7.3.md). The download links still point to published 1.7.2 packages.
+
 ## Your first five minutes
 
 1. **Install and open.** Download the latest Mac release, move the app to Applications and open it. ClipBoardLine lives in the menu bar.
@@ -20,12 +22,12 @@ Images, text and links, close at hand. Keep recent copies on three shelves, save
 
 | Feature | What it does |
 | --- | --- |
-| **Three independent shelves** | Browse Images, Texts and Links as separate horizontal rows. Toggle each row, switch the active shelf, filter pinned items and scroll through older copies. Fresh openings return each visible row to its first item. |
+| **Three independent shelves** | Browse Images, Texts and Links as separate horizontal rows. Toggle each row, switch the active shelf, filter pinned items and scroll through older copies. Opening selects only the first available image; if Images is hidden or empty, the first available item in the next visible shelf is selected. |
 | **Screenshot and clipboard capture** | Handle screenshots instantly, watch up to three additional image folders, and optionally collect copied images or text. Clipboard image and text collection are independent opt-ins. Text and link copies arrive silently without opening the shelves. |
-| **A local Library** | A resizable native window with grid and list views, a folder/tag sidebar and an editable inspector. Create notes, edit titles and content, and organize images, text and links together. Full screen is optional. |
+| **A local Library** | A normal resizable window with grid and column-based list views, a folder/tag sidebar and an auto-saving editable inspector. Create notes, edit titles and content, and organize images, text and links together. Full screen is optional. |
 | **Pin, name, file and tag** | Pin and favorite are one action. Pins, folder membership or tags retain an item beyond ordinary history expiry. Use nested virtual folders and multiple tags; name-and-pin supports a sequential batch workflow. |
 | **One shelf search** | The centered search field searches all currently visible shelves: text, link details, titles, notes, tags and recognized text in images. Hidden shelves are excluded. Browse results without opening Library. |
-| **OCR and visual search** | Apple Vision OCR and MobileCLIP-S2 run on the Mac. Library offers text/OCR, visual, or combined search, plus type, date, domain, tag, folder and pinned filters. Visual descriptions work best in English. |
+| **OCR and visual search** | OCR runs locally through Apple Vision on Mac and packaged English/Turkish Tesseract on Windows. Both use the original MobileCLIP-S2 model for offline Library visual search, with text/OCR, visual and combined modes plus type, date, domain, tag, folder and pinned filters. Visual descriptions work best in English. |
 | **Link cards with context** | A standalone copied web URL goes to Links; a paragraph containing URLs stays text. Optional enrichment adds website or YouTube titles, authors and thumbnails. Open the selected link in your browser. |
 | **Borderless previews** | Space opens images, editable text and link previews. Shelf previews can move across content types without closing the window. Image zoom runs from initial fit to 400%; pinch, wheel and drag-to-pan are supported. |
 | **Editable markup and crop** | Pen, translucent marker, rectangle, ellipse, arrow, line and text tools share the top preview toolbar. Move/resize marks, change styles and undo. Crop non-destructively; original files and editable annotations remain available. |
@@ -33,8 +35,8 @@ Images, text and links, close at hand. Keep recent copies on three shelves, save
 | **History without repeated text cards** | Configure image, text and link retention separately: 1, 3, 7, 15 or 30 days, with 30 days as the default. Re-copying equivalent text refreshes one current entry instead of filling the shelf with duplicates; saved organization is preserved. |
 | **Take down and recover** | S removes the selection and selects the next surviving item. Saved records remain in Library; temporary copies enter recoverable Trash. Backspace restores the latest shelf removal, including batches, during the current app session. External original files are preserved. |
 | **Keyboard-driven Actions** | Search the contextual Actions bar for organization, navigation, image editing, Library views, settings and updates. Commands show current shortcut assignments and operate on the item or ordered batch captured when the bar opened. |
-| **A Mac interface you can tune** | Small, medium and large cards; soft shelf colors or neutral glass; configurable reveal behavior, full-screen-app visibility, sounds and login launch. Choose the app language independently of macOS. Most browsing shortcuts can be remapped or disabled. |
-| **Native signed updates** | Sparkle presents release notes, downloads and installation. Official public updates need no GitHub account or token. Automatic checks can be disabled; when enabled they run hourly while the app is running. Download and installation require your action. |
+| **An interface you can tune** | Small, medium and large cards; soft shelf colors or neutral glass; configurable reveal behavior, full-screen-app visibility, sounds and login launch. Choose the app language independently of the system. Browsing bindings, selection keys and global shortcuts can be remapped or disabled. |
+| **Native signed updates** | Mac uses Sparkle; Windows uses its signed installer feed. Official public updates need no GitHub account or token. Automatic checks can be disabled; when enabled they run hourly while the app is running. Download and installation require your action. |
 
 ## macOS default keyboard shortcuts
 
@@ -121,7 +123,7 @@ This table lists macOS defaults. The complete [Windows keymap](#windows-default-
 
 ## Windows default keyboard shortcuts
 
-These are the Windows defaults, separate from the macOS table. Control replaces Command and Alt replaces Option, but the scopes below are authoritative. The three global keys and the 48 local action bindings can be changed or disabled in Settings → Keyboard shortcuts. Fixed Enter, Escape, selection aliases, dialog and editor control keys keep their contextual behavior; changing a local action does not remap those fixed handlers. Text fields keep normal typing before browsing shortcuts.
+These are the Windows defaults, separate from the macOS table. Control replaces Command and Alt replaces Option, but the scopes below are authoritative. The five global actions and the local browsing bindings can be changed or disabled in Settings → Keyboard shortcuts. Remapping or disabling a browsing action also replaces its default aliases, including Enter for Copy, Ctrl+P for Pin and Ctrl+Shift+F for the pin filter. Native editor and dialog controls keep their own contexts. Text fields keep normal typing before browsing shortcuts.
 
 [Windows native guide](windows/README.md) · [Platform differences](#platform-support-and-current-gaps)
 
@@ -129,20 +131,22 @@ These are the Windows defaults, separate from the macOS table. Control replaces 
 
 | Default | Action | Where / details |
 | --- | --- | --- |
-| `Ctrl+Alt+Space` | Show / hide shelves | Works while another application is active. |
+| `Ctrl+Alt+T` | Show / hide shelves | Works while another application is active. |
 | `Ctrl+Alt+S` | Open shelf search | Shows shelves with the shared search field focused. |
+| `Off by default` | Open Library globally | Record a shortcut in Settings; opens the normal Library window. |
+| `Off by default` | Copy latest image globally | Record a shortcut in Settings; copies the rendered image while keeping the external app focused. |
 | `Ctrl+Alt+A` | Capture a screen | Captures the display under the pointer; opens the new image in crop/preview. |
 
 ### Windows · Browse, select and find
 
 | Default | Action | Where / details |
 | --- | --- | --- |
-| `L` | Open Library | From focused shelves or a shelf-origin preview. |
+| `L` | Open Library | From focused shelves. |
 | `← / →` | Previous / next item | Shelves, Library and previews; the preview changes in place. |
-| `↑ / ↓` | Move between rows or items | Shelves, with or without search or preview: previous/next visible nonempty row, preserving the item column and clamping to shorter rows. Library and its previews: grid row (list: item). |
+| `↑ / ↓` | Move between rows or items | Shelves, with or without search or preview: previous/next visible nonempty row, preserving the item column and clamping to shorter rows. Library: grid row (list: item); Library preview: previous/next result. |
 | `Ctrl+← / Ctrl+→` | First / last result | Current shelf or Library result set, including previews. |
 | `Alt+← / Alt+→` | Previous / next page | Moves by the active shelf’s visible page size, up to nine cards, based on window width and card size. Library still jumps nine results. Works in previews. |
-| `Tab / Shift+Tab` | Cycle active shelf | Both cycle in the same direction. Shelves only; dialogs use normal focus traversal. |
+| `Tab / Shift+Tab` | Cycle active shelf | Both cycle in the same direction. Shelves and shelf-origin previews; dialogs use normal focus traversal. |
 | `1–9` | Choose numbered card | Choose an available numbered card on the active shelf’s visible page, up to nine; outside preview. |
 | `Shift+← / Shift+→ / Shift+↑ / Shift+↓` | Extend selection | While browsing shelves or Library; text fields keep normal editing. |
 | `Ctrl+A` | Select all current results | Active shelf or current Library result set. |
@@ -150,7 +154,7 @@ These are the Windows defaults, separate from the macOS table. Control replaces 
 | `Shift+S` | Search visible shelves | One literal query across enabled image OCR, text and link rows. Hidden shelves are excluded. |
 | `Ctrl+F` | Focus Library search | Library browsing only. Native editing fields keep their shortcuts. |
 | `Ctrl+0 / Ctrl+1 / Ctrl+2 / Ctrl+3` | All / images / text / links | Library type filters only. |
-| `Ctrl+K` | Open Actions | Shelves, Library, previews and Settings; not during text-preview editing. Type to filter; ↑/↓ choose; Enter runs; Esc closes. |
+| `Ctrl+K` | Open Actions | Shelves, Library, previews and Settings, including text-preview editing with the modified shortcut. Type to filter; ↑/↓ choose; Enter runs; Esc closes. |
 | `Enter / ↑ / ↓ / Esc in search` | Leave or close search | Enter or arrows focus results; press Enter again to copy. Esc clears the query and closes shelf search. |
 
 ### Windows · Copy, organize and recover
@@ -160,8 +164,8 @@ These are the Windows defaults, separate from the macOS table. Control replaces 
 | `Enter` | Copy selection / current preview | Shelves/shelf previews: copies and closes shelves/preview, returning focus. Library and Library-origin previews: copies and stays open. Editors and dialogs handle Enter first. |
 | `Ctrl+C` | Copy and keep browsing | Selected batch, or the current item when a preview is open. |
 | `Ctrl+Enter` | Paste into the previous app | Needs the original editable target; secure or changed targets are rejected. While editing text/image, saves and finishes editing first. |
-| `P / Ctrl+P` | Toggle pin / favorite | One action for images, text and links; supports selected batches. Ctrl+P is a fixed alias. |
-| `F / Ctrl+Shift+F` | Toggle pinned-only results | Active shelf, or Library saved/pinned scope; previews support it. Ctrl+Shift+F is a fixed alias. |
+| `P / Ctrl+P` | Toggle pin / favorite | One action for images, text and links; supports selected batches. Remapping Pin also replaces Ctrl+P. |
+| `F / Ctrl+Shift+F` | Toggle pinned-only results | Active shelf, or Library saved/pinned scope; previews support it. Remapping the filter also replaces Ctrl+Shift+F. |
 | `Shift+P` | Pin to folder | Batch picker: type to filter; ↑/↓ choose; Enter confirms; Esc exits. Ctrl+N creates a folder in the picker. |
 | `Alt+P` | Name and pin | With multiple selections, Enter saves the current name and advances; Esc leaves remaining items unchanged. |
 | `Ctrl+Shift+T` | Add tags | Applies to the selected batch; preserves each item’s existing tags. |
@@ -174,7 +178,7 @@ These are the Windows defaults, separate from the macOS table. Control replaces 
 
 | Default | Action | Where / details |
 | --- | --- | --- |
-| `Shift+I / Shift+T / Shift+L` | Toggle Images / Texts / Links | Shelves and shelf-origin previews. Closing the last row hides the shelves. |
+| `Shift+I / Shift+T / Shift+L` | Toggle Images / Texts / Links | While shelves are focused. Closing the last row hides the shelves. |
 | `Ctrl+Shift+B` | All shelves / active shelf | Shelves only; Library type filters are separate. |
 
 ### Windows · Preview, text and image editing
@@ -183,15 +187,15 @@ These are the Windows defaults, separate from the macOS table. Control replaces 
 | --- | --- | --- |
 | `Space` | Open / close preview | While browsing. In text fields it types a space; in image editing it is held to pan. |
 | `Esc` | Close current layer | Outside editing: closes preview, then search, then hides the app. Dialogs and editors use the rules below. |
-| `Ctrl+O` | Open selected link in browser | Selected link in shelves, Library or preview; Ctrl+Enter remains paste. |
+| `Ctrl+O` | Open selected link in browser | Selected link in Library or a link preview; Ctrl+Enter remains paste. |
 | `Ctrl+Shift+C` | Copy recognized image text | Selected image or image preview; local English/Turkish OCR. Keeps browsing open. |
-| `E` | Edit text | Opens the selected text’s editable preview. Enter adds a newline; Ctrl+Enter or Esc saves and finishes. |
-| `M` | Enter / finish image markup | Selected image or image preview. When an image editor is already open, saves and finishes it. |
-| `C` | Open image crop | Selected image, image preview or markup; original pixels remain available. |
-| `Enter / Esc in crop` | Apply / cancel crop | Enter saves and leaves the editor. Esc restores the pre-crop area and switches to the Select tool, keeping the editor open. |
+| `E` | Edit text | In a text preview. Enter adds a newline; Ctrl+Enter or Esc saves and finishes. |
+| `M` | Enter / finish image markup | Image preview. When markup is already open, saves and finishes it. |
+| `C` | Open image crop | Image preview or markup; original pixels remain available. |
+| `Enter / Esc in crop` | Apply / cancel crop | Enter applies and Esc cancels. Direct crop returns to preview browsing; crop entered from markup returns to markup. |
 | `Ctrl+Enter / Esc in markup` | Save and finish markup | Outside the Crop tool, either saves and finishes. Plain Enter does not copy while editing. Save failures keep the draft open. |
 | `Ctrl+S` | Save without leaving markup | Image editor only; keeps editing open. |
-| `Ctrl+Z / Ctrl+Shift+Z` | Undo / redo image edits | Current image-editor session. Native text fields keep their own undo. |
+| `Ctrl+Z / Ctrl+Shift+Z` | Undo / redo image edits | Crop/markup and the image preview after Done, during the current app session. Native text fields keep their own undo. |
 | `Backspace / Delete in markup` | Delete selected annotation | Does not remove the image item; crop selection is separate. |
 | `Wheel / double-click` | Zoom / reset image | Wheel zooms from 100% to 400% of the initial fit; double-click outside editing resets. |
 | `Drag / Shift+wheel / hold Space+drag` | Pan image | Drag when zoomed; Shift+wheel pans. In image editing, hold Space and drag. |
@@ -215,9 +219,9 @@ These are the Windows defaults, separate from the macOS table. Control replaces 
 | `Tab / Shift+Tab in dialogs` | Move focus | Dialog focus is contained in its controls; these keys do not switch shelves there. |
 | `Esc / Backspace / Delete while recording` | Cancel / disable a binding | Esc cancels recording. Backspace or Delete records Off; choose Save to apply. These recording keys are fixed. |
 
-The supported global actions are shelves, search and screen capture. Separate global Library and copy-latest shortcuts are not implemented. See the Windows native guide for collection defaults, platform gaps, build commands and native acceptance evidence.
+Global Library and copy-latest-image shortcuts are off by default and can be recorded or disabled in Settings, alongside shelf toggle, search and screen capture. See the Windows native guide for collection defaults, platform gaps, build commands and native acceptance evidence.
 
-## Windows interface and updates — 1.7.1
+## Windows interface and updates — 1.7.3 candidate
 
 ### Hanging shelves over your desktop
 
@@ -247,7 +251,7 @@ When enabled, update checks are scheduled after launch when due and hourly while
 
 ## Local collection. Explicit connections.
 
-- **Stored on your Mac.** History, folders, tags, notes, thumbnails and search indexes live locally. ClipBoardLine does not provide cloud sync. Local storage is not a password vault; choose what you copy and retain.
+- **Stored on your device.** History, folders, tags, notes, thumbnails and search indexes live locally. ClipBoardLine does not provide cloud sync. Local storage is not a password vault; choose what you copy and retain.
 - **Image and text capture are opt-in.** Turning a watcher on skips the previous clipboard contents. Concealed, transient and autogenerated clipboard markers are checked, Finder file copies are skipped, and the app suppresses its own copies.
 - **OCR and visual search stay on-device.** Image recognition, visual embeddings and search queries run locally. Runtime OCR/visual search does not upload images or query text.
 - **Link enrichment is optional network access.** Enabled enrichment contacts the linked website or YouTube for metadata and thumbnails. Local addresses and URLs with known secret parameters are excluded; disable enrichment in Sources if unwanted.
@@ -293,30 +297,30 @@ Sparkle provides the updater. Apple Vision and the original MobileCLIP-S2 models
 
 Windows [1.7.2 build 64](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.2-build64) is released: [download the x64 installer](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe).
 
-For source revision [`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd), [Windows CI run 39296605977](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) passed **65 Node tests, 146 native acceptance checks** (48 source, 49 packaged, 49 installed) and **7 isolated upgrade checks**.
+**Historical 1.7.2 verification:** for source revision [`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd), [Windows CI run 39296605977](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) passed **65 Node tests, 146 native acceptance checks** (48 source, 49 packaged, 49 installed) and **7 isolated upgrade checks**.
 
-**One product version:** macOS and Windows are both **1.7.2**. Future normal updates use the same product version on both platforms; platform build counters remain independent.
+**Published version:** the download links above are for macOS and Windows **1.7.2**; the **1.7.3 candidate** is not published yet. Future normal updates use the same product version on both platforms; platform build counters remain independent.
 
-**Native updates verified after consolidation:** macOS 1.7.0 → 1.7.1 and Windows 1.7.1 → 1.7.2 installed from the application and reopened automatically, retaining history and settings. The [real Windows update run](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39309767453) used unchanged production binaries, feed and key. Current updates need no GitHub token. Build64’s [exact-source native checks](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39307655801) also passed (48 source, 49 packaged, 49 installed and seven candidate upgrade checks); application code is unchanged from build63.
+**Historical consolidation checks (1.7.1–1.7.2):** macOS 1.7.0 → 1.7.1 and Windows 1.7.1 → 1.7.2 installed from the application and reopened automatically, retaining history and settings. The [real Windows update run](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39309767453) used unchanged production binaries, feed and key. Current updates need no GitHub token. Build64’s [exact-source native checks](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39307655801) also passed (48 source, 49 packaged, 49 installed and seven candidate upgrade checks); application code is unchanged from build63.
 
 **One-time build 62 → 63 upgrade note:** if the installer finishes without reopening ClipBoardLine, open it manually once. The original 1.7.0 build 62 client predates the relaunch fix. The real unchanged build62 client completed download and installation, with data preserved; current build63 → 64 also passed automatic reopening.
 
-The release was checked in actual Windows source, packaged and installed sessions, including text/image paste, focus return, capture, OCR and keyboard workflows. Destination apps still decide which clipboard formats they accept. macOS and Windows data stores are separate; cross-device sync and automatic migration between them are not provided.
+The historical 1.7.2 release was checked in actual Windows source, packaged and installed sessions, including text/image paste, focus return, capture, OCR and keyboard workflows. Destination apps still decide which clipboard formats they accept. macOS and Windows data stores are separate; cross-device sync and automatic migration between them are not provided.
 
 | Capability | macOS | Windows |
 | --- | --- | --- |
 | Content shelves and Library | Native AppKit/SwiftUI; image/text/link shelves, grid/list, folders, tags and pins. | Transparent curved hanging shelves; a normal resizable Library window with unified toolbar, grid/list, folders, tags, pins, notes and toggled sidebar/inspector. |
-| Default global shortcuts | ⌃⌥T shelves; ⌃⌥S search. | Ctrl+Alt+Space shelves; Ctrl+Alt+S search; Ctrl+Alt+A screen capture. Separate global Library/copy-latest shortcuts are not currently implemented. |
+| Default global shortcuts | ⌃⌥T shelves; ⌃⌥S search. | Ctrl+Alt+T shelves; Ctrl+Alt+S search; Ctrl+Alt+A screen capture. Global Library and copy-latest-image shortcuts are configurable and off by default. |
 | Local shortcut modifiers | Command (⌘) for app commands; Option (⌥) for naming/pages. | Control replaces Command; Alt replaces Option. Local and global bindings are configurable. |
-| Clipboard collection | Image/text opt-in; standalone link capture configurable. | Image/text/link collection all default off. Enable each explicitly in Sources. Text and link capture stays silent. |
-| Search and OCR | Apple Vision OCR; optional original MobileCLIP-S2 semantic image search. | Local Tesseract OCR with packaged English/Turkish data. Literal text/OCR search; no semantic image search. |
-| Preview editing | Borderless image/text/link previews; persistent vectors/crop; richer native inspector. | Frameless image/text/link previews; shared top markup/navigation row and original-preserving crop. Undo history belongs to the current editor session. |
+| Clipboard collection | Image/text opt-in; standalone-link capture defaults on and is configurable. | Image/text collection defaults off; standalone-link capture defaults on. Each can be changed in Sources; existing choices are preserved. Text and link capture stays silent. |
+| Search and OCR | Apple Vision OCR; optional original MobileCLIP-S2 semantic image search. | Local Tesseract English/Turkish OCR and original MobileCLIP-S2 semantic image search through ONNX/WASM. Library text/visual/combined modes and scoped filters work offline. |
+| Preview editing | Borderless image/text/link previews; editable vectors/crop, auto-saving inspector and session undo after editing. | Frameless image/text/link previews; shared top toolbar, editable vectors/crop, auto-saving inspector and session undo after editing. |
 | Copy and paste | ⌘Enter targets the original editable field using app Accessibility permission. | Ctrl+Enter restores the prior editable Windows field through the native bridge. Secure/changed targets are rejected. |
 | Image batches | Multiple image/file representations; destination app decides what to accept. | Native FileDrop list plus first-raster fallback. Destination support varies; items are not silently stitched together. |
 | Retention and recovery | Per-kind 1/3/7/15/30-day choices; retained items survive; Library Trash. | Separate per-kind history including Keep forever; saved items survive; recoverable Trash and session take-down undo. |
-| Link metadata | Optional public website/YouTube titles and thumbnails. | Explicit opt-in, default off. New captured/imported public links may fetch titles/thumbnails after enabling. |
-| Recordings and Quick Look | macOS Quick Look and recording Trim integration. | No Quick Look, recording preview or Trim equivalent in this implementation. |
-| Languages | Upstream languages retained; new Library text primarily English/Turkish. | English UI with Turkish core labels; some detailed/status strings remain English. OCR supports English/Turkish. |
+| Link metadata | Optional public website/YouTube titles and thumbnails. | Optional public website/YouTube enrichment defaults on; can be disabled. Existing explicit opt-outs remain unchanged. |
+| Recordings and Quick Look | Quick Look previews .mov/.mp4 recordings; AVKit Trim edits the source recording. | OPEN functional gap: no recording import/capture, playback or Trim. Still-image Open file is not an equivalent. |
+| Languages | System language or one of nine shared language catalogs. | The same nine shared language catalogs and system-language selection. OCR languages are English/Turkish. |
 | Updates and OS trust | Sparkle signed public feed and archives. Project-signed Mac build is not Apple-notarized. | Windows signed feed in the shared public repository; configurable launch/hourly checks and five-minute failure retry. Update and reopen requires a click. The installer has no Authenticode publisher certificate. |
 
 Normal operating-system approval may be required on first open. The Mac build uses a persistent project certificate rather than Apple Developer ID/notarization; the Windows installer is not Authenticode-signed. Update signatures and hashes establish the project update channel, not Apple or Microsoft publisher certification. Use the documented release assets and normal OS approval; do not disable system protections.
@@ -328,6 +332,7 @@ Windows runtime notices: Electron is MIT; Chromium and its bundled components re
 ```sh
 cd windows
 npm ci
+python3 ../scripts/prepare-windows-search-models.py
 npm test
 npm start
 # On the Windows x64 runner:

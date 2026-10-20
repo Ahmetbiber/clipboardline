@@ -15,7 +15,7 @@ async function browserConsumer({page,application,textItem,imageItem,check,until,
   try{
     consumer.version=browser.version();
     target=await browser.newPage({viewport:{width:1100,height:700}});
-    await target.goto('data:text/html,'+encodeURIComponent('<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data: blob:"><title>ClipBoardLine synthetic browser paste fixture</title><style>body{font:20px sans-serif;margin:40px}#editor{border:2px solid #777;min-height:240px;padding:20px}input{display:block;margin-top:30px;padding:15px}</style><h1>Local consumer-browser paste fixture</h1><div id="editor" contenteditable="true" role="textbox" aria-label="Synthetic rich editor"></div><input id="password" type="password" aria-label="Synthetic password field">'));
+    await target.goto('data:text/html,'+encodeURIComponent('<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data: blob:"><title>ClipBoardLine synthetic browser paste fixture</title><style>body{font:20px sans-serif;margin:30px}.rich{border:2px solid #777;min-height:50px;margin:12px 0;padding:12px}#editor{min-height:150px}input{display:block;margin-top:14px;padding:10px}</style><h1>Local consumer-browser paste fixture</h1><div id="editor" class="rich" contenteditable="true" role="textbox" aria-label="Synthetic rich editor"></div><div id="alternate" class="rich" contenteditable="true" role="textbox" aria-label="Synthetic alternate editor">Alternate untouched</div><input id="readonly" readonly value="Read-only untouched" aria-label="Synthetic read-only field"><input id="password" type="password" aria-label="Synthetic password field">'));
     await target.bringToFront();await target.locator('#editor').fill('Original browser fixture selection');await target.locator('#editor').press('Control+a');
     consumer.beforeShow={dom:await domFocus()};
     await application.evaluate(()=>global.__clipboardLineTest.command('show'));
@@ -37,12 +37,35 @@ async function browserConsumer({page,application,textItem,imageItem,check,until,
     await target.locator('#editor img').first().waitFor({state:'visible'});const image=await until(()=>target.locator('#editor img').first().evaluate(element=>({complete:element.complete,width:element.naturalWidth,height:element.naturalHeight})),value=>value.complete&&value.width>0&&value.height>0);
     assert.equal((await page.evaluate(()=>window.clipboardLine.state())).windowVisible,false);consumer.imagePaste=image;const returnedImageFocus=await application.evaluate(()=>global.__clipboardLineTest.native.capture());assert.equal(returnedImageFocus.processId,captured.processId);assert.equal(returnedImageFocus.handle,captured.handle);assert.ok(returnedImageFocus.editable&&!returnedImageFocus.secure);assert.equal(await target.locator('#editor').evaluate(element=>element===document.activeElement),true);check('actual '+vendor+' contenteditable accepts native Library preview image paste and regains native focus');
 
-    await target.bringToFront();await target.locator('#password').click();await application.evaluate(()=>global.__clipboardLineTest.command('show'));
-    const secret=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.equal(secret?.secure,true,vendor+' password UIA target: '+JSON.stringify(secret));
-    await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click({modifiers:['Control']});await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before browser password rejection'));
-    const blocked=await page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id);assert.ok(blocked.result?.error);assert.equal(await target.locator('#password').evaluate(element=>element.value.length),0);assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before browser password rejection');
-    consumer.passwordRejected=true;consumer.passed=true;check('actual '+vendor+' password target rejects paste without clipboard replacement');
+    // Pause exactly before production validation, then move focus to a second
+    // real editor in the same browser. A generic window/pane identity cannot
+    // satisfy this: the destination must identify the captured editable field.
+    await target.bringToFront();await target.locator('#editor').fill('Original field before canceled paste');await target.locator('#editor').press('Control+a');
+    await application.evaluate(()=>global.__clipboardLineTest.command('show'));
+    const originalTarget=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(originalTarget?.editable&&!originalTarget.secure,JSON.stringify(originalTarget));
+    const fields=()=>target.evaluate(()=>({first:document.getElementById('editor').innerHTML,second:document.getElementById('alternate').innerHTML,readonly:document.getElementById('readonly').value,passwordLength:document.getElementById('password').value.length}));
+    const beforeChanged=await fields();await application.evaluate(async({clipboard})=>await clipboard.writeText('Clipboard before browser field change'));
+    await application.evaluate(()=>{const native=global.__clipboardLineTest.native;let release;const gate=new Promise(resolve=>{release=resolve;});global.__consumerChangedPaste={original:native.validatePaste,release,waiting:false};native.validatePaste=async target=>{global.__consumerChangedPaste.waiting=true;await gate;return global.__consumerChangedPaste.original(target);};});
+    const changedRequest=page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id);
+    try{
+      await until(()=>application.evaluate(()=>global.__consumerChangedPaste.waiting),Boolean);
+      await target.bringToFront();await target.locator('#alternate').click();
+      const changedTarget=await application.evaluate(()=>global.__clipboardLineTest.native.capture());assert.ok(changedTarget?.editable&&!changedTarget.secure,JSON.stringify(changedTarget));assert.equal(changedTarget.handle,originalTarget.handle);assert.equal(changedTarget.processId,originalTarget.processId);assert.notEqual(changedTarget.runtime,originalTarget.runtime,'Separate browser editors require distinct stable native focus identities');
+      consumer.fieldIdentities={first:originalTarget.runtime,second:changedTarget.runtime};
+      await application.evaluate(()=>global.__consumerChangedPaste.release());const canceled=await changedRequest;assert.ok(canceled.result?.error,JSON.stringify(canceled.result));
+      assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),'Clipboard before browser field change');assert.deepEqual(await fields(),beforeChanged);consumer.changedFieldRejected=true;
+      check('actual '+vendor+' changed-field paste cancels before clipboard replacement or insertion into either editor');
+    }finally{await application.evaluate(()=>{const pending=global.__consumerChangedPaste;if(pending){pending.release();global.__clipboardLineTest.native.validatePaste=pending.original;delete global.__consumerChangedPaste;}});await changedRequest.catch(()=>{});}
     await page.evaluate(()=>window.clipboardLine.command('hide'));
+
+    for(const control of ['readonly','password']){
+      await target.bringToFront();await target.locator('#'+control).click();await application.evaluate(()=>global.__clipboardLineTest.command('show'));
+      const guarded=await application.evaluate(()=>global.__clipboardLineTest.getTarget());assert.ok(control==='password'?guarded?.secure===true:guarded?.editable===false&&!guarded?.secure,vendor+' '+control+' native target: '+JSON.stringify(guarded));
+      const beforeFields=await fields(),sentinel='Clipboard before browser '+control+' rejection';await page.locator(`[data-shelf="text"] [data-item-id="${textItem.id}"]`).click({modifiers:['Control']});await application.evaluate(async({clipboard},text)=>await clipboard.writeText(text),sentinel);
+      const blocked=await page.evaluate(id=>window.clipboardLine.command('paste',{ids:[id]}),textItem.id);assert.ok(blocked.result?.error);assert.deepEqual(await fields(),beforeFields);assert.equal(await application.evaluate(async({clipboard})=>await clipboard.readText()),sentinel);
+      consumer[control==='password'?'passwordRejected':'readOnlyRejected']=true;check('actual '+vendor+' '+control+' target rejects paste without clipboard replacement or changing any editor');await page.evaluate(()=>window.clipboardLine.command('hide'));
+    }
+    consumer.passed=true;
   }catch(error){
     consumer.failure={error:String(error.stack||error),dom:target&&!target.isClosed()?await domFocus().catch(()=>null):null,native:await nativeFocus().catch(nativeError=>({error:nativeError.message}))};
     if(output&&target&&!target.isClosed())await target.screenshot({path:path.join(output,name+'-consumer-failure.png')}).catch(()=>{});
