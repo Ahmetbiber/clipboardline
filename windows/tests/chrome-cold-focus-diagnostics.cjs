@@ -3,7 +3,7 @@
 // case launches a fresh browser/profile and calls the unchanged product capture
 // exactly once before any UIA/MSAA diagnostics. Only synthetic local HTML is used.
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
-const {spawn}=require('node:child_process');
+const {spawn,execFileSync}=require('node:child_process');
 const {chromium}=require('playwright');
 const native=require('../lib/native.cjs');
 const {windowsEnvironment}=require('../lib/windows-environment.cjs');
@@ -13,6 +13,17 @@ const report={sourceRevision:process.env.GITHUB_SHA,diagnosticOnly:true,releaseA
 const executable=[process.env['ProgramFiles(x86)'],process.env.ProgramFiles,process.env.LOCALAPPDATA].filter(Boolean).map(root=>path.join(root,'Google','Chrome','Application','chrome.exe')).find(file=>fs.existsSync(file));
 if(!executable)throw new Error('Actual Google Chrome required.');
 const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-cold-focus-'));
+const powershell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
+// The failure occurred with .85 while the first diagnostic runner had .40.
+// Upgrade only from Google's official, Authenticode-verified enterprise MSI;
+// require the exact failing patch before starting any comparative capture.
+// Never downgrade to or accept the older passing browser as a workaround.
+const prepareBrowser=String.raw`$ErrorActionPreference='Stop';$config=[Console]::In.ReadToEnd()|ConvertFrom-Json;$before=(Get-Item -LiteralPath $config.executable).VersionInfo.ProductVersion;$receipt=@{before=$before;expected='155.0.8059.85';source='existing runner image'}
+if([Version]$before -gt [Version]$receipt.expected){throw ('Refusing browser downgrade from '+$before)}
+if($before -ne $receipt.expected){$url='https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi';Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $config.installer -TimeoutSec 120;$signature=Get-AuthenticodeSignature -LiteralPath $config.installer;if($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch '(?:^|, )O=Google LLC(?:,|$)'){throw 'Official Google installer signature verification failed.'};$receipt.source=$url;$receipt.installerSHA256=(Get-FileHash -LiteralPath $config.installer -Algorithm SHA256).Hash.ToLower();$receipt.installerBytes=(Get-Item -LiteralPath $config.installer).Length;$receipt.signer=$signature.SignerCertificate.Subject;$install=Start-Process -FilePath msiexec.exe -ArgumentList @('/i',('"'+$config.installer+'"'),'/qn','/norestart') -Wait -PassThru;$receipt.installerExitCode=$install.ExitCode;if($install.ExitCode -notin @(0,3010)){throw ('Official Google installer failed: '+$install.ExitCode)}}
+$receipt.after=(Get-Item -LiteralPath $config.executable).VersionInfo.ProductVersion;$receipt|ConvertTo-Json -Compress|Set-Content -LiteralPath $config.receipt -Encoding UTF8;if($receipt.after -ne $receipt.expected){throw ('Exact failing Chrome patch required; installed '+$receipt.after)};$receipt|ConvertTo-Json -Compress`;
+try{report.browserPreparation=JSON.parse(execFileSync(powershell,['-NoProfile','-MTA','-NonInteractive','-Command',prepareBrowser],{input:JSON.stringify({executable,installer:path.join(temporary,'google-chrome-official.msi'),receipt:path.join(output,'browser-provenance.json')}),encoding:'utf8',timeout:300000,windowsHide:true,env:windowsEnvironment()}).replace(/^\uFEFF/,'').trim());}catch(error){report.error='Exact failing Chrome patch preparation failed: '+String(error.stack||error);fs.writeFileSync(path.join(output,'observations.json'),JSON.stringify(report,null,2));throw error;}
+console.log('Exact failing browser patch prepared '+JSON.stringify(report.browserPreparation));
 const helperFile=path.join(temporary,'foreground.ps1');
 // This observer is initialized before Chrome starts. It imports no UIA/MSAA
 // types and reads only foreground HWND/owner/focus. The pointer case sends an
@@ -41,7 +52,6 @@ while($null -ne ($line=[Console]::ReadLine())) {
   [Console]::WriteLine((@{window=$window.ToInt64().ToString();owner=[int]$owner;focus=$gui.focus.ToInt64().ToString();focusOwner=[int]$focusOwner;executable=$process.MainModule.FileName}|ConvertTo-Json -Compress))
  } catch { [Console]::WriteLine((@{error=$_.Exception.Message}|ConvertTo-Json -Compress)) }
 }`);
-const powershell=path.join(process.env.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe');
 const observer=spawn(powershell,['-NoProfile','-MTA','-NonInteractive','-ExecutionPolicy','Bypass','-File',helperFile],{windowsHide:true,stdio:['pipe','pipe','pipe'],env:windowsEnvironment()});
 let buffer='',stderr='',pending=[];
 const observerReady=response();
