@@ -1,6 +1,12 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');
 const {MotionBridge,ShelfMotion}=require('../lib/shelf-motion.cjs');
+const {nativeCloseOrder}=require('./shelf-motion-order.cjs');
+test('native close proof uses causal request/ack/hide order and never a cross-process clock tolerance',()=>{
+ const events={hidden:true,requests:[{token:19,phase:'close',sequence:10}],acknowledgements:[{token:19,phase:'close',completed:true,sequence:11,at:1001}],hides:[{sequence:12,at:1000}]};assert.equal(nativeCloseOrder(events,true).hiddenOnlyAfterEnd,true);
+ for(const invalid of [{...events,hides:[{sequence:10,at:9999}]},{...events,acknowledgements:[]},{...events,acknowledgements:[{token:18,phase:'close',completed:true,sequence:11}]},{...events,acknowledgements:[{token:19,phase:'close',completed:false,sequence:11}]},{...events,requests:[{token:19,phase:'open',sequence:10}]},{...events,requests:[...events.requests,{token:20,phase:'open',sequence:11}],acknowledgements:[{token:19,phase:'close',completed:true,sequence:12}],hides:[{sequence:13}]},{...events,hides:[{sequence:12},{sequence:13}]},{...events,hidden:false}])assert.equal(nativeCloseOrder(invalid,true).hiddenOnlyAfterEnd,false);
+ assert.equal(nativeCloseOrder(events,false).hiddenOnlyAfterEnd,false);
+});
 function fixture(){
  const animations=[],body={style:{},dataset:{},animate(frames,options){let resolve,reject;const animation={frames,options,finished:new Promise((yes,no)=>{resolve=yes;reject=no;}),finish:()=>resolve(),cancel(){this.canceled=true;reject(new Error('Canceled'));}};animations.push(animation);return animation;}},motion={matches:false,addEventListener(_event,listener){this.change=listener;}},controller=new ShelfMotion({body,height:()=>800,computed:()=>({transform:'matrix(1,0,0,1,0,-123)'}),motion});
  return{body,motion,controller,animations};
