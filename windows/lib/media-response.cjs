@@ -5,9 +5,10 @@ const {Readable}=require('node:stream');
 
 function mediaGenerationMatches(search,route,file){
  if(!search)return true; // Existing unversioned media URLs remain compatible.
- if(route!=='/video')return false;
- const requested=/^\?v=([a-f0-9]{64})$/.exec(search),managed=/^([a-f0-9]{64})\.(mp4|mov)$/.exec(path.basename(file));
- return !!(requested&&managed&&requested[1]===managed[1]);
+ const requested=/^\?v=([a-f0-9]{64})$/.exec(search),managed=/^([a-f0-9]{64})\.(png|mp4|mov)$/.exec(path.basename(file));
+ if(!requested||!managed||requested[1]!==managed[1])return false;
+ if(route==='/video')return managed[2]==='mp4'||managed[2]==='mov';
+ return (route===undefined||route==='/thumbnail')&&managed[2]==='png';
 }
 
 function byteRange(value,size){

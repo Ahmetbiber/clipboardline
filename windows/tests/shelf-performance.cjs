@@ -1,7 +1,9 @@
 'use strict';
 // Reference browser measurements of the shipped renderer, using only synthetic
 // clipboard data. These are script+layout timings, not native Windows FPS.
-const fs=require('node:fs'),path=require('node:path');
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
+const {Store}=require('../lib/model.cjs'),{mediaGenerationMatches}=require('../lib/media-response.cjs');
+const mediaPages=new WeakMap();
 const {chromium}=require('playwright');
 const root=path.resolve(__dirname,'..');
 function syntheticState(perKind=1000){
@@ -12,11 +14,24 @@ function syntheticState(perKind=1000){
  return{items,folders:[],settings:{visibleKinds:['image','text','link'],retentionDays:{image:30,text:30,link:30},localShortcuts:{},shortcuts:{},cardSize:'medium',theme:'soft',language:'en'},view:'shelves',windowVisible:true,version:'reference',canUndo:false,imageSearch:{available:true,indexing:true,revision:1},update:{}};
 }
 async function rendererPage(browser,{source,perKind=1000,width=1600}={}){
- const page=await browser.newPage({viewport:{width,height:1000}}),raw=syntheticState(perKind);
- await page.route('**/*',route=>{const file=new URL(route.request().url()).pathname.slice(1)||'index.html';if(!['index.html','renderer.js','styles.css','locales.js'].includes(file))return route.abort();route.fulfill({contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html',body:file==='renderer.js'?source.replace(/\}\)\(\);\s*$/,'window.__shelfPerformance.renderer={ui,perform,render,rowItems,item,focusFirst,selectedIds,select,applyState};})();'):fs.readFileSync(path.join(root,file),'utf8')});});
+ const page=await browser.newPage({viewport:{width,height:1000}}),raw=syntheticState(perKind),files=new Map(),records=new Map();
+ const pngs=await page.evaluate(()=>Array.from({length:32},(_,index)=>{const canvas=document.createElement('canvas');canvas.width=240;canvas.height=150;const context=canvas.getContext('2d');context.fillStyle='hsl('+index*37+' 45% 45%)';context.fillRect(0,0,240,150);context.fillStyle='#fff';context.fillRect(15+index,20,50,35);return canvas.toDataURL('image/png').split(',')[1];}));
+ const put=bytes=>{const hash=crypto.createHash('sha256').update(bytes).digest('hex');files.set(hash,bytes);return hash;},hashes=pngs.map(value=>put(Buffer.from(value,'base64')));
+ // Use the actual Store public projection and protocol generation gate. The
+ // browser adapter serves managed appmedia URLs, including Chromium's decoded
+ // resource reuse behavior; never replace them with data URLs to mask edits.
+ const project=id=>{const record=records.get(id),item={id,kind:record.kind,...(record.kind==='image'?{imageFile:record.original+'.png',renderedFile:record.current!==record.original?record.current+'.png':''}:{thumbnailFile:record.current+'.png'})};return Store.prototype.publicState.call({data:{items:[item],folders:[],settings:{}},undoStack:[]}).items[0];};
+ let imageIndex=0;for(const value of raw.items)if(value.kind!=='text'){const hash=hashes[imageIndex++%hashes.length];records.set(value.id,{kind:value.kind,original:hash,current:hash});Object.assign(value,project(value.id));}
+ mediaPages.set(page,{replace(id,bytes){records.get(id).current=put(bytes);return project(id);}});
+ await page.route('**/*',route=>{
+  const url=new URL(route.request().url());if(url.protocol==='appmedia:'){
+   const match=/^\/([a-f0-9-]+)(\/original|\/thumbnail)?$/.exec(url.pathname),record=match&&records.get(match[1]),hash=record&&(match[2]==='/original'?record.original:record.current);
+   if(url.hostname!=='media'||!hash||!mediaGenerationMatches(url.search,match[2],hash+'.png'))return route.fulfill({status:404,body:'Not found'});
+   return route.fulfill({contentType:'image/png',headers:{'Cache-Control':'no-store'},body:files.get(hash)});
+  }
+  const file=url.pathname.slice(1)||'index.html';if(!['index.html','renderer.js','styles.css','locales.js'].includes(file))return route.abort();return route.fulfill({contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html',body:file==='renderer.js'?source.replace(/\}\)\(\);\s*$/,'window.__shelfPerformance.renderer={ui,perform,render,rowItems,item,focusFirst,selectedIds,select,applyState};})();'):fs.readFileSync(path.join(root,file),'utf8')});
+ });
  await page.addInitScript(state=>{
-  const thumbnails=Array.from({length:32},(_,index)=>{const canvas=document.createElement('canvas');canvas.width=240;canvas.height=150;const context=canvas.getContext('2d');context.fillStyle='hsl('+index*37+' 45% 45%)';context.fillRect(0,0,240,150);context.fillStyle='#fff';context.fillRect(15+index,20,50,35);return canvas.toDataURL('image/png');});
-  let imageIndex=0;for(const value of state.items)if(value.kind!=='text')value.mediaUrl=value.thumbnailUrl=thumbnails[imageIndex++%thumbnails.length];
   let current=state,subscriber,removed=[];const commands=[];
   const emit=patch=>{current={...current,...patch};subscriber?.(structuredClone(current));};
   window.__shelfPerformance={commands,emit,snapshot:()=>structuredClone(current),ready:false};
@@ -31,6 +46,7 @@ async function rendererPage(browser,{source,perKind=1000,width=1600}={}){
  });
  return page;
 }
+
 async function referenceMeasurements(page,{iterations=50}={}){
  return page.evaluate(async iterations=>{
   const f=window.__shelfPerformance,r=f.renderer,result={};
@@ -51,5 +67,5 @@ async function main(){
   }const output=option('--output');if(output){fs.mkdirSync(path.dirname(output),{recursive:true});fs.writeFileSync(output,JSON.stringify(report,null,2)+'\n');}console.log(JSON.stringify(report));
  }finally{await browser.close();}
 }
-module.exports={syntheticState,rendererPage,referenceMeasurements};
+module.exports={syntheticState,rendererPage,referenceMeasurements,mediaFor:page=>mediaPages.get(page)};
 if(require.main===module)main().catch(error=>{console.error(error);process.exitCode=1;});

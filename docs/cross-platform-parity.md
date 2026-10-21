@@ -112,7 +112,11 @@ Performance work preserves the shared opening selection, row/page navigation,
 search, preview, copy, pin and delete behavior. Mac caches row projections and
 scopes observation to the row that changes. Windows retains unchanged shelf DOM
 and updates focus/selection/ARIA in place. A page or visible content/media change
-must still update its row, including new pixels served at an existing media URL.
+must still update its row, including new pixels at a stable canonical media path.
+Managed PNG URLs include their content hash; the media handler verifies that
+generation against the actual managed file. This prevents Chromium's decoded
+image reuse from showing an old thumbnail or edited image despite `no-store`.
+Legacy unversioned media paths remain accepted.
 
 The Windows native source, packaged and installed suites run a disposable
 3,000-item shelf fixture with real PNG thumbnails and ordinary application
