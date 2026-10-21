@@ -44,6 +44,7 @@ public static class NotepadAcceptanceNative {
 }
 '@
 $configuration=[System.IO.File]::ReadAllText($Config)|ConvertFrom-Json
+. (Join-Path $PSScriptRoot 'notepad-range-read.ps1')
 # Text selection uses the consumer's UIA provider, never WM_SETTEXT/ValuePattern
 # writes or a second paste path. Microsoft API contracts:
 # https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.textpattern.getselection
@@ -64,13 +65,7 @@ function Owned-Document {
   if ([NotepadAcceptanceNative]::Title($script:handle).IndexOf([string]$configuration.token,[StringComparison]::OrdinalIgnoreCase) -lt 0) { throw 'Notepad changed away from the owned document; no other document was read.' }
   if ([string]::Join('.',$script:editor.GetRuntimeId()) -ne $script:runtime) { throw 'The owned Notepad editor changed.' }
 }
-function Raw-DocumentText {
-  if ($null -ne $script:valuePattern) { return [string]$script:valuePattern.Current.Value }
-  return [string]$script:textPattern.DocumentRange.GetText(-1)
-}
-function Document-Text {
-  Owned-Document
-  $value=Raw-DocumentText
+function Trim-ProviderSuffix([string]$value) {
   if ($script:suffix -and $value.EndsWith($script:suffix,[StringComparison]::Ordinal)) { return $value.Substring(0,$value.Length-$script:suffix.Length) }
   return $value
 }
@@ -94,17 +89,25 @@ function Focus-Document([bool]$Select) {
   throw 'Windows did not focus the exact owned Notepad editor.'
 }
 function Observe-Document {
-  $script:status.text=Document-Text
-  $script:status.foreground=[NotepadAcceptanceNative]::GetForegroundWindow() -eq $script:handle
-  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
-  $script:status.editorFocused=$null -ne $focused -and [string]::Join('.',$focused.GetRuntimeId()) -eq $script:runtime
-  $selected=$null
-  if ($null -ne $script:textPattern) {
-    $selection=@($script:textPattern.GetSelection())
-    $selected=if ($selection.Count -eq 1) {[string]$selection[0].GetText(-1)} else {''}
-    if ($script:suffix -and $selected.EndsWith($script:suffix,[StringComparison]::Ordinal)) { $selected=$selected.Substring(0,$selected.Length-$script:suffix.Length) }
+  $snapshot=Invoke-NotepadTextSnapshot -VerifyOwner { Owned-Document } -Read {
+    # Reacquire both patterns and all ranges from the same identity-checked
+    # editor on every attempt. No prior text or expected paste value is used.
+    $text=$null;[void]$script:editor.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern,[ref]$text)
+    $value=$null;[void]$script:editor.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$value)
+    if ($null -eq $text -and $null -eq $value) { throw 'The owned Notepad editor lost its text providers.' }
+    $raw=if ($null -ne $value) {[string]$value.Current.Value} else {[string]$text.DocumentRange.GetText(-1)}
+    $selected=$null
+    if ($null -ne $text) {
+      $selection=@($text.GetSelection())
+      $selected=if ($selection.Count -eq 1) {Trim-ProviderSuffix ([string]$selection[0].GetText(-1))} else {''}
+    }
+    $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+    return @{text=(Trim-ProviderSuffix $raw);selectedText=$selected;
+      foreground=([NotepadAcceptanceNative]::GetForegroundWindow() -eq $script:handle);
+      editorFocused=($null -ne $focused -and [string]::Join('.',$focused.GetRuntimeId()) -eq $script:runtime)}
   }
-  $script:status.selectedText=$selected
+  foreach ($key in @('text','selectedText','foreground','editorFocused')) { $script:status[$key]=$snapshot.value[$key] }
+  $script:status.rangeReadRetries=[int]$script:status.rangeReadRetries+$snapshot.attempts-1
 }
 try {
   # Use the same Microsoft Win32 provider registration as the real app bridge;
