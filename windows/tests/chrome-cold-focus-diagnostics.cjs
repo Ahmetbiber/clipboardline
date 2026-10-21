@@ -4,12 +4,11 @@
 // exactly once before any UIA/MSAA diagnostics. Only synthetic local HTML is used.
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {spawn,execFileSync}=require('node:child_process');
-const {chromium}=require('playwright');
-const native=require('../lib/native.cjs');
+const {chromium,_electron:electron}=require('playwright');
 const {windowsEnvironment}=require('../lib/windows-environment.cjs');
 if(process.platform!=='win32'||process.env.GITHUB_ACTIONS!=='true')throw new Error('Disposable native Windows runner required.');
 const output=path.resolve('validation/chrome-cold-focus');fs.mkdirSync(output,{recursive:true});
-const report={sourceRevision:process.env.GITHUB_SHA,diagnosticOnly:true,releaseAcceptance:false,scope:'Comparative native focus preconditions, not complete Electron/NSIS acceptance.',productionFocusMonitor:true,startedAt:new Date().toISOString(),cases:[]};
+const report={sourceRevision:process.env.GITHUB_SHA,diagnosticOnly:true,releaseAcceptance:false,scope:'Actual isolated Electron show/getTarget after a fresh Edge focus handoff; not complete package/NSIS acceptance.',productionFocusMonitor:true,extraFocusMonitor:false,runner:{imageVersion:process.env.ImageVersion,imageOS:process.env.ImageOS,osRelease:os.release(),osVersion:os.version()},startedAt:new Date().toISOString(),cases:[]};
 const executable=[process.env['ProgramFiles(x86)'],process.env.ProgramFiles,process.env.LOCALAPPDATA].filter(Boolean).map(root=>path.join(root,'Google','Chrome','Application','chrome.exe')).find(file=>fs.existsSync(file));
 if(!executable)throw new Error('Actual Google Chrome required.');
 const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-cold-focus-'));
@@ -60,10 +59,27 @@ observer.stderr.on('data',chunk=>{stderr+=chunk.toString();});
 observer.on('exit',code=>{for(const entry of pending.splice(0))entry.reject(new Error('Foreground observer exited '+code+': '+stderr));});
 function response(){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('Foreground observer timeout: '+stderr)),15000);pending.push({resolve:value=>{clearTimeout(timer);resolve(value);},reject:error=>{clearTimeout(timer);reject(error);}});});}
 async function win32(request={action:'snapshot'}){const next=response();observer.stdin.write(JSON.stringify(request)+'\n');const value=await next;if(value.error)throw new Error(value.error);return value;}
-const html='<!doctype html><meta charset="utf-8"><title>ClipBoardLine synthetic cold focus diagnostic</title><style>body{font:20px sans-serif;margin:30px}#editor{border:2px solid #777;min-height:180px;margin-top:20px;padding:12px}</style><h1>Synthetic local editor</h1><div id="editor" contenteditable="true" role="textbox" aria-label="Synthetic rich editor"></div>';
-let monitor;
+const html='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data: blob:"><title>ClipBoardLine synthetic browser paste fixture</title><style>body{font:20px sans-serif;margin:30px}.rich{border:2px solid #777;min-height:50px;margin:12px 0;padding:12px}#editor{min-height:150px}input{display:block;margin-top:14px;padding:10px}</style><h1>Local consumer-browser paste fixture</h1><div id="editor" class="rich" contenteditable="true" role="textbox" aria-label="Synthetic rich editor"></div><div id="alternate" class="rich" contenteditable="true" role="textbox" aria-label="Synthetic alternate editor">Alternate untouched</div><input id="readonly" readonly value="Read-only untouched" aria-label="Synthetic read-only field"><input id="password" type="password" aria-label="Synthetic password field">';
+let application;
+async function appCapture(){
+ const before=await application.evaluate(()=>global.__diagnosticCaptures.length);
+ await application.evaluate(()=>global.__clipboardLineTest.command('show'));
+ const result=await application.evaluate(start=>({captured:global.__clipboardLineTest.getTarget(),calls:global.__diagnosticCaptures.slice(start)}),before);
+ if(result.calls.length!==1)throw new Error('One actual first native capture per show required: '+JSON.stringify(result));
+ return result;
+}
+const hideApp=()=>application.evaluate(()=>global.__clipboardLineTest.command('hide'));
+const sameExecutable=(first,second)=>fs.realpathSync.native(first).toLowerCase()===fs.realpathSync.native(second).toLowerCase();
 async function observe(mode,repetition){
  const entry={mode,repetition,startedAt:new Date().toISOString()};report.cases.push(entry);
+ // Reproduce the consumer-suite browser ordering. The same actual Electron app
+ // captures a fresh Edge field, hides, then captures a fresh Chrome field.
+ // This minimal prelude does not claim to replace the full Edge paste suite.
+ const edgeExecutable=[process.env['ProgramFiles(x86)'],process.env.ProgramFiles,process.env.LOCALAPPDATA].filter(Boolean).map(root=>path.join(root,'Microsoft','Edge','Application','msedge.exe')).find(file=>fs.existsSync(file));
+ if(!edgeExecutable)throw new Error('Actual Microsoft Edge required for the handoff.');
+ await hideApp();
+ const edge=await chromium.launch({executablePath:edgeExecutable,headless:false,args:['--force-renderer-accessibility','--no-first-run','--disable-background-networking','--disable-component-update','--disable-sync']});
+ try{const target=await edge.newPage({viewport:{width:1100,height:700}});await target.goto('data:text/html,'+encodeURIComponent(html));await target.bringToFront();await target.locator('#editor').fill('Original browser fixture selection');await target.locator('#editor').press('Control+a');const foreground=await win32();const result=await appCapture();entry.edgePrelude={version:edge.version(),foreground,...result};if(!sameExecutable(foreground.executable,edgeExecutable)||!result.captured?.editable||result.captured.secure||result.captured.processId!==foreground.owner||result.captured.handle!==foreground.window)throw new Error('Edge prelude did not capture its actual native field: '+JSON.stringify(entry.edgePrelude));}finally{await hideApp();await edge.close();}
  const browser=await chromium.launch({executablePath:executable,headless:false,args:['--force-renderer-accessibility','--no-first-run','--disable-background-networking','--disable-component-update','--disable-sync']});
  try{
   // The first pair preserves the full suite's1100x700 viewport. The second
@@ -81,18 +97,23 @@ async function observe(mode,repetition){
   }
   await target.locator('#editor').press('Control+a');
   entry.before={dom:await target.evaluate(()=>({documentFocused:document.hasFocus(),activeID:document.activeElement?.id,isContentEditable:!!document.activeElement?.isContentEditable,visibility:document.visibilityState})),win32:await win32()};
-  const start=Date.now();entry.captured=await native.capture().catch(error=>({error:error.message}));entry.captureWallMilliseconds=Date.now()-start;
-  entry.afterWin32=await win32();entry.expectedChromeForeground=fs.realpathSync.native(entry.before.win32.executable).toLowerCase()===fs.realpathSync.native(executable).toLowerCase();entry.eligible=!!(entry.expectedChromeForeground&&entry.captured?.editable&&!entry.captured?.secure&&entry.captured.processId===entry.before.win32.owner&&entry.captured.handle===entry.before.win32.window);
-  if(!entry.eligible){entry.afterFailure=await native.captureDiagnostics();await target.screenshot({path:path.join(output,mode+'-'+repetition+'.png')});}
+  if(entry.version!=='155.0.8059.85')throw new Error('Exact Chrome patch changed: '+entry.version);
+  const start=Date.now();Object.assign(entry,await appCapture());entry.captureWallMilliseconds=Date.now()-start;
+  entry.afterWin32=await win32();entry.expectedChromeForeground=sameExecutable(entry.before.win32.executable,executable);entry.eligible=!!(entry.expectedChromeForeground&&entry.captured?.editable&&!entry.captured?.secure&&entry.captured.processId===entry.before.win32.owner&&entry.captured.handle===entry.before.win32.window);
+  if(!entry.eligible){await hideApp();await target.bringToFront();entry.afterFailure=await application.evaluate(()=>global.__clipboardLineTest.native.captureDiagnostics());await target.screenshot({path:path.join(output,mode+'-'+repetition+'.png')});}
   console.log(JSON.stringify(entry));
- }finally{await browser.close();fs.writeFileSync(path.join(output,'observations.json'),JSON.stringify(report,null,2));}
+ }finally{await hideApp();await browser.close();fs.writeFileSync(path.join(output,'observations.json'),JSON.stringify(report,null,2));}
 }
 (async()=>{
  await observerReady;
- // Match the application's existing 250ms native focus monitor. Start it before
- // any target browser exists; do not wait for or query the target's AX readiness.
- await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('Production focus monitor did not initialize.')),30000);const ready=()=>{clearTimeout(timer);resolve();};monitor=native.monitor(ready,reject,ready);});
+ application=await electron.launch({args:[path.resolve('.'),'--test-mode','--test-data='+path.join(temporary,'isolated-app')],timeout:60000});
+ const appPage=await application.firstWindow();await appPage.waitForFunction(()=>!!window.clipboardLine);
+ const readyDeadline=Date.now()+30000;while(!await application.evaluate(()=>!!global.__clipboardLineTest)){if(Date.now()>readyDeadline)throw new Error('Actual isolated Electron test hooks did not initialize.');await new Promise(resolve=>setTimeout(resolve,100));}
+ // Observe only the product's actual capture call and return the same value.
+ // No extra capture/diagnostic read or focus request runs before that call.
+ await application.evaluate(()=>{const h=global.__clipboardLineTest,original=h.native.capture;global.__diagnosticCaptures=[];h.native.capture=async()=>{const started=Date.now();try{const value=await original();global.__diagnosticCaptures.push({value,elapsedMilliseconds:Date.now()-started});return value;}catch(error){global.__diagnosticCaptures.push({error:String(error.message),elapsedMilliseconds:Date.now()-started});throw error;}};});
+ await hideApp();
  const modes=['dom-emulated','dom-real-focus','dom-real-native-viewport','os-pointer-real-focus'];
  for(let repetition=1;repetition<=2;repetition++)for(const mode of repetition===1?modes:[...modes].reverse())await observe(mode,repetition);
  report.completedAt=new Date().toISOString();report.completed=true;
-})().catch(error=>{report.error=String(error.stack||error);console.error(report.error);}).finally(()=>{monitor?.kill();observer.stdin.end();observer.kill();fs.writeFileSync(path.join(output,'observations.json'),JSON.stringify(report,null,2));console.log('Diagnostic observations only; deliberately stop the existing workflow before package/release acceptance.');process.exitCode=1;});
+})().catch(error=>{report.error=String(error.stack||error);console.error(report.error);}).finally(async()=>{await application?.close().catch(()=>{});observer.stdin.end();observer.kill();fs.writeFileSync(path.join(output,'observations.json'),JSON.stringify(report,null,2));console.log('Diagnostic observations only; deliberately stop the existing workflow before package/release acceptance.');process.exitCode=1;});
