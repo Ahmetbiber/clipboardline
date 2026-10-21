@@ -1,4 +1,10 @@
 'use strict';
+// Isolated diagnostic branch only. Its intentionally non-successful source
+// probe stops this existing workflow before package/release acceptance begins.
+if(process.env.GITHUB_REF==='refs/heads/codex/chrome-cold-focus-diagnostics'){
+ require('./chrome-cold-focus-diagnostics.cjs');
+ return;
+}
 // This test intentionally fails outside Windows. A Mac cross-package is not
 // accepted as proof that the real Windows application and clipboard work.
 const assert=require('node:assert/strict');
