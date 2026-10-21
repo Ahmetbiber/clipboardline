@@ -105,3 +105,19 @@ CLIPBOARDLINE_PARITY_REPORT=validation/parity/windows.json npm test
 On Windows PowerShell, set `$env:CLIPBOARDLINE_PARITY_REPORT` before `npm test`.
 Commit no generated evidence, real clipboard content, local preferences,
 credentials or signing material.
+
+## Three-shelf performance acceptance (1.7.4)
+
+Performance work preserves the shared opening selection, row/page navigation,
+search, preview, copy, pin and delete behavior. Mac caches row projections and
+scopes observation to the row that changes. Windows retains unchanged shelf DOM
+and updates focus/selection/ARIA in place. A page or visible content/media change
+must still update its row, including new pixels served at an existing media URL.
+
+The Windows native source, packaged and installed suites run a disposable
+3,000-item shelf fixture with real PNG thumbnails and ordinary application
+IPC/keyboard commands. It checks rendering, bounded pages, selection, search,
+metadata/media edits, visibility and reopen behavior. The Mac isolated live
+fixture covers the same three rows with 3,036 items. Large-history CPU/DOM
+benchmarks are supplementary and do not establish native display FPS or eliminate
+the separate cost of full background snapshots/store reloads.

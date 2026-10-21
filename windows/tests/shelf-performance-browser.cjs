@@ -1,0 +1,18 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const {chromium}=require('playwright'),{rendererPage}=require('./shelf-performance.cjs'),exercise=require('./shelf-dom-acceptance.cjs');
+async function main(){
+ const args=process.argv.slice(2),option=name=>args[args.indexOf(name)+1],browser=await chromium.launch({headless:true,...(args.includes('--browser')?{executablePath:option('--browser')}:{})});
+ const checks=[];try{const page=await rendererPage(browser,{source:fs.readFileSync(path.join(__dirname,'../renderer.js'),'utf8'),perKind:1000});
+  const until=async(reader,predicate)=>{const end=Date.now()+5000;let value;while(Date.now()<end){value=await reader();if(predicate(value))return value;await new Promise(resolve=>setTimeout(resolve,10));}throw new Error('Reference browser state timed out: '+JSON.stringify(value));};
+  const rows=await page.evaluate(()=>Object.fromEntries(['image','text','link'].map(kind=>[kind,window.__shelfPerformance.renderer.rowItems(kind).map(value=>value.id)])));
+  const edit=(id,patch)=>page.evaluate(({id,patch})=>{const f=window.__shelfPerformance,state=f.snapshot();Object.assign(state.items.find(value=>value.id===id),patch);f.emit({items:state.items});},{id,patch});
+  await page.evaluate(id=>{window.__sameURLImage=document.querySelector('[data-item-id="'+id+'"] img');},rows.image[0]);await edit(rows.image[0],{crop:{x:0,y:0,width:50,height:50},annotations:[]});assert.equal(await page.evaluate(()=>window.__sameURLImage.isConnected),false,'A same-URL image edit must invalidate its connected image even without updatedAt changing');
+  await exercise({page,until,rows,packet:()=>page.evaluate(()=>window.__shelfPerformance.emit({imageSearch:{available:true,indexing:true,revision:17}})),edit,
+   editImage:id=>page.evaluate(id=>{const f=window.__shelfPerformance,state=f.snapshot(),value=state.items.find(value=>value.id===id),canvas=document.createElement('canvas');canvas.width=canvas.height=50;canvas.getContext('2d').fillRect(0,0,50,50);Object.assign(value,{mediaUrl:canvas.toDataURL(),thumbnailUrl:canvas.toDataURL(),updatedAt:value.updatedAt+1,crop:{x:0,y:0,width:50,height:50}});f.emit({items:state.items});},id),
+   refreshThumbnail:async id=>{await edit(id,{updatedAt:Date.now()});await page.locator('[data-item-id="'+id+'"] img').evaluate(node=>window.__thumbnailBeforeRevision=node);await edit(id,{mediaRevision:'a'.repeat(64)});assert.equal(await page.evaluate(()=>window.__thumbnailBeforeRevision.isConnected),false,'A new media revision must invalidate an unchanged URL/title/timestamp');await page.evaluate(id=>{const f=window.__shelfPerformance,state=f.snapshot(),value=state.items.find(value=>value.id===id),canvas=document.createElement('canvas');canvas.width=80;canvas.height=40;canvas.getContext('2d').fillRect(0,0,80,40);value.mediaUrl=value.thumbnailUrl=canvas.toDataURL();f.emit({items:state.items});},id);},
+   settings:patch=>page.evaluate(patch=>{const f=window.__shelfPerformance;f.emit({settings:{...f.snapshot().settings,...patch}});},patch),show:()=>page.evaluate(()=>{const f=window.__shelfPerformance;f.emit({windowVisible:false});f.emit({windowVisible:true});}),check:message=>checks.push(message)});
+  const result={scope:'Isolated headless browser running shipped renderer + synthetic IPC adapter; not native Windows acceptance',browser:browser.version(),checks};if(args.includes('--output'))fs.writeFileSync(option('--output'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
+ }finally{await browser.close();}
+}
+if(require.main===module)main().catch(error=>{console.error(error);process.exitCode=1;});

@@ -61,6 +61,7 @@ import SwiftUI
  var fixtureActions:[() -> Void]=[]
  var markupFixtureID:UUID?
  var pagingFixtureLoaded=false
+ var shelfStressLoaded=false
  var timer:Timer?
  let output=Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("local/validation/current")
  func applicationDidFinishLaunching(_ n:Notification){
@@ -139,6 +140,7 @@ import SwiftUI
    app.addItem(ClosureMenuItem("Settings…",key:","){self.delegate.showSettings()})
    app.addItem(ClosureMenuItem("Add 200 synthetic images"){self.addStressImages()})
    app.addItem(ClosureMenuItem("Add shelf paging fixtures"){self.addShelfPagingFixtures()})
+   app.addItem(ClosureMenuItem("Add 1,000 items per shelf"){self.addShelfStress()})
    app.addItem(ClosureMenuItem("Show drop receiver"){self.showReceiver()})
    app.addItem(ClosureMenuItem("Inject new synthetic text"){self.clipboard.inject()})
    app.addItem(ClosureMenuItem("Inject synthetic URL"){self.clipboard.injectLink()})
@@ -182,6 +184,7 @@ import SwiftUI
    ("Show library",{self.delegate.showLibrary()}),
    ("Show keyboard shelves",{self.openKeyboardLine()}),
    ("Add shelf paging fixtures",{self.addShelfPagingFixtures()}),
+   ("Add 1,000 items per shelf",{self.addShelfStress()}),
    ("Open image markup fixture",{self.openImageMarkupFixture()}),
    ("Open global search",{self.delegate.openShelfSearch()}),
    ("Open commands",{self.delegate.showCommands()}),
@@ -310,6 +313,36 @@ import SwiftUI
    line.setScrollOffset(0);line.texts.scroll(line.texts.scrollOffset,width:line.viewportWidth);line.links.scroll(line.links.scrollOffset,width:line.viewportWidth)
    controlsWindow?.orderOut(nil);delegate.libraryController?.window?.orderOut(nil);openKeyboardLine()
   }catch{line.notice="Synthetic paging fixture failed"}
+ }
+ /// Real three-row presentation with long history, rather than saved-only
+ /// Library records. Bulk import avoids measuring thousands of individual DB
+ /// transactions; normal shelf models, native views and thumbnails are used.
+ func addShelfStress(){
+  guard !shelfStressLoaded,let source=line.items.first?.url,let pixels=try? Data(contentsOf:source) else{return}
+  do {
+   var records=[LibraryRecord]()
+   for kind in LibraryKind.allCases {
+    for i in 0..<1000 {
+     let date=f.date.addingTimeInterval(Double(i)+1)
+     var record=LibraryRecord(id:UUID(),kind:kind,createdAt:date,updatedAt:date)
+     record.title="Shelf stress \(kind.rawValue) \(i)";record.metadataState="ready"
+     switch kind {
+     case .image: let url=try f.image();try pixels.write(to:url);record.path=url.path
+     case .text: record.text="Synthetic shelf note \(i) İstanbul 🌍\nSecond line";record.lastCapturedAt=date
+     case .link:
+      record.originalURL="https://example.com/shelf-stress/\(i)"
+      record.normalizedURL=LinkIdentity.normalized(URL(string:record.originalURL!)!)
+      record.thumbnailPath=source.path;record.metadataTitle=record.title
+     }
+     records.append(record)
+    }
+   }
+   f.date.addTimeInterval(1001)
+   try store.importRecords(records);shelfStressLoaded=true
+   for shelf in Shelf.allCases {line.focusShelf(shelf,requestFocus:false);line.setActiveFavorites(false)}
+   line.setPresentation(.all,requestFocus:false);line.revealed=false
+   controlsWindow?.orderOut(nil);delegate.libraryController?.window?.orderOut(nil);openKeyboardLine()
+  }catch{line.notice="Synthetic shelf stress fixture failed"}
  }
  func addLibraryStress(){
   guard let source=line.items.first?.url,let pixels=try? Data(contentsOf:source) else{return}

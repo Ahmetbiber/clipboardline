@@ -790,11 +790,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // A line longer than the screen also takes the band the photos hang
         // in, gaps included, so a swipe anywhere along it moves it.
         if !overPhoto {
-            let row = line.presentation == .both && flipped.y >= Layout.panelHeight ? Shelf.texts : (line.presentation == .texts ? .texts : .images)
-            let count = row == .texts ? line.texts.displayEntries.count : line.displayItems.count
-            let top: CGFloat = line.presentation == .both && row == .texts ? Layout.panelHeight : 0
-            overPhoto = Layout.maximumOffset(count: count, width: line.viewportWidth) > 0
-                && flipped.y >= top + Layout.ropeTop && flipped.y < top + Layout.panelHeight - 20
+            overPhoto = line.scrollableShelfBandContains(flipped)
         }
         if panel.ignoresMouseEvents == overPhoto {
             panel.ignoresMouseEvents = !overPhoto

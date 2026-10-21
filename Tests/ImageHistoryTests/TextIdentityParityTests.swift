@@ -1,6 +1,8 @@
 import AppKit
+#if !STANDALONE_TESTS
 import XCTest
 @testable import Tendedero
+#endif
 
 @MainActor final class TextIdentityParityTests: HistoryTestCase {
     private struct Contract: Decodable { let schemaVersion: Int; let cases: [Entry] }

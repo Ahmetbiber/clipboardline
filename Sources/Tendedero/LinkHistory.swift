@@ -6,10 +6,10 @@ import Combine
         get { UserDefaults.standard.object(forKey: "linkClipboardEnabled") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "linkClipboardEnabled") }
     }
-    @Published private(set) var entries = [LibraryRecord]()
-    @Published private(set) var favoritesOnly = false
-    @Published private(set) var searchMatchingIDs: Set<UUID>?
-    @Published private(set) var selectedIDs = Set<UUID>()
+    @Published private(set) var entries = [LibraryRecord]() { didSet { invalidateDisplayProjection() } }
+    @Published private(set) var favoritesOnly = false { didSet { if favoritesOnly != oldValue { invalidateDisplayProjection() } } }
+    @Published private(set) var searchMatchingIDs: Set<UUID>? { didSet { invalidateDisplayProjection() } }
+    @Published private(set) var selectedIDs = Set<UUID>() { didSet { if selectedIDs != oldValue { cachedSelectedEntries = nil } } }
     @Published private(set) var focusedID: UUID?
     @Published private(set) var selecting = false
     @Published private(set) var scrollOffset: CGFloat = 0
@@ -21,14 +21,33 @@ import Combine
     private var anchor: UUID?
     private var feedbackGeneration = 0
     private let copyOverride: ((String) -> Void)?
+    // Filtering belongs to membership changes, not every scroll/hover/layout pass.
+    // The unfiltered array shares its storage; filtered results remain reusable
+    // until entries, the pinned filter or the literal search result changes.
+    private var cachedDisplayEntries: [LibraryRecord]?
+    private var cachedSelectedEntries: [LibraryRecord]?
+    private func invalidateDisplayProjection() {
+        cachedDisplayEntries = nil
+        cachedSelectedEntries = nil
+    }
     var displayEntries: [LibraryRecord] {
-        entries.filter { (!favoritesOnly || $0.favorite) && (searchMatchingIDs?.contains($0.id) ?? true) }
+        guard favoritesOnly || searchMatchingIDs != nil else { return entries }
+        if let cachedDisplayEntries { return cachedDisplayEntries }
+        let result = entries.filter { (!favoritesOnly || $0.favorite) && (searchMatchingIDs?.contains($0.id) ?? true) }
+        cachedDisplayEntries = result
+        return result
     }
     func setSearchMatchingIDs(_ ids: Set<UUID>?, width: CGFloat) {
         guard searchMatchingIDs != ids else { return }
         searchMatchingIDs = ids; sanitize(); scroll(0, width: width)
     }
-    var selectedEntries: [LibraryRecord] { displayEntries.filter { selectedIDs.contains($0.id) } }
+    var selectedEntries: [LibraryRecord] {
+        guard !selectedIDs.isEmpty else { return [] }
+        if let cachedSelectedEntries { return cachedSelectedEntries }
+        let result = displayEntries.filter { selectedIDs.contains($0.id) }
+        cachedSelectedEntries = result
+        return result
+    }
     init(store: LibraryStore?, copy: ((String) -> Void)? = nil) {
         self.store = store; copyOverride = copy
         reload()
@@ -70,7 +89,8 @@ import Combine
     }
     func scroll(_ delta: CGFloat, width: CGFloat) {
         guard delta.isFinite else { return }
-        scrollOffset = max(0, min(Layout.maximumOffset(count: displayEntries.count, width: width), scrollOffset - delta))
+        let offset = max(0, min(Layout.maximumOffset(count: displayEntries.count, width: width), scrollOffset - delta))
+        if offset != scrollOffset { scrollOffset = offset }
     }
     func actionEntries(_ id: UUID) -> [LibraryRecord] { selectedIDs.contains(id) && selectedEntries.count > 1 ? selectedEntries : entries.filter { $0.id == id } }
     func togglePin(_ id: UUID) { perform { try store?.toggleFavorite([id]) } }

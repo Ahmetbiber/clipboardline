@@ -1,39 +1,51 @@
 import SwiftUI
 
 struct LinkShelfView: View {
-    @ObservedObject var line: Line
+    let line: Line
     @ObservedObject var links: LinkHistory
     let width: CGFloat
     var body: some View {
+        LinkShelfContents(line: line, links: links, width: width, renderState: ShelfRenderState(line: line, shelf: .links)).equatable()
+    }
+}
+
+private struct LinkShelfContents: View, Equatable {
+    let line: Line
+    @ObservedObject var links: LinkHistory
+    let width: CGFloat
+    let renderState: ShelfRenderState
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.line === rhs.line && lhs.links === rhs.links && lhs.width == rhs.width && lhs.renderState == rhs.renderState
+    }
+    var body: some View {
         let entries = links.displayEntries
-        let quickNumbers = line.activeShelf == .links && line.searchEditingShelf == nil
-            ? Dictionary(uniqueKeysWithValues: line.quickSelectionIDs.enumerated().map { ($0.element, $0.offset + 1) }) : [:]
+        let quickNumbers = Dictionary(uniqueKeysWithValues: renderState.quickIDs.enumerated().map { ($0.element, $0.offset + 1) })
         let range = Layout.visibleRange(count: entries.count, width: width, offset: links.scrollOffset)
+        let payload = range.map { VisibleLinkPayload(id: entries[$0].id, thumbnailPath: entries[$0].thumbnailPath) }
         ZStack(alignment: .topLeading) {
             if entries.isEmpty {
-                Text(line.shelfSearch?.isActive(for: .link) == true ? L("No matching items") : links.favoritesOnly ? L("No matching items") + " · " + line.keyboardBindings.title(.pinnedOnly) : L("Copied web addresses appear here when link capture is enabled"))
+                Text(renderState.searchActive ? L("No matching items") : links.favoritesOnly ? L("No matching items") + " · " + renderState.pinnedHint : L("Copied web addresses appear here when link capture is enabled"))
                     .font(.system(size: 12)).padding(9).background(.regularMaterial, in: Capsule()).position(x: width / 2, y: 95)
             }
-            ForEach(range.map { entries[$0] }) { entry in
-                let index = entries.firstIndex { $0.id == entry.id } ?? 0
-                LinkCard(entry: entry, line: line, links: links, quickNumber: quickNumbers[entry.id])
+            ForEach(range.map { (index: $0, entry: entries[$0]) }, id: \.entry.id) { index, entry in
+                LinkCard(entry: entry, line: line, links: links, renderState: renderState, quickNumber: quickNumbers[entry.id])
                     .position(x: Layout.x(index: index, scrollOffset: links.scrollOffset),
                         y: Layout.ropeY(x: Layout.x(index: index, scrollOffset: links.scrollOffset), width: width) - Layout.pinAbove + (18 + 112 * Layout.scale) / 2)
             }
-        }.onAppear { requestThumbnails(entries, range) }
-            .onChange(of: range) { _, value in requestThumbnails(entries, value) }
-            .onChange(of: entries) { _, value in requestThumbnails(value, Layout.visibleRange(count: value.count, width: width, offset: links.scrollOffset)) }
+        }.onAppear { requestThumbnails(payload) }
+            .onChange(of: payload) { _, value in requestThumbnails(value) }
     }
-    private func requestThumbnails(_ entries: [LibraryRecord], _ range: Range<Int>) {
-        links.thumbnails.request(range.compactMap { entries[$0].thumbnailPath.map { URL(fileURLWithPath: $0) } }, pixels: 320)
-        line.onLinkItemsVisible?(range.map { entries[$0].id })
+    private func requestThumbnails(_ payload: [VisibleLinkPayload]) {
+        links.thumbnails.request(payload.compactMap { $0.thumbnailPath.map { URL(fileURLWithPath: $0) } }, pixels: 320)
+        line.onLinkItemsVisible?(payload.map(\.id))
     }
 }
 
 private struct LinkCard: View {
     let entry: LibraryRecord
-    @ObservedObject var line: Line
+    let line: Line
     @ObservedObject var links: LinkHistory
+    let renderState: ShelfRenderState
     let quickNumber: Int?
     @State private var hovering = false
     private var thumbnail: NSImage? { entry.thumbnailPath.flatMap { links.thumbnails.image(for: URL(fileURLWithPath: $0), pixels: 320) } }
@@ -42,7 +54,7 @@ private struct LinkCard: View {
             Clothespin().zIndex(1)
             VStack(alignment: .leading, spacing: 5 * Layout.scale) {
                 ZStack {
-                    line.theme.wash(.links)
+                    renderState.theme.wash(.links)
                     if let thumbnail { Image(nsImage: thumbnail).resizable().scaledToFit() }
                     else { Image(systemName: LinkIdentity.youtubeID(entry.linkURL ?? URL(string: "https://invalid.example")!) == nil ? "link" : "play.rectangle").font(.system(size: 24)).foregroundStyle(.secondary) }
                 }.frame(width: Layout.cardWidth - 16 * Layout.scale, height: 38 * Layout.scale).clipped().clipShape(RoundedRectangle(cornerRadius: 8))
@@ -50,7 +62,7 @@ private struct LinkCard: View {
                 Text(entry.author ?? entry.linkURL?.host ?? L("Link")).font(.system(size: 9 * Layout.scale)).foregroundStyle(.secondary).lineLimit(1)
             }.padding(8 * Layout.scale).padding(.top, 12 * Layout.scale).frame(width: Layout.cardWidth, alignment: .leading)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Frame.radius))
-                .background(line.theme.wash(.links), in: RoundedRectangle(cornerRadius: Frame.radius))
+                .background(renderState.theme.wash(.links), in: RoundedRectangle(cornerRadius: Frame.radius))
                 .overlay(RoundedRectangle(cornerRadius: Frame.radius).strokeBorder(links.selectedIDs.contains(entry.id) ? Color.accentColor : .clear, lineWidth: 3))
                 .overlay(alignment: .topLeading) { Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).frame(width: 20, height: 20).glassFrame(circle: true).padding(3).opacity(hovering ? 1 : 0).allowsHitTesting(false) }
                 .overlay(alignment: .topTrailing) { FavoriteBadge(pinned: entry.favorite, visible: hovering || links.focusedID == entry.id) }

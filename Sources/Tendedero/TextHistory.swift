@@ -17,12 +17,12 @@ final class TextHistory: ObservableObject {
                 && lhs.title == rhs.title && lhs.text.utf8.elementsEqual(rhs.text.utf8)
         }
     }
-    @Published private(set) var entries: [Entry] = []
-    @Published var favoritesOnly = false
-    @Published private(set) var searchMatchingIDs: Set<UUID>?
+    @Published private(set) var entries: [Entry] = [] { didSet { invalidateDisplayProjection() } }
+    @Published var favoritesOnly = false { didSet { if favoritesOnly != oldValue { invalidateDisplayProjection() } } }
+    @Published private(set) var searchMatchingIDs: Set<UUID>? { didSet { invalidateDisplayProjection() } }
     @Published var scrollOffset: CGFloat = 0
     @Published var focusedID: UUID?
-    @Published private(set) var selectedIDs = Set<UUID>()
+    @Published private(set) var selectedIDs = Set<UUID>() { didSet { if selectedIDs != oldValue { cachedSelectedEntries = nil } } }
     @Published private(set) var selecting = false
     private var selectionAnchor: UUID?
     @Published var notice: String?
@@ -37,14 +37,33 @@ final class TextHistory: ObservableObject {
     private var librarySubscription: AnyCancellable?
     private var writable = true
     var archive: URL { folder.appendingPathComponent("history.json") }
+    // Filtering belongs to membership changes, not every scroll/hover/layout pass.
+    // The unfiltered array shares its storage; filtered results remain reusable
+    // until entries, the pinned filter or the literal search result changes.
+    private var cachedDisplayEntries: [Entry]?
+    private var cachedSelectedEntries: [Entry]?
+    private func invalidateDisplayProjection() {
+        cachedDisplayEntries = nil
+        cachedSelectedEntries = nil
+    }
     var displayEntries: [Entry] {
-        entries.filter { (!favoritesOnly || $0.pinned) && (searchMatchingIDs?.contains($0.id) ?? true) }
+        guard favoritesOnly || searchMatchingIDs != nil else { return entries }
+        if let cachedDisplayEntries { return cachedDisplayEntries }
+        let result = entries.filter { (!favoritesOnly || $0.pinned) && (searchMatchingIDs?.contains($0.id) ?? true) }
+        cachedDisplayEntries = result
+        return result
     }
     func setSearchMatchingIDs(_ ids: Set<UUID>?, width: CGFloat) {
         guard searchMatchingIDs != ids else { return }
         searchMatchingIDs = ids; sanitizeFocus(); scroll(0, width: width)
     }
-    var selectedEntries: [Entry] { displayEntries.filter { selectedIDs.contains($0.id) } }
+    var selectedEntries: [Entry] {
+        guard !selectedIDs.isEmpty else { return [] }
+        if let cachedSelectedEntries { return cachedSelectedEntries }
+        let result = displayEntries.filter { selectedIDs.contains($0.id) }
+        cachedSelectedEntries = result
+        return result
+    }
     var retentionDays: Int {
         HistoryRetention.days(.text, defaults: defaults)
     }
@@ -199,7 +218,8 @@ final class TextHistory: ObservableObject {
     }
     func scroll(_ delta: CGFloat, width: CGFloat) {
         guard delta.isFinite else { return }
-        scrollOffset = max(0, min(Layout.maximumOffset(count: displayEntries.count, width: width), scrollOffset - delta))
+        let offset = max(0, min(Layout.maximumOffset(count: displayEntries.count, width: width), scrollOffset - delta))
+        if offset != scrollOffset { scrollOffset = offset }
     }
     func prune() {
         if let library { do { try library.prune() } catch { notice = error.localizedDescription }; return }

@@ -1,0 +1,37 @@
+'use strict';
+const assert = require('node:assert/strict');
+const {test} = require('node:test');
+const {reviewedPrevious, previousInstallerURL, previousInstallerOptions, verifyPreviousInstaller} = require('./upgrade-profile.cjs');
+test('historical build63 to66 previous identities and download limits stay immutable', () => {
+  const expected = [
+    [63,{version:'1.7.0',build:62,sha256:'0f6f1aa59a406b5d7d2e2a64eb1dc1797fde4fc205e8781eb381645137923541'}],
+    [64,{version:'1.7.1',build:63,sha256:'f8e45afd1ce3ae4d5bbe1c6f355697cbe9f258e5297685a49d94cd05644631b1'}],
+    [65,{version:'1.7.2',build:64,sha256:'6bd6d9cb53efbb343e35e59206ee220166fc0c8838811cd03c241a340c3e583b'}],
+    [66,{version:'1.7.2',build:65,sha256:'62cebf204958ca8729c8fd569d7c5a6f83c73aeced6d1f63760500a6b2cf5a8f'}]
+  ];
+  for (const [build, profile] of expected) {
+    assert.deepEqual(reviewedPrevious(build), profile);
+    assert.deepEqual(previousInstallerOptions(build), {maximum:200*1024*1024,timeout:120000});
+    assert.equal(Object.isFrozen(reviewedPrevious(build)), true);
+  }
+});
+test('build67 requires the genuine published model-bearing build66 with exact size and SHA', () => {
+  assert.deepEqual(reviewedPrevious(67), {version:'1.7.3',build:66,size:545768617,sha256:'191731aa02077ac975dee65566640c62a23430b49fed54915a2e75f99e84d100',sourceRevision:'8bb1543507ba79854f654c63dfb074c38a40fb9d'});
+  assert.equal(previousInstallerURL(67), 'https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.3-build66/ClipBoardLine-Setup-1.7.3-x64.exe');
+  assert.deepEqual(previousInstallerOptions(67), {maximum:545768617,timeout:120000});
+  assert.ok(previousInstallerOptions(67).maximum > 200*1024*1024);
+  assert.ok(previousInstallerOptions(67).maximum <= 1024**3);
+  assert.throws(() => { reviewedPrevious(67).size = 1024**3; }, TypeError);
+});
+test('unknown, coerced or missing candidate profiles cannot select a previous installer', () => {
+  for (const build of [undefined,null,true,'67',62,68,NaN,67.5]) {
+    assert.throws(() => reviewedPrevious(build), /reviewed/);
+    assert.throws(() => previousInstallerURL(build), /reviewed/);
+    assert.throws(() => previousInstallerOptions(build), /reviewed/);
+  }
+});
+test('previous bytes must satisfy the exact reviewed size and cryptographic identity', () => {
+  assert.throws(() => verifyPreviousInstaller(67, Buffer.alloc(100)), /exact reviewed size/);
+  assert.throws(() => verifyPreviousInstaller(66, Buffer.from('synthetic tampered installer')), /pinned release SHA256/);
+  assert.throws(() => verifyPreviousInstaller(67, 'not binary bytes'), /downloaded as bytes/);
+});

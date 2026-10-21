@@ -36,7 +36,7 @@ struct Pegged: Identifiable, Equatable {
 /// External originals stay in place; private clipboard copies expire.
 @MainActor
 final class Line: ObservableObject {
-    @Published private(set) var items: [Pegged] = []
+    @Published private(set) var items: [Pegged] = [] { didSet { filteredItems = nil; cachedSelectedItems = nil } }
     @Published private(set) var gust = 0
     @Published var copiedID: UUID?
     private var copyFeedbackGeneration = 0
@@ -58,8 +58,8 @@ final class Line: ObservableObject {
     var hitRects: [UUID: CGRect] = [:]
 
     @Published private(set) var scrollOffset: CGFloat = 0
-    @Published private(set) var favoritesOnly = false
-    @Published private(set) var selectedIDs = Set<UUID>()
+    @Published private(set) var favoritesOnly = false { didSet { filteredItems = nil; cachedSelectedItems = nil } }
+    @Published private(set) var selectedIDs = Set<UUID>() { didSet { cachedSelectedItems = nil } }
     @Published private(set) var focusedID: UUID?
     @Published private(set) var selecting = false
     @Published var notice: String?
@@ -80,7 +80,9 @@ final class Line: ObservableObject {
     @Published private(set) var searchFocusRequests: [Shelf: Int] = [:]
     @Published private(set) var shelfSearchQuery = ""
     @Published private(set) var isShelfSearchActive = false
-    private var imageSearchMatchingIDs: Set<UUID>?
+    private var imageSearchMatchingIDs: Set<UUID>? { didSet { filteredItems = nil; cachedSelectedItems = nil } }
+    private var filteredItems: [Pegged]?
+    private var cachedSelectedItems: [Pegged]?
     private var pendingSearchSelection = false
     var showingTexts: Bool {
         get { activeShelf == .texts }
@@ -117,8 +119,8 @@ final class Line: ObservableObject {
         if requestFocus { onFocusRequested?() }
     }
     func focusShelf(_ value: Shelf, requestFocus: Bool = true) {
-        if requestFocus || searchEditingShelf != value { searchEditingShelf = nil }
-        activeShelf = value
+        if (requestFocus || searchEditingShelf != value), searchEditingShelf != nil { searchEditingShelf = nil }
+        if activeShelf != value { activeShelf = value }
         if !presentation.shelves.contains(value) { setPresentation(value.presentation, requestFocus: false) }
         if requestFocus { onFocusRequested?() }
     }
@@ -222,36 +224,52 @@ final class Line: ObservableObject {
         min(9, max(1, Int(floor((viewportWidth - Layout.x(index: 0)) / Layout.spacing)) + 1))
     }
     /// Nil cards retain a falling image's visual column until it disappears.
-    private func quickSelectionData() -> (ids: [UUID?], offset: CGFloat) {
-        switch activeShelf {
-        case .images:
-            return (displayItems.map { $0.falling ? nil : $0.id }, scrollOffset)
-        case .texts:
-            return (texts.displayEntries.map { $0.id }, texts.scrollOffset)
-        case .links:
-            return (links.displayEntries.map { $0.id }, links.scrollOffset)
+    private struct QuickSelectionData {
+        let count: Int
+        let offset: CGFloat
+        let idAt: (Int) -> UUID?
+        var first: UUID? { count > 0 ? idAt(0) : nil }
+        var last: UUID? { count > 0 ? idAt(count - 1) : nil }
+        func contains(_ index: Int) -> Bool { index >= 0 && index < count }
+        func page(_ start: Int, capacity: Int) -> [UUID] {
+            (start..<min(count, start + capacity)).compactMap(idAt)
         }
     }
-    private func quickPageStart(_ data: (ids: [UUID?], offset: CGFloat)) -> Int? {
+    /// Only the numbered viewport needs IDs. Mapping the entire month on
+    /// every scroll/hover makes an otherwise virtualized row scale with history.
+    private func quickSelectionData() -> QuickSelectionData {
+        switch activeShelf {
+        case .images:
+            let values = displayItems
+            return QuickSelectionData(count: values.count, offset: scrollOffset) { values[$0].falling ? nil : values[$0].id }
+        case .texts:
+            let values = texts.displayEntries
+            return QuickSelectionData(count: values.count, offset: texts.scrollOffset) { values[$0].id }
+        case .links:
+            let values = links.displayEntries
+            return QuickSelectionData(count: values.count, offset: links.scrollOffset) { values[$0].id }
+        }
+    }
+    private func quickPageStart(_ data: QuickSelectionData) -> Int? {
         guard let page = quickPages[activeShelf], page.offset == data.offset,
               page.width == viewportWidth, page.spacing == Layout.spacing,
-              page.count == data.ids.count, page.first == (data.ids.first ?? nil),
-              page.last == (data.ids.last ?? nil), page.query == shelfSearchQuery,
+              page.count == data.count, page.first == data.first,
+              page.last == data.last, page.query == shelfSearchQuery,
               page.favorites == activeFavoritesOnly,
-              data.ids.indices.contains(page.start) else { return nil }
+              data.contains(page.start) else { return nil }
         let start = page.start
-        let end = min(data.ids.count, start + quickPageCapacity)
-        guard data.ids[start..<end].contains(page.anchor) else { return nil }
-        if let focus = focusedItemID(for: activeShelf), !data.ids[start..<end].contains(focus) { return nil }
+        let ids = data.page(start, capacity: quickPageCapacity)
+        guard ids.contains(page.anchor) else { return nil }
+        if let focus = focusedItemID(for: activeShelf), !ids.contains(focus) { return nil }
         return start
     }
     var quickSelectionIDs: [UUID] {
         guard searchEditingShelf == nil else { return [] }
         let data = quickSelectionData()
         if let start = quickPageStart(data) {
-            return data.ids[start..<min(data.ids.count, start + quickPageCapacity)].compactMap { $0 }
+            return data.page(start, capacity: quickPageCapacity)
         }
-        return visibleQuickSelectionIDs(count: data.ids.count, offset: data.offset) { data.ids[$0] }
+        return visibleQuickSelectionIDs(count: data.count, offset: data.offset, idAt: data.idAt)
     }
     /// Move the numbered group, including when the final group is narrower
     /// than the viewport. Keep an explicit anchor so clamping the scroll at the
@@ -259,14 +277,14 @@ final class Line: ObservableObject {
     @discardableResult func moveShelfPage(_ delta: Int, allowedIDs: Set<UUID>? = nil) -> UUID? {
         guard delta != 0, searchEditingShelf == nil else { return nil }
         let data = quickSelectionData(), visible = quickSelectionIDs
-        guard !data.ids.isEmpty else { return nil }
+        guard data.count > 0 else { return nil }
         let start = quickPageStart(data) ?? firstVisibleQuickColumn(offset: data.offset)
         let capacity = quickPageCapacity, step = delta < 0 ? -capacity : capacity
         let slot = focusedItemID(for: activeShelf).flatMap { visible.firstIndex(of: $0) } ?? 0
         var destination = delta < 0 ? max(0, start + step) : start + step
         guard destination != start else { return nil }
-        while data.ids.indices.contains(destination) {
-            let page = data.ids[destination..<min(data.ids.count, destination + capacity)].compactMap { $0 }
+        while data.contains(destination) {
+            let page = data.page(destination, capacity: capacity)
             let candidates = page.filter { allowedIDs?.contains($0) ?? true }
             if let anchor = page.first, !candidates.isEmpty {
                 let target = candidates[min(slot, candidates.count - 1)]
@@ -279,8 +297,8 @@ final class Line: ObservableObject {
                 selectItem(target, on: activeShelf)
                 let actual = quickSelectionData()
                 quickPages[activeShelf] = QuickPage(start: destination, anchor: anchor, offset: actual.offset, width: viewportWidth,
-                    spacing: Layout.spacing, count: actual.ids.count, first: actual.ids.first ?? nil,
-                    last: actual.ids.last ?? nil, query: shelfSearchQuery, favorites: activeFavoritesOnly)
+                    spacing: Layout.spacing, count: actual.count, first: actual.first,
+                    last: actual.last, query: shelfSearchQuery, favorites: activeFavoritesOnly)
                 return target
             }
             if delta < 0, destination == 0 { break }
@@ -536,8 +554,20 @@ final class Line: ObservableObject {
 
     var retentionDays: Int { history.retentionDays }
     func retentionDays(for kind: LibraryKind) -> Int { HistoryRetention.days(kind, defaults: defaults) }
-    var displayItems: [Pegged] { items.filter { (!favoritesOnly || $0.pinned) && (imageSearchMatchingIDs?.contains($0.id) ?? true) } }
-    var selectedItems: [Pegged] { displayItems.filter { selectedIDs.contains($0.id) && !$0.falling } }
+    var displayItems: [Pegged] {
+        if !favoritesOnly && imageSearchMatchingIDs == nil { return items }
+        if let filteredItems { return filteredItems }
+        let values = items.filter { (!favoritesOnly || $0.pinned) && (imageSearchMatchingIDs?.contains($0.id) ?? true) }
+        filteredItems = values
+        return values
+    }
+    var selectedItems: [Pegged] {
+        if selectedIDs.isEmpty { return [] }
+        if let cachedSelectedItems { return cachedSelectedItems }
+        let values = displayItems.filter { selectedIDs.contains($0.id) && !$0.falling }
+        cachedSelectedItems = values
+        return values
+    }
     var selectedAppCopyCount: Int { selectedItems.filter { history.files.isAppCopy($0.url) }.count }
 
     func isAppCopy(_ id: UUID) -> Bool {
@@ -693,6 +723,26 @@ final class Line: ObservableObject {
     }
     var maximumScrollOffset: CGFloat { Layout.maximumOffset(count: displayItems.count, width: viewportWidth) }
     var visibleRange: Range<Int> { Layout.visibleRange(count: displayItems.count, width: viewportWidth, offset: scrollOffset) }
+
+    /// Top-origin panel coordinates. All configured rows, including mixed
+    /// two-row layouts, accept a swipe in their gaps when that row overflows.
+    /// Looking only at the image row made text/link gaps pass through instead.
+    func scrollableShelfBandContains(_ point: CGPoint) -> Bool {
+        guard point.x >= 0, point.x < viewportWidth, point.y >= 0,
+              point.y < panelHeight else { return false }
+        let index = Int(point.y / Layout.panelHeight)
+        guard presentation.shelves.indices.contains(index) else { return false }
+        let rowTop = CGFloat(index) * Layout.panelHeight
+        guard point.y >= rowTop + Layout.ropeTop,
+              point.y < rowTop + Layout.panelHeight - 20 else { return false }
+        let count: Int
+        switch presentation.shelves[index] {
+        case .images: count = displayItems.count
+        case .texts: count = texts.displayEntries.count
+        case .links: count = links.displayEntries.count
+        }
+        return Layout.maximumOffset(count: count, width: viewportWidth) > 0
+    }
 
     func setViewportWidth(_ width: CGFloat) {
         viewportWidth = width.isFinite ? max(1, width) : 1

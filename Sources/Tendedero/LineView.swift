@@ -2,8 +2,8 @@ import SwiftUI
 
 struct LineView: View {
     @ObservedObject var line: Line
-    @ObservedObject private var texts: TextHistory
-    @ObservedObject private var links: LinkHistory
+    private let texts: TextHistory
+    private let links: LinkHistory
     init(line: Line) { self.line = line; texts = line.texts; links = line.links }
     private static let controlsIDs: [Shelf: UUID] = [.images: UUID(), .texts: UUID(), .links: UUID()]
     private static let headerIDs: [Shelf: UUID] = [.images: UUID(), .texts: UUID(), .links: UUID()]
@@ -44,7 +44,7 @@ struct LineView: View {
                                 .help(L("Tab switches the active shelf"))
                                 .background(hitRect(Self.headerIDs[shelf]!))
                             Spacer()
-                            if line.activeShelf == shelf { controls.background(hitRect(Self.controlsIDs[shelf]!)) }
+                            if line.activeShelf == shelf { ShelfControls(line: line).background(hitRect(Self.controlsIDs[shelf]!)) }
                         }.font(.system(size: 10, weight: .medium)).foregroundStyle(.white).buttonStyle(.plain).controlSize(.mini)
                             .padding(.horizontal, 14).padding(.top, 3)
                     }.frame(width: width, height: Layout.panelHeight).clipped()
@@ -68,11 +68,8 @@ struct LineView: View {
                     }
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    if let message = (line.activeShelf == .texts ? (texts.notice ?? line.notice) : line.activeShelf == .links ? (links.notice ?? line.notice) : line.notice) {
-                        HStack { Text(message); Button(L("Dismiss")) { line.notice = nil; texts.notice = nil; links.notice = nil } }
-                            .font(.system(size: 11)).padding(7).background(.regularMaterial, in: Capsule())
-                            .background(hitRect(Self.noticeID))
-                    }
+                    ShelfNotice(line: line)
+                        .background(hitRect(Self.noticeID))
                 }
                 .onAppear { line.setViewportWidth(width) }
                 .onChange(of: width) { _, value in line.setViewportWidth(value) }
@@ -84,7 +81,17 @@ struct LineView: View {
     private func hitRect(_ id: UUID) -> some View {
         GeometryReader { g in Color.clear.preference(key: HitRectsKey.self, value: [id: g.frame(in: .global)]) }
     }
-    private var controls: some View {
+}
+
+/// High-frequency row scrolling must not invalidate the other two rows just
+/// to update a selection count or a notice. Observe their models at the small
+/// controls that actually depend on them.
+private struct ShelfControls: View {
+    @ObservedObject var line: Line
+    @ObservedObject private var texts: TextHistory
+    @ObservedObject private var links: LinkHistory
+    init(line: Line) { self.line = line; texts = line.texts; links = line.links }
+    var body: some View {
         HStack(spacing: 7) {
             if line.activeSelectionCount > 1 {
                 Text(String(format: L("%d selected"), line.activeSelectionCount)).monospacedDigit()
@@ -113,6 +120,19 @@ struct LineView: View {
     private func iconButton(_ icon: String, _ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: icon).frame(minWidth: 24, minHeight: 18) }
             .accessibilityLabel(title).help(title)
+    }
+}
+
+private struct ShelfNotice: View {
+    @ObservedObject var line: Line
+    @ObservedObject private var texts: TextHistory
+    @ObservedObject private var links: LinkHistory
+    init(line: Line) { self.line = line; texts = line.texts; links = line.links }
+    var body: some View {
+        if let message = (line.activeShelf == .texts ? (texts.notice ?? line.notice) : line.activeShelf == .links ? (links.notice ?? line.notice) : line.notice) {
+            HStack { Text(message); Button(L("Dismiss")) { line.notice = nil; texts.notice = nil; links.notice = nil } }
+                .font(.system(size: 11)).padding(7).background(.regularMaterial, in: Capsule())
+        }
     }
 }
 

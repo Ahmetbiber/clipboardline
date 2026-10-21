@@ -1,22 +1,34 @@
 import SwiftUI
 
 struct TextShelfView: View {
-    @ObservedObject var line: Line
+    let line: Line
     @ObservedObject var texts: TextHistory
     let width: CGFloat
     var body: some View {
+        TextShelfContents(line: line, texts: texts, width: width, renderState: ShelfRenderState(line: line, shelf: .texts)).equatable()
+    }
+}
+
+private struct TextShelfContents: View, Equatable {
+    let line: Line
+    @ObservedObject var texts: TextHistory
+    let width: CGFloat
+    let renderState: ShelfRenderState
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.line === rhs.line && lhs.texts === rhs.texts && lhs.width == rhs.width && lhs.renderState == rhs.renderState
+    }
+    var body: some View {
         let entries = texts.displayEntries
-        let quickNumbers = line.activeShelf == .texts && line.searchEditingShelf == nil
-            ? Dictionary(uniqueKeysWithValues: line.quickSelectionIDs.enumerated().map { ($0.element, $0.offset + 1) }) : [:]
+        let quickNumbers = Dictionary(uniqueKeysWithValues: renderState.quickIDs.enumerated().map { ($0.element, $0.offset + 1) })
         let range = Layout.visibleRange(count: entries.count, width: width, offset: texts.scrollOffset)
         ZStack(alignment: .topLeading) {
             if entries.isEmpty {
-                Text(line.shelfSearch?.isActive(for: .text) == true ? L("No matching items") : texts.favoritesOnly ? L("No matching items") + " · " + line.keyboardBindings.title(.pinnedOnly) : L("Texts appear here after you enable Hang copied text"))
+                Text(renderState.searchActive ? L("No matching items") : texts.favoritesOnly ? L("No matching items") + " · " + renderState.pinnedHint : L("Texts appear here after you enable Hang copied text"))
                     .font(.system(size: 12)).padding(9).background(.regularMaterial, in: Capsule())
                     .position(x: width / 2, y: 95)
             }
             ForEach(range.map { (index: $0, entry: entries[$0]) }, id: \.entry.id) { index, entry in
-                TextCard(entry: entry, line: line, texts: texts, quickNumber: quickNumbers[entry.id])
+                TextCard(entry: entry, line: line, texts: texts, renderState: renderState, quickNumber: quickNumbers[entry.id])
                     .position(x: Layout.x(index: index, scrollOffset: texts.scrollOffset),
                         y: Layout.ropeY(x: Layout.x(index: index, scrollOffset: texts.scrollOffset), width: width) - Layout.pinAbove + 65)
             }
@@ -26,11 +38,12 @@ struct TextShelfView: View {
 
 private struct TextCard: View {
     let entry: TextHistory.Entry
-    @ObservedObject var line: Line
+    let line: Line
     @ObservedObject var texts: TextHistory
+    let renderState: ShelfRenderState
     let quickNumber: Int?
     @State private var hovering = false
-    private var dragging: Bool { line.draggingID == entry.id }
+    private var dragging: Bool { renderState.draggingID == entry.id }
     var body: some View {
         VStack(spacing: -8) {
             Clothespin().zIndex(1)
@@ -45,7 +58,7 @@ private struct TextCard: View {
                 .frame(width: Layout.cardWidth - 20, height: 78, alignment: .topLeading)
                 .padding(.horizontal, 10).padding(.top, 24).padding(.bottom, 10)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Frame.radius))
-                .background(line.theme.wash(.texts), in: RoundedRectangle(cornerRadius: Frame.radius))
+                .background(renderState.theme.wash(.texts), in: RoundedRectangle(cornerRadius: Frame.radius))
                 .overlay(RoundedRectangle(cornerRadius: Frame.radius).strokeBorder(texts.selectedIDs.contains(entry.id) ? Color.accentColor : .clear, lineWidth: 3))
                 .overlay(alignment: .topLeading) {
                     Image(systemName: "xmark").font(.system(size: 8, weight: .bold))

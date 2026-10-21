@@ -13,12 +13,63 @@ private func fail(_ message: String, file: StaticString, line: UInt) {
     print("FAIL \(file):\(line): \(message)")
 }
 
+func XCTFail(_ message: String = "", file: StaticString = #filePath, line: UInt = #line) {
+    fail(message, file: file, line: line)
+}
+
 func XCTAssertEqual<T: Equatable>(_ actual: @autoclosure () throws -> T,
     _ expected: @autoclosure () throws -> T, _ message: String = "",
     file: StaticString = #filePath, line: UInt = #line) {
     do {
         let a = try actual(), b = try expected()
         if a != b { fail("\(a) != \(b) \(message)", file: file, line: line) }
+    } catch { fail("Unexpected error: \(error) \(message)", file: file, line: line) }
+}
+
+func XCTAssertEqual<T: FloatingPoint>(_ actual: @autoclosure () throws -> T,
+    _ expected: @autoclosure () throws -> T, accuracy: T, _ message: String = "",
+    file: StaticString = #filePath, line: UInt = #line) {
+    do {
+        let a = try actual(), b = try expected()
+        if a != b && !(abs(a - b) <= accuracy) {
+            fail("\(a) != \(b) within \(accuracy) \(message)", file: file, line: line)
+        }
+    } catch { fail("Unexpected error: \(error) \(message)", file: file, line: line) }
+}
+
+func XCTAssertNotEqual<T: Equatable>(_ actual: @autoclosure () throws -> T,
+    _ expected: @autoclosure () throws -> T, _ message: String = "",
+    file: StaticString = #filePath, line: UInt = #line) {
+    do {
+        let a = try actual(), b = try expected()
+        if a == b { fail("Unexpected equality \(a) \(message)", file: file, line: line) }
+    } catch { fail("Unexpected error: \(error) \(message)", file: file, line: line) }
+}
+
+func XCTAssertGreaterThan<T: Comparable>(_ actual: @autoclosure () throws -> T,
+    _ expected: @autoclosure () throws -> T, _ message: String = "",
+    file: StaticString = #filePath, line: UInt = #line) {
+    do {
+        let a = try actual(), b = try expected()
+        if !(a > b) { fail("\(a) is not greater than \(b) \(message)", file: file, line: line) }
+    } catch { fail("Unexpected error: \(error) \(message)", file: file, line: line) }
+}
+
+func XCTAssertLessThan<T: Comparable>(_ actual: @autoclosure () throws -> T,
+    _ expected: @autoclosure () throws -> T, _ message: String = "",
+    file: StaticString = #filePath, line: UInt = #line) {
+    do {
+        let a = try actual(), b = try expected()
+        if !(a < b) { fail("\(a) is not less than \(b) \(message)", file: file, line: line) }
+    } catch { fail("Unexpected error: \(error) \(message)", file: file, line: line) }
+}
+
+func XCTAssertLessThanOrEqual<T: Comparable>(_ actual: @autoclosure () throws -> T,
+    _ expected: @autoclosure () throws -> T, _ message: String = "",
+    file: StaticString = #filePath, line: UInt = #line) {
+    do {
+        let a = try actual(), b = try expected()
+        if !(a <= b) { fail("\(a) is not less than or equal to \(b) \(message)", file: file, line: line) }
     } catch { fail("Unexpected error: \(error) \(message)", file: file, line: line) }
 }
 
@@ -98,6 +149,9 @@ enum HistoryTestRunner {
         let actionBarControllers = ActionBarControllerTests()
         let actionBarRouting = ActionBarRoutingTests()
         let keyboardPickerTests = KeyboardPickerTests()
+        let shelfPerformance = ShelfPerformanceTests()
+        let shelfProjection = ShelfProjectionTests()
+        let textIdentityParity = TextIdentityParityTests()
         let keyboardSpeedTests = KeyboardSpeedTests()
         let shelfPaging = ShelfPagingTests()
         let markupPersistence = ImageMarkupPersistenceTests()
@@ -115,6 +169,15 @@ enum HistoryTestRunner {
         let namedShelfLabel = NamedShelfLabelTests()
         let publicUpdates = PublicUpdateChannelTests()
         let cases: [(String, () throws -> Void)] = [
+            ("testSharedTextIdentitiesAgainstLibraryAndLegacyHistory", textIdentityParity.testSharedTextIdentitiesAgainstLibraryAndLegacyHistory),
+            ("testRepeatedScrollFocusDoesNotInvalidateAllRowsAndExplicitFocusStillWorks", shelfPerformance.testRepeatedScrollFocusDoesNotInvalidateAllRowsAndExplicitFocusStillWorks),
+            ("testEveryOverflowingRowAcceptsGapScrollingAcrossAllPresentations", shelfPerformance.testEveryOverflowingRowAcceptsGapScrollingAcrossAllPresentations),
+            ("testImageProjectionCacheReflectsPinEditsRemovalAndUndoWithoutLosingOrder", shelfPerformance.testImageProjectionCacheReflectsPinEditsRemovalAndUndoWithoutLosingOrder),
+            ("testTextProjectionInvalidatesForEditedPinnedAndRemovedEntries", shelfProjection.testTextProjectionInvalidatesForEditedPinnedAndRemovedEntries),
+            ("testLinkProjectionInvalidatesForMetadataOrderPinnedAndRemovedEntries", shelfProjection.testLinkProjectionInvalidatesForMetadataOrderPinnedAndRemovedEntries),
+            ("testClampedScrollDoesNotPublishAndStillClampsAfterViewportChange", shelfProjection.testClampedScrollDoesNotPublishAndStillClampsAfterViewportChange),
+            ("testRenderStateIgnoresOtherShelfChangesButTracksVisibleInputs", shelfProjection.testRenderStateIgnoresOtherShelfChangesButTracksVisibleInputs),
+            ("testMountedRowsOnlyRequestVisibleLinkPayloadChanges", shelfProjection.testMountedRowsOnlyRequestVisibleLinkPayloadChanges),
             ("testOpeningAllShelvesPrefersOnlyFirstImageAndReopeningResets", shelfDefaultNavigation.testOpeningAllShelvesPrefersOnlyFirstImageAndReopeningResets),
             ("testOpeningWithImagesHiddenSelectsFirstNonemptyVisibleShelf", shelfDefaultNavigation.testOpeningWithImagesHiddenSelectsFirstNonemptyVisibleShelf),
             ("testOpeningSkipsEmptyAndFilteredShelvesWithoutInventingSelection", shelfDefaultNavigation.testOpeningSkipsEmptyAndFilteredShelvesWithoutInventingSelection),
@@ -139,7 +202,7 @@ enum HistoryTestRunner {
             ("testDirectPasteRechecksFieldAndApplicationAfterClipboardWrite", directPasteCoordinatorTests.testDirectPasteRechecksFieldAndApplicationAfterClipboardWrite),
             ("testDirectPasteDismissalCanActivateEditorBeforeItsFocusReturns", directPasteCoordinatorTests.testDirectPasteDismissalCanActivateEditorBeforeItsFocusReturns),
             ("testDirectPasteDoesNotReuseOldFieldOnAnotherVisitToSameApp", directPasteCoordinatorTests.testDirectPasteDoesNotReuseOldFieldOnAnotherVisitToSameApp),
-            ("testPasteAccessibilityTextRolesDoNotRequireSettableValueOrReadContent", pasteAccessibility.testPasteAccessibilityTextRolesDoNotRequireSettableValueOrReadContent),
+            ("testPasteAccessibilityTextRolesAcceptUnsupportedSetterCapabilityWithoutReadingContent", pasteAccessibility.testPasteAccessibilityTextRolesAcceptUnsupportedSetterCapabilityWithoutReadingContent),
             ("testPasteAccessibilityResolvesContenteditableDescendantsToStableHighestRoot", pasteAccessibility.testPasteAccessibilityResolvesContenteditableDescendantsToStableHighestRoot),
             ("testPasteAccessibilityExplicitEditableHintSupportsCustomEditorRoles", pasteAccessibility.testPasteAccessibilityExplicitEditableHintSupportsCustomEditorRoles),
             ("testPasteAccessibilityDisabledSecureAndReadOnlyDescendantsCannotUseAncestor", pasteAccessibility.testPasteAccessibilityDisabledSecureAndReadOnlyDescendantsCannotUseAncestor),

@@ -363,6 +363,8 @@ class Store {
   publicState() {
     return {
       items: this.data.items.map(({imageFile, renderedFile, thumbnailFile, videoFile, renderedVideoFile, ...item}) => ({...clone(item),
+        // Only a content hash of the displayed managed PNG; no path or disk read.
+        ...((thumbnailFile||renderedFile||imageFile)?{mediaRevision:(thumbnailFile||renderedFile||imageFile).slice(0,64)}:{}),
         ...(thumbnailFile ? {thumbnailUrl: `appmedia://media/${item.id}/thumbnail`} : {}),
         ...(item.kind === 'image' ? {mediaUrl: `appmedia://media/${item.id}`, originalMediaUrl: `appmedia://media/${item.id}/original`} : {}),
         ...(item.recording?{videoUrl:`appmedia://media/${item.id}/video?v=${(renderedVideoFile||videoFile).slice(0,64)}`,originalVideoUrl:`appmedia://media/${item.id}/video/original`,sourceFingerprint:(renderedVideoFile||videoFile).slice(0,64)}:{})})),
