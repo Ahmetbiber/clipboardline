@@ -64,7 +64,7 @@ let application;
 async function appCapture(){
  const before=await application.evaluate(()=>global.__diagnosticCaptures.length);
  await application.evaluate(()=>global.__clipboardLineTest.command('show'));
- const result=await application.evaluate(start=>({captured:global.__clipboardLineTest.getTarget(),calls:global.__diagnosticCaptures.slice(start)}),before);
+ const result=await application.evaluate((_electron,start)=>({captured:global.__clipboardLineTest.getTarget(),calls:global.__diagnosticCaptures.slice(start)}),before);
  if(result.calls.length!==1)throw new Error('One actual first native capture per show required: '+JSON.stringify(result));
  return result;
 }
