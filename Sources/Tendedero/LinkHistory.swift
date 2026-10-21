@@ -66,7 +66,12 @@ import Combine
         catch { notice = error.localizedDescription; return nil }
     }
     func setFavoritesOnly(_ value: Bool) { favoritesOnly = value; scrollOffset = 0; cancelSelection() }
-    func cancelSelection() { selectedIDs.removeAll(); focusedID = nil; anchor = nil; selecting = false }
+    func cancelSelection() {
+        if !selectedIDs.isEmpty { selectedIDs.removeAll() }
+        if focusedID != nil { focusedID = nil }
+        anchor = nil
+        if selecting { selecting = false }
+    }
     func selectAll() { selectedIDs = Set(displayEntries.map(\.id)); focusedID = displayEntries.first?.id; anchor = focusedID; selecting = true }
     func select(_ id: UUID, toggle: Bool = false, extending: Bool = false, preservingSelection: Bool = false, width: CGFloat) {
         let displayed = displayEntries

@@ -26,6 +26,32 @@ module.exports=async function shelfPerformanceAcceptance({page,application,check
     assert.notEqual(changed.before.thumbnailUrl,changed.after.thumbnailUrl);assert.equal(changed.before.thumbnailUrl.split('?')[0],changed.after.thumbnailUrl.split('?')[0]);assert.notEqual(changed.before.mediaRevision,changed.after.mediaRevision);const {mediaRevision:_old,thumbnailUrl:_oldURL,...before}=changed.before,{mediaRevision:_new,thumbnailUrl:_newURL,...after}=changed.after;assert.deepEqual(after,before,'Thumbnail enrichment must not change copy/history/pin/title metadata');await packet();assert.equal(await page.evaluate(()=>window.__thumbnailBeforeEnrichment.isConnected),false);evidence.thumbnailEnrichment={sameCanonicalURL:true,versionedURLChanged:true,sameTitleAndTimestamp:true,mediaRevisionChanged:true,recopySameRecord:true};
    },
    settings:patch=>application.evaluate((_electron,patch)=>global.__clipboardLineTest.command('setSettings',{patch}),patch),show:async()=>{await application.evaluate(async()=>{const h=global.__clipboardLineTest;await h.command('hide');await h.command('show');});},check:record});
+  // Exercise the actual native show/hide path, including the focus helper.
+  // Count complete history projections and bounds changes independently of
+  // renderer DOM identity: a connected row alone cannot prove a cheap toggle.
+  // Drain the real fixture index first: unrelated progress snapshots would
+  // otherwise be counted as toggle work while the native focus helper awaits.
+  await application.evaluate(()=>global.__clipboardLineTest.getImageSearch().refresh());
+  await until(()=>application.evaluate(()=>global.__clipboardLineTest.getImageSearch().state.indexing),value=>value===false,120000);
+  evidence.toggleMeasurement='steady state after the real image-search worker drained; indexing was not disabled';
+  await page.evaluate(()=>{window.__toggleShelfNodes=Array.from(document.querySelectorAll('.shelf,.shelves .card,.shelves img'));});
+  evidence.toggles=await application.evaluate(async()=>{
+   const h=global.__clipboardLineTest,window=h.getWindow(),projection=h.store.publicState,bounds=window.setBounds,packets=[];let projections=0,boundsChanges=0;
+   h.store.publicState=function(...args){projections++;return projection.apply(this,args);};window.setBounds=function(...args){boundsChanges++;return bounds.apply(this,args);};
+   try{for(let index=0;index<4;index++){for(const action of ['hide','show']){const packet=await h.command(action);packets.push({action,surfaceOnly:packet.surfaceOnly===true,hasItems:Array.isArray(packet.items),visible:packet.windowVisible});}}
+    return{iterations:4,packets,projections,boundsChanges,visible:window.isVisible(),focused:window.isFocused()};
+   }finally{h.store.publicState=projection;window.setBounds=bounds;}
+  });
+  assert.equal(evidence.toggles.projections,0);assert.equal(evidence.toggles.boundsChanges,0);assert.equal(evidence.toggles.visible,true);assert.equal(evidence.toggles.focused,true);assert.equal(evidence.toggles.packets.length,8);
+  for(const [index,packet]of evidence.toggles.packets.entries()){assert.equal(packet.surfaceOnly,true);assert.equal(packet.hasItems,false);assert.equal(packet.visible,index%2===1);}
+  await until(()=>page.locator('.shelves .card.selected').evaluateAll(nodes=>nodes.map(node=>node.dataset.itemId)),value=>value.length===1&&value[0]===fixture.rows.image[0]);
+  assert.equal(await page.evaluate(()=>window.__toggleShelfNodes.every(node=>node.isConnected)),true);
+  record('four actual native three-shelf close/reopen cycles retain connected cards and decoded images, send no full history projections, skip unchanged bounds, restore window focus and select only the first image');
+  const hiddenEdit=await application.evaluate(async()=>{
+   const h=global.__clipboardLineTest;await h.command('hide');const id=h.store.data.items.find(value=>value.kind==='text'&&!value.trashedAt).id,note='Committed while shelves are hidden';h.store.modify('details',{id,note});
+   let fullPacket;const window=h.getWindow(),send=window.webContents.send;window.webContents.send=function(channel,packet,...rest){if(channel==='clipboardline:changed'&&Array.isArray(packet?.items))fullPacket={items:packet.items.length,note:packet.items.find(value=>value.id===id)?.note};return send.call(this,channel,packet,...rest);};
+   try{await h.command('show');return{fullPacket,expected:note};}finally{window.webContents.send=send;}
+  });assert.ok(hiddenEdit.fullPacket.items>=3000);assert.equal(hiddenEdit.fullPacket.note,hiddenEdit.expected);evidence.toggles.hiddenEditDelivered=true;record('a committed hidden edit forces a fresh complete library snapshot before lightweight reopen packets reuse it');
   evidence.navigation=await page.evaluate(async()=>{
    const root=document.getElementById('app'),samples=[],counts={removedCards:0,addedCards:0},observer=new MutationObserver(records=>{for(const record of records)for(const [key,nodes]of [['removedCards',record.removedNodes],['addedCards',record.addedNodes]])for(const node of nodes)if(node.nodeType===1)counts[key]+=(node.matches('.card')?1:0)+node.querySelectorAll('.card').length;});observer.observe(root,{childList:true,subtree:true});
    try{for(let index=0;index<50;index++){const before=root.querySelector('.card.focused')?.dataset.itemId,start=performance.now();await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{changed.disconnect();reject(new Error('Shelf keyboard selection did not advance'));},5000),changed=new MutationObserver(()=>{if(root.querySelector('.card.focused')?.dataset.itemId===before)return;changed.disconnect();clearTimeout(timer);root.getBoundingClientRect();samples.push(performance.now()-start);resolve();});changed.observe(root,{childList:true,subtree:true,attributes:true,attributeFilter:['class','aria-selected']});document.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',code:'ArrowRight',bubbles:true}));});await new Promise(requestAnimationFrame);}const sorted=[...samples].sort((a,b)=>a-b);return{iterations:samples.length,p50:sorted[25],p95:sorted[47],maximum:sorted.at(-1),...counts};}finally{observer.disconnect();}

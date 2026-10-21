@@ -37,6 +37,7 @@ let libraryImageSearch={key:'',ids:new Set(),scores:new Map(),available:false,in
 let toastTimer, pointer=null, annotationSequence=0, lastVisibility=null;
 let pendingNativeState=null,nativeTransitionSaving=false,nativeTransitionBlocked=false;
 let nativeStateRevision=0;
+let receivedLibraryState=false,pendingInitialSurface=null,initialLibraryRefresh=false;
 function languageCode(){const configured=state.settings.language||'system',code=configured==='system'?(typeof navigator!=='undefined'?navigator.language:'en'):configured;if(/^pt/i.test(code))return'pt-BR';if(/^zh/i.test(code))return'zh-Hans';return String(code).split('-')[0];}
 const t = text => window.clipboardLineTranslations?.[languageCode()]?.[text] || (languageCode()==='tr'?TR[text]:null) || text;
 const esc = value => String(value ?? '').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -147,8 +148,26 @@ function finishPendingNativeState(){if(nativeTransitionSaving||!nativeTransition
 async function saveForNativeTransition(){nativeTransitionSaving=true;let saved=false;try{saved=await flushPreview();}catch(error){toast(error.message);}finally{nativeTransitionSaving=false;}
  if(saved){const next=pendingNativeState;pendingNativeState=null;nativeTransitionBlocked=false;clearBrowsingOverlays();if(next)applyState(next);}
  else{nativeTransitionBlocked=true;render();toast('Changes could not be saved. Keep this draft open; use Done or Save to retry.');if(pendingNativeState?.windowVisible===false){pendingNativeState=null;nativeTransitionBlocked=false;void api.command(ui.view==='library'?'library':ui.view==='settings'?'settings':'show').then(applyState).catch(error=>toast(error.message));}}}
-function applyState(next) {
- if(!next || !Array.isArray(next.items))return;
+function applyState(next,{initial=false}={}) {
+ if(!next)return;
+ if(next.surfaceOnly===true){
+  // The native window can change visibility while its first full IPC snapshot
+  // is still in flight. Keep that event until the initial library is ready.
+  if(!receivedLibraryState){pendingInitialSurface=next;return;}
+  // A full content snapshot can be waiting for an editor save. A later native
+  // visibility event must update that pending snapshot, never replace its
+  // fresh content with the older rendered library.
+  next={...(pendingNativeState||state),...next};
+ }else if(Array.isArray(next.items)){
+  if(initial&&pendingInitialSurface&&Number.isSafeInteger(next.libraryRevision)&&Number.isSafeInteger(pendingInitialSurface.libraryRevision)&&next.libraryRevision<pendingInitialSurface.libraryRevision){
+   // The initial reply was captured before a newer committed library. Re-read
+   // the native state instead of attaching its new revision to old content.
+   if(!initialLibraryRefresh){initialLibraryRefresh=true;void api.state().then(current=>{initialLibraryRefresh=false;if(!receivedLibraryState)applyState(current,{initial:true});}).catch(error=>{initialLibraryRefresh=false;toast(error.message);});}return;
+  }
+  receivedLibraryState=true;if(initial&&pendingInitialSurface&&(!Number.isSafeInteger(next.libraryRevision)||!Number.isSafeInteger(pendingInitialSurface.libraryRevision)||next.libraryRevision===pendingInitialSurface.libraryRevision))next={...next,...pendingInitialSurface};pendingInitialSurface=null;
+  // A full snapshot replaces every cached projection after an actual edit.
+  delete next.surfaceOnly;
+ }else return;
  if(nativeTransitionSaving){pendingNativeState=next;return;}
  const nextSignature=next.viewEvent?JSON.stringify(next.viewEvent):'';
  const changesSurface=(next.view&&next.view!==ui.view)||(next.windowVisible===false&&lastVisibility!==false)||(nextSignature&&nextSignature!==ui.lastEvent&&(next.viewEvent.selectId||next.viewEvent.search||next.viewEvent.settingsTab));
@@ -171,7 +190,7 @@ function applyState(next) {
  if(!ui.focus&&!ui.preview&&lastVisibility!==false)focusFirst();
  render();
 }
-async function command(action,payload={}) { try { const revision=nativeStateRevision;const next=await api.command(action,payload);if(next?.items&&revision===nativeStateRevision)applyState(next);if(next?.result?.error){toast(next.result.error);return null;}return next; } catch(error){toast(error?.message||'The action could not be completed.');return null;} }
+async function command(action,payload={}) { try { const revision=nativeStateRevision;const next=await api.command(action,payload);if((next?.items||next?.surfaceOnly)&&revision===nativeStateRevision)applyState(next);if(next?.result?.error){toast(next.result.error);return null;}return next; } catch(error){toast(error?.message||'The action could not be completed.');return null;} }
 function button(action,label,extra='') { return `<button data-action="${action}" ${extra}>${esc(t(label))}</button>`; }
 function icon(name) {
  const paths={play:'<path d="m8 4 13 8-13 8Z"/>',pause:'<path d="M8 4v16M16 4v16"/>',search:'<circle cx="10.8" cy="10.8" r="6.7"/><path d="m16 16 4.5 4.5"/>',library:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',image:'<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8" cy="9" r="1.5"/><path d="m4 17 5-5 4 4 3-3 5 5"/>',text:'<path d="M4 5h16M4 10h16M4 15h12M4 20h9"/>',link:'<path d="m10 14 4-4m-5 7-2 2a4.2 4.2 0 0 1-6-6l5-5a4.2 4.2 0 0 1 6 0m3-1 2-2a4.2 4.2 0 0 1 6 6l-5 5a4.2 4.2 0 0 1-6 0"/>',pin:'<path d="m9 3 6 0-1 6 4 4v2H6v-2l4-4-1-6Zm3 12v7"/>',close:'<path d="m6 6 12 12M18 6 6 18"/>',left:'<path d="m14 5-7 7 7 7"/>',right:'<path d="m10 5 7 7-7 7"/>',settings:'<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="9" cy="18" r="2"/>',actions:'<path d="M8 3v14a3 3 0 1 1-3-3h14a3 3 0 1 1-3 3V6a3 3 0 1 1 3 3H5a3 3 0 1 1 3-3"/>',sidebar:'<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',details:'<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/>',note:'<path d="M14 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-8M10 14l2-5 7-7 3 3-7 7-5 2Z"/>',filter:'<path d="M3 6h18M6 12h12M10 18h4"/>',list:'<path d="M8 5h13M8 12h13M8 19h13M3 5h.1M3 12h.1M3 19h.1"/>',copy:'<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v13h5"/>',select:'<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/>',minus:'<path d="M5 12h14"/>',maximize:'<rect x="5" y="5" width="14" height="14" rx="1"/>',expand:'<path d="M8 3H3v5M3 3l7 7M16 21h5v-5M21 21l-7-7"/>',history:'<path d="M3 12a9 9 0 1 0 3-7M3 3v6h6M12 7v5l3 2"/>',folder:'<path d="M3 7V5h6l2 2h10v13H3Z"/>',check:'<path d="m5 12 4 4L19 6"/>',marker:'<path d="m5 17 3 3 12-12-5-5L3 15l2 2Zm-3 4h8"/>',rectangle:'<rect x="4" y="5" width="16" height="14" rx="1"/>',ellipse:'<ellipse cx="12" cy="12" rx="9" ry="7"/>',arrow:'<path d="m4 20 16-16M9 4h11v11"/>',line:'<path d="m4 20 16-16"/>',undo:'<path d="m7 4-5 5 5 5M2 9h12a6 6 0 0 1 0 12"/>',redo:'<path d="m17 4 5 5-5 5M22 9H10a6 6 0 0 0 0 12"/>',edit:'<path d="m4 16-1 5 5-1L21 7l-4-4L4 16Zm11-11 4 4"/>',crop:'<path d="M7 2v15h15M2 7h15v15"/>',tag:'<path d="M3 3h8l10 10-8 8L3 11Z"/><circle cx="7" cy="7" r="1"/>',trash:'<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>'};
@@ -788,5 +807,5 @@ window.addEventListener('blur',()=>{ui.spacePan=false;finishPointerGesture();});
 if(!api){root.innerHTML='<main class="loading"><h1>ClipBoardLine</h1><p>The secure desktop connection is unavailable. Open this interface through the installed application.</p></main>';root.setAttribute('aria-busy','false');return;}
 api.subscribe(next=>{nativeStateRevision++;const message=next.message;if(message&&message!==state.message)toast(message);applyState(next);});
 const initialStateRevision=nativeStateRevision;
-api.state().then(next=>{if(initialStateRevision===nativeStateRevision)applyState(next);}).catch(error=>{root.innerHTML=`<main class="loading"><h1>ClipBoardLine</h1><p>${esc(error.message)}</p></main>`;});
+api.state().then(next=>{if(initialStateRevision===nativeStateRevision||!receivedLibraryState)applyState(next,{initial:true});}).catch(error=>{root.innerHTML=`<main class="loading"><h1>ClipBoardLine</h1><p>${esc(error.message)}</p></main>`;});
 })();

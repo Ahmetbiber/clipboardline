@@ -86,7 +86,7 @@ function plainURL(value) {
 
 class Store {
   constructor(directory, {clock = Date.now} = {}) {
-    this.directory = path.resolve(directory); this.clock = clock; this.undoStack = []; this.textIdentities = new WeakMap();
+    this.directory = path.resolve(directory); this.clock = clock; this.undoStack = []; this.textIdentities = new WeakMap();this.revision=0;
     fs.mkdirSync(this.directory, {recursive: true, mode: 0o700});
     if(fs.lstatSync(this.directory).isSymbolicLink())fail('Application data must not be a symlink.');
     if(process.platform==='win32'){
@@ -134,7 +134,7 @@ class Store {
     try {
       descriptor = fs.openSync(temporary, 'wx', 0o600); fs.writeFileSync(descriptor, JSON.stringify(this.data)); fs.fsyncSync(descriptor); fs.closeSync(descriptor); descriptor = null;
       if (fs.existsSync(this.file)) fs.copyFileSync(this.file, this.file + '.backup');
-      fs.renameSync(temporary, this.file);
+      fs.renameSync(temporary, this.file);this.revision++;
     } finally { if (descriptor != null) fs.closeSync(descriptor); if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
   }
   mediaReferences(){return new Set(this.data.items.flatMap(item=>[item.imageFile,item.renderedFile,item.thumbnailFile,item.videoFile,item.renderedVideoFile]).filter(Boolean));}

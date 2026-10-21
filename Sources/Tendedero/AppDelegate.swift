@@ -6,6 +6,14 @@ import Quartz
 import ServiceManagement
 import SwiftUI
 
+/// Monotonic timings for the native presentation boundary. Contains no app
+/// identifiers, field values or clipboard data; the isolated UI harness can
+/// inspect a bounded sample without querying an external accessibility tree.
+struct ShelfPresentationTiming {
+    let phase: String
+    let elapsedMilliseconds: Double
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let line: Line
@@ -38,6 +46,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         super.init()
     }
     private(set) var panel: LinePanel!
+    private(set) var shelfPresentationTimings = [ShelfPresentationTiming]()
+    private func recordShelfPresentation(_ phase: String, since start: TimeInterval) {
+        let milliseconds = max(0, ProcessInfo.processInfo.systemUptime - start) * 1_000
+        shelfPresentationTimings.append(.init(phase: phase, elapsedMilliseconds: milliseconds))
+        if shelfPresentationTimings.count > 128 { shelfPresentationTimings.removeFirst(shelfPresentationTimings.count - 128) }
+        DirectPasteDiagnostics.log.debug("Shelf presentation phase=\(phase, privacy: .public) durationMS=\(milliseconds, privacy: .public)")
+    }
     private var statusItem: NSStatusItem!
     #if STANDALONE_TESTS
     var statusToolTipForTesting: String { statusItem?.button?.toolTip ?? "" }
@@ -116,10 +131,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var historyTimer: Timer?
     private var imageSearch: LibraryImageSearch?
 
-    /// Whether the panel is ordered in. It can be in and still tucked away
-    /// above the top edge, like an auto-hiding Dock.
+    /// Whether the line is eligible for presentation. A tucked-away panel is
+    /// ordered out once its short native fade has completed.
     private var isPresent = false
-    /// Whether the line has slid down into view.
+    /// Whether the line is shown.
     private var isRevealed = false
     private var pointerFocus = false
     /// Opened on purpose with the shortcut or the menu: it stays down until
@@ -162,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let host = NSHostingView(rootView: LineView(line: line))
         host.sizingOptions = []
         panel = LinePanel(content: host)
+        panel.alphaValue = 0
         panel.onBeforeMouseKeyFocus = { [weak self] in self?.capturePasteTarget() }
         panel.searchEditorTarget = { [weak line] in
             guard let line, let shelf = line.searchEditingShelf else { return nil }
@@ -577,7 +593,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func present() {
         guard !isPresent else { return }
         isPresent = true
-        panel.alphaValue = 1
         // The window itself only comes in while the line is down; see setRevealed.
         if isRevealed { panel.orderFrontRegardless() }
     }
@@ -602,20 +617,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func setRevealed(_ on: Bool, restoreApplication: Bool = true) {
         guard on != isRevealed else { return }
+        let start = ProcessInfo.processInfo.systemUptime
+        defer { recordShelfPresentation(on ? "visibility.open" : "visibility.close", since: start) }
         isRevealed = on
         line.revealed = on
-        // It always comes down showing the newest.
         // Preserve each shelf’s position; a newly hung capture already resets its row.
         // Tucked away, the line leaves no window behind: an invisible strip
         // over the top of the screen would still sit above other apps for
         // anything that checks what is on top, like screen automation.
         if on {
             if isPresent { panel.orderFrontRegardless() }
-        } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                guard let self, !self.isRevealed else { return }
-                self.panel.orderOut(nil)
-            }
         }
         if !on {
             pointerFocus = false
@@ -630,9 +641,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             previousApplication = nil
         }
+        panel.setShelfRevealed(on) { [weak self] in
+            guard let self, !on, !self.isRevealed else { return }
+            self.panel.orderOut(nil)
+        }
     }
 
     @objc private func toggle() {
+        let start = ProcessInfo.processInfo.systemUptime
+        let opening = !isRevealed
+        defer { recordShelfPresentation(opening ? "toggle.open" : "toggle.close", since: start) }
         if isRevealed {
             setRevealed(false)
             if visibleCount == 0 {
@@ -835,6 +853,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func updateCapacity() {
+        let start = ProcessInfo.processInfo.systemUptime
+        defer { recordShelfPresentation("panel.layout", since: start) }
         if let screen = panel.screen ?? LinePanel.screenUnderPointer() { line.fitShelves(in: screen.visibleFrame.height) }
         if panel.contentHeight != line.panelHeight { panel.contentHeight = line.panelHeight; panel.placeOnScreen(panel.screen) }
         line.setViewportWidth(panel.frame.width)
@@ -1061,6 +1081,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func focusLine(preservePasteTarget: Bool = false) {
         guard isRevealed else { return }
+        let start = ProcessInfo.processInfo.systemUptime
+        defer { recordShelfPresentation("panel.focus", since: start) }
         pointerFocus = false
         if !isPasting, !preservePasteTarget, !ownsKeyboardFocus() {
             capturePasteTarget()
@@ -1332,6 +1354,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// app, so workspace PID/previousApplication cannot identify this boundary.
     func capturePasteTarget() {
         guard pasteFocusHandoffDepth == 0 else { return }
+        let start = ProcessInfo.processInfo.systemUptime
+        defer { recordShelfPresentation("paste-target.capture", since: start) }
         directPaste.cancel(); isPasting = false
         let ownFocus = ownsKeyboardFocus()
         DirectPasteDiagnostics.log.debug("Capture boundary ownsKeyboard=\(ownFocus)")

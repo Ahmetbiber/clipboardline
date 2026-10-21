@@ -73,8 +73,6 @@ struct LineView: View {
                 }
                 .onAppear { line.setViewportWidth(width) }
                 .onChange(of: width) { _, value in line.setViewportWidth(value) }
-                .offset(y: line.revealed ? 0 : -(line.panelHeight + 12))
-                .animation(line.revealed ? .spring(response: 0.42, dampingFraction: 0.82) : .easeIn(duration: 0.22), value: line.revealed)
         }
         .onPreferenceChange(HitRectsKey.self) { line.hitRects = $0 }
     }

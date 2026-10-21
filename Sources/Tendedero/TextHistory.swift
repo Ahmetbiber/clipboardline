@@ -187,7 +187,10 @@ final class TextHistory: ObservableObject {
         favoritesOnly = value; scrollOffset = 0; cancelSelection()
     }
     func cancelSelection() {
-        selectedIDs.removeAll(); focusedID = nil; selectionAnchor = nil; selecting = false
+        if !selectedIDs.isEmpty { selectedIDs.removeAll() }
+        if focusedID != nil { focusedID = nil }
+        selectionAnchor = nil
+        if selecting { selecting = false }
     }
     func selectAll() {
         selecting = true; selectedIDs = Set(displayEntries.map(\.id)); focusedID = displayEntries.first?.id; selectionAnchor = focusedID

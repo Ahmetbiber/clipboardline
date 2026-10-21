@@ -2,6 +2,7 @@ func XCTUnwrap<T>(_ value:T?) throws -> T {guard let value else {throw HistoryFi
 func XCTAssertTrue(_ value:Bool) {precondition(value,"Synthetic fixture creation failed")}
 import AppKit
 import SwiftUI
+import Darwin
 
 @MainActor final class HarnessClipboard: ClipboardSource {
  var count = 17000
@@ -62,6 +63,8 @@ import SwiftUI
  var markupFixtureID:UUID?
  var pagingFixtureLoaded=false
  var shelfStressLoaded=false
+ var shelfToggleBenchmarkRunning=false
+ var shelfToggleBenchmarkRestoresImageSearch=false
  var timer:Timer?
  let output=Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("local/validation/current")
  func applicationDidFinishLaunching(_ n:Notification){
@@ -141,6 +144,7 @@ import SwiftUI
    app.addItem(ClosureMenuItem("Add 200 synthetic images"){self.addStressImages()})
    app.addItem(ClosureMenuItem("Add shelf paging fixtures"){self.addShelfPagingFixtures()})
    app.addItem(ClosureMenuItem("Add 1,000 items per shelf"){self.addShelfStress()})
+   app.addItem(ClosureMenuItem("Run shelf toggle benchmark"){self.runShelfToggleBenchmark()})
    app.addItem(ClosureMenuItem("Show drop receiver"){self.showReceiver()})
    app.addItem(ClosureMenuItem("Inject new synthetic text"){self.clipboard.inject()})
    app.addItem(ClosureMenuItem("Inject synthetic URL"){self.clipboard.injectLink()})
@@ -185,6 +189,7 @@ import SwiftUI
    ("Show keyboard shelves",{self.openKeyboardLine()}),
    ("Add shelf paging fixtures",{self.addShelfPagingFixtures()}),
    ("Add 1,000 items per shelf",{self.addShelfStress()}),
+   ("Run shelf toggle benchmark",{self.runShelfToggleBenchmark()}),
    ("Open image markup fixture",{self.openImageMarkupFixture()}),
    ("Open global search",{self.delegate.openShelfSearch()}),
    ("Open commands",{self.delegate.showCommands()}),
@@ -394,6 +399,112 @@ import SwiftUI
   if let hide=menu.items.firstIndex(where:{$0.title==L("Hide line")}){menu.performActionForItem(at:hide)}
   delegate.menuNeedsUpdate(menu)
   if let show=menu.items.firstIndex(where:{$0.title==L("Show line")}){menu.performActionForItem(at:show)}
+ }
+ /// Runs the real global-toggle target through its native menu item, with
+ /// actual NSPanel/SwiftUI views and only this harness's disposable records.
+ /// Main-loop lateness and process CPU measure work, never display FPS. The
+ /// 0.48/0.42-second dwell lets the old spring/hide animation finish too; it is
+ /// identical for baseline/candidate and excluded from action-call timings.
+ func runShelfToggleBenchmark(){
+  guard !shelfToggleBenchmarkRunning else{return}
+  shelfToggleBenchmarkRunning=true;timer?.invalidate();timer=nil
+  // A bulk fixture import would otherwise schedule 1,000 real OCR/model
+  // analyses. Isolate presentation work in both builds; restore the harness
+  // search service afterward. Production indexing behavior is untouched.
+  shelfToggleBenchmarkRestoresImageSearch=store.imageSearch != nil
+  store.imageSearch?.stop();store.imageSearch=nil
+  controlsWindow?.orderOut(nil);delegate.libraryController?.window?.orderOut(nil)
+  delegate.settingsController?.window?.orderOut(nil)
+  let resultURL=output.appendingPathComponent("shelf-toggle-benchmark.json")
+  func save(_ result:[String:Any]){
+   if let data=try? JSONSerialization.data(withJSONObject:result,options:[.prettyPrinted,.sortedKeys]){try? data.write(to:resultURL,options:.atomic)}
+  }
+  save(["status":"running","fixture":"isolated synthetic history","processID":ProcessInfo.processInfo.processIdentifier])
+  Task { @MainActor in
+   var groups=[[String:Any]](),allChecks=true
+   let timingStart=self.reflectedShelfPresentationTimings().count
+   for stress in [false,true] {
+    if stress {self.addShelfStress()}
+    _ = self.line.closeShelfSearch(requestFocus:false)
+    for shelf in Shelf.allCases {self.line.focusShelf(shelf,requestFocus:false);self.line.setActiveFavorites(false)}
+    self.line.setPresentation(.all,requestFocus:false)
+    self.line.focusShelf(.images,requestFocus:false)
+    let menu=NSMenu();self.delegate.menuNeedsUpdate(menu)
+    guard let index=menu.items.firstIndex(where:{$0.title==L("Show line") || $0.title==L("Hide line")}) else{
+     save(["status":"failed","reason":"Native toggle menu item missing"]);self.finishShelfToggleBenchmark();return
+    }
+    func toggle()->Double {
+     let start=ProcessInfo.processInfo.systemUptime
+     menu.performActionForItem(at:index)
+     return (ProcessInfo.processInfo.systemUptime-start)*1000
+    }
+    if self.line.revealed {_ = toggle()}
+    try? await Task.sleep(nanoseconds:400_000_000)
+    // One fully settled warmup is reported separately from the measured run.
+    let warmOpen=toggle();try? await Task.sleep(nanoseconds:480_000_000)
+    let warmClose=toggle();try? await Task.sleep(nanoseconds:420_000_000)
+    let counts=["images":self.line.items.count,"texts":self.line.texts.entries.count,"links":self.line.links.entries.count]
+    let total=counts.values.reduce(0,+),expected=stress ? 3036 : 36
+    var samples=[[String:Any]](),late=[Double](),phaseLate=[String:[Double]]()
+    var phase="idle",lastTick=ProcessInfo.processInfo.systemUptime
+    let pulse=Timer(timeInterval:0.016,repeats:true){_ in
+     MainActor.assumeIsolated {
+      let now=ProcessInfo.processInfo.systemUptime,delay=max(0,(now-lastTick-0.016)*1000)
+      late.append(delay);phaseLate[phase,default:[]].append(delay);lastTick=now
+     }
+    }
+    pulse.tolerance=0;RunLoop.main.add(pulse,forMode:.common)
+    let wallStart=ProcessInfo.processInfo.systemUptime,cpuStart=self.processCPUSeconds()
+    for cycle in 0..<20 {
+     phase="opening";let openMS=toggle()
+     try? await Task.sleep(nanoseconds:480_000_000)
+     let expectedID=self.line.displayItems.first(where:{!$0.falling})?.id
+     let onlyFirstImage=expectedID.map{self.line.selectedIDs==Set([$0])} ?? self.line.selectedIDs.isEmpty
+     let openCheck=self.line.revealed && self.delegate.panel.isVisible && self.delegate.panel.isKeyWindow && self.delegate.panel.keyboardFocusAllowed && self.line.activeShelf == .images && onlyFirstImage && self.line.texts.selectedIDs.isEmpty && self.line.links.selectedIDs.isEmpty
+     phase="closing";let closeMS=toggle()
+     try? await Task.sleep(nanoseconds:420_000_000)
+     let closeCheck = !self.line.revealed && !self.delegate.panel.isVisible && !self.delegate.panel.isKeyWindow && !self.delegate.panel.keyboardFocusAllowed && self.line.selectedIDs.isEmpty && self.line.texts.selectedIDs.isEmpty && self.line.links.selectedIDs.isEmpty
+     samples.append(["cycle":cycle+1,"openActionMS":openMS,"closeActionMS":closeMS,"openedWithOnlyFirstImageAndKeyFocus":openCheck,"closedAndReleasedFocus":closeCheck,"closedState":["modelHidden":!self.line.revealed,"panelHidden":!self.delegate.panel.isVisible,"notKey":!self.delegate.panel.isKeyWindow,"keyboardDisabled":!self.delegate.panel.keyboardFocusAllowed,"imagesClear":self.line.selectedIDs.isEmpty,"textsClear":self.line.texts.selectedIDs.isEmpty,"linksClear":self.line.links.selectedIDs.isEmpty]])
+    }
+    let cpuSeconds=max(0,self.processCPUSeconds()-cpuStart),wallSeconds=ProcessInfo.processInfo.systemUptime-wallStart
+    pulse.invalidate()
+    let passed=total==expected && samples.allSatisfy{($0["openedWithOnlyFirstImageAndKeyFocus"] as? Bool)==true && ($0["closedAndReleasedFocus"] as? Bool)==true}
+    allChecks = allChecks && passed
+    groups.append(["fixture":stress ? "stress" : "small","itemCounts":counts,"totalItems":total,"expectedTotalItems":expected,"cycles":20,"passed":passed,"samples":samples,"warmupOpenActionMS":warmOpen,"warmupCloseActionMS":warmClose,"openAction":self.millisecondSummary(samples.compactMap{$0["openActionMS"] as? Double}),"closeAction":self.millisecondSummary(samples.compactMap{$0["closeActionMS"] as? Double}),"mainLoopLateness":self.millisecondSummary(late),"phaseMainLoopLateness":phaseLate.mapValues{self.millisecondSummary($0)},"processCPUSeconds":cpuSeconds,"wallSecondsIncludingIdenticalDwell":wallSeconds,"processCPUPercentOfOneCoreIncludingDwell":wallSeconds>0 ? cpuSeconds/wallSeconds*100 : 0])
+    save(["status":"running","completedGroups":groups,"processID":ProcessInfo.processInfo.processIdentifier])
+   }
+   let timings=self.reflectedShelfPresentationTimings()
+   save(["status":"complete","passed":allChecks,"fixture":"isolated synthetic history; no real clipboard or external AX access","measurement":"Native toggle target synchronous elapsed time, total process CPU, and 16 ms main-run-loop timer lateness; not display FPS","backgroundImageIndexingPaused":true,"processID":ProcessInfo.processInfo.processIdentifier,"sourceRevision":Bundle.main.object(forInfoDictionaryKey:"ClipboardLineForkRevision") as? String ?? "unknown","version":Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "unknown","reduceMotion":NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,"openDwellSeconds":0.48,"closeDwellSeconds":0.42,"groups":groups,"candidatePresentationTimingsAvailable":!timings.isEmpty,"candidatePresentationTimings":Array(timings.dropFirst(min(timingStart,timings.count)))])
+   self.finishShelfToggleBenchmark()
+  }
+ }
+ func finishShelfToggleBenchmark(){
+  shelfToggleBenchmarkRunning=false
+  if shelfToggleBenchmarkRestoresImageSearch {
+   let search=LibraryImageSearch(store:store);store.imageSearch=search;search.start()
+   shelfToggleBenchmarkRestoresImageSearch=false
+  }
+  timer=Timer.scheduledTimer(withTimeInterval:0.4,repeats:true){_ in MainActor.assumeIsolated{self.record()}}
+  record();delegate.showLibrary()
+ }
+ func millisecondSummary(_ values:[Double])->[String:Any]{
+  let sorted=values.sorted()
+  func percentile(_ p:Double)->Double {sorted.isEmpty ? 0 : sorted[min(sorted.count-1,Int(ceil(Double(sorted.count)*p))-1)]}
+  return ["samples":values.count,"p50MS":percentile(0.5),"p95MS":percentile(0.95),"maxMS":sorted.last ?? 0,"over16MS":values.filter{$0>16}.count,"over50MS":values.filter{$0>50}.count]
+ }
+ func processCPUSeconds()->Double {
+  var usage=rusage();guard getrusage(RUSAGE_SELF,&usage)==0 else{return 0}
+  return Double(usage.ru_utime.tv_sec)+Double(usage.ru_utime.tv_usec)/1_000_000+Double(usage.ru_stime.tv_sec)+Double(usage.ru_stime.tv_usec)/1_000_000
+ }
+ /// Runtime reflection keeps this same harness source buildable against the
+ /// unmodified 1.7.4 application, which predates presentation phase telemetry.
+ func reflectedShelfPresentationTimings()->[[String:Any]]{
+  guard let value=Mirror(reflecting:delegate!).children.first(where:{$0.label=="shelfPresentationTimings"})?.value else{return []}
+  return Mirror(reflecting:value).children.compactMap{child in
+   let fields=Mirror(reflecting:child.value).children
+   guard let phase=fields.first(where:{$0.label=="phase"})?.value as? String,let milliseconds=fields.first(where:{$0.label=="elapsedMilliseconds"})?.value as? Double else{return nil}
+   return ["phase":phase,"elapsedMilliseconds":milliseconds]
+  }
  }
  /// This opens only an existing synthetic image. Marks are created by the
  /// actual pointer/text events in Computer Use, never injected into the model.

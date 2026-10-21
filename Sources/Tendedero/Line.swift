@@ -46,9 +46,11 @@ final class Line: ObservableObject {
     @Published var revealed = false {
         didSet {
             if revealed != oldValue {
-                cancelSelection(); texts.cancelSelection(); links.cancelSelection()
                 if revealed { selectFirstShelfItems(presentation.shelves) }
-                else { endAllShelfSearches() }
+                else {
+                    cancelSelection(); texts.cancelSelection(); links.cancelSelection()
+                    endAllShelfSearches()
+                }
             }
         }
     }
@@ -185,12 +187,20 @@ final class Line: ObservableObject {
         let visible = presentation.shelves.filter(shelves.contains)
         for shelf in visible { resetShelfStart(shelf) }
         let preferred = visible.contains(.images) ? [.images] + visible.filter { $0 != .images } : visible
-        guard let shelf = preferred.first(where: { !selectableIDs(for: $0).isEmpty }) else {
+        guard let shelf = preferred.first(where: { firstSelectableID(for: $0) != nil }) else {
             if let shelf = visible.first { focusShelf(shelf, requestFocus: false) }
             return
         }
         focusShelf(shelf, requestFocus: false)
-        if let id = selectableIDs(for: shelf).first { selectItem(id, on: shelf) }
+        if let id = firstSelectableID(for: shelf) { selectItem(id, on: shelf) }
+    }
+    /// Opening only needs a head item, not a copied ID array for every row.
+    private func firstSelectableID(for shelf: Shelf) -> UUID? {
+        switch shelf {
+        case .images: displayItems.first(where: { !$0.falling })?.id
+        case .texts: texts.displayEntries.first?.id
+        case .links: links.displayEntries.first?.id
+        }
     }
     /// The naming queue owns its own immutable IDs. Only move the visual focus;
     /// never replace the selection as Enter advances through that queue.
@@ -470,6 +480,7 @@ final class Line: ObservableObject {
         return true
     }
     private func endAllShelfSearches() {
+        guard isShelfSearchActive || searchEditingShelf != nil else { return }
         searchEditingShelf = nil; pendingSearchSelection = false
         isShelfSearchActive = false; shelfSearchQuery = ""; shelfSearch?.close()
         applyShelfSearchStates([:])
@@ -582,18 +593,18 @@ final class Line: ObservableObject {
 
     func startSelection() { selecting = true; onFocusRequested?() }
     func cancelSelection() {
-        selecting = false
-        selectedIDs.removeAll()
-        focusedID = nil
+        if selecting { selecting = false }
+        if !selectedIDs.isEmpty { selectedIDs.removeAll() }
+        if focusedID != nil { focusedID = nil }
         selectionAnchor = nil
     }
 
     func select(_ id: UUID, toggle: Bool = false, extending: Bool = false, preservingSelection: Bool = false) {
-        let visible = displayItems.filter { !$0.falling }
-        guard let target = visible.firstIndex(where: { $0.id == id }) else { return }
+        let visible = displayItems
+        guard let target = visible.firstIndex(where: { $0.id == id && !$0.falling }) else { return }
         if extending, let anchor = selectionAnchor,
-           let start = visible.firstIndex(where: { $0.id == anchor }) {
-            selectedIDs = Set(visible[min(start, target)...max(start, target)].map(\.id))
+           let start = visible.firstIndex(where: { $0.id == anchor && !$0.falling }) {
+            selectedIDs = Set(visible[min(start, target)...max(start, target)].filter { !$0.falling }.map(\.id))
         } else if toggle {
             if !selectedIDs.insert(id).inserted { selectedIDs.remove(id) }
             selectionAnchor = id

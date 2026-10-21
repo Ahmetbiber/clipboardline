@@ -83,4 +83,55 @@ import XCTest
         _ = try store.undoShelfRemoval()
         XCTAssertEqual(line.displayItems.map(\.id), [second.id, first.id])
     }
+
+    func testRepeatedThreeShelfOpenCloseLeavesInactiveRowsQuietAndRestoresSingleSelection() throws {
+        let f = try SyntheticFixture(); defer { f.cleanup() }
+        let store = try LibraryStore(defaults: f.defaults, inbox: f.inbox, now: { f.date })
+        let image = try store.captureImage(f.image())
+        for i in 0..<12 {
+            _ = try store.captureText("Toggle text \(i)")
+            _ = try store.captureLink(try XCTUnwrap(URL(string: "https://example.com/toggle/\(i)")))
+        }
+        let line = fixtureLine(f, store: store)
+        line.setPresentation(.all, requestFocus: false)
+        var inactiveChanges = 0
+        let text = line.texts.objectWillChange.sink { inactiveChanges += 1 }
+        let link = line.links.objectWillChange.sink { inactiveChanges += 1 }
+        defer { text.cancel(); link.cancel() }
+        for _ in 0..<50 {
+            line.revealed = true
+            XCTAssertEqual(line.activeShelf, .images)
+            XCTAssertEqual(line.selectedIDs, [image.id])
+            XCTAssertTrue(line.texts.selectedIDs.isEmpty && line.links.selectedIDs.isEmpty)
+            line.revealed = false
+            XCTAssertTrue(line.selectedIDs.isEmpty)
+            XCTAssertNil(line.focusedID)
+        }
+        XCTAssertEqual(inactiveChanges, 0, "Opening/closing an unchanged image selection must not invalidate either inactive row")
+        XCTAssertEqual(line.texts.displayEntries.count, 12)
+        XCTAssertEqual(line.links.displayEntries.count, 12)
+    }
+
+    func testClosingActiveSearchClearsItBeforeFreshOpenChoosesImages() throws {
+        let f = try SyntheticFixture(); defer { f.cleanup() }
+        let store = try LibraryStore(defaults: f.defaults, inbox: f.inbox, now: { f.date })
+        let image = try store.captureImage(f.image())
+        _ = try store.captureText("Search closure remains fresh")
+        let line = fixtureLine(f, store: store)
+        line.setPresentation(.all, requestFocus: false)
+        line.revealed = true
+        line.focusShelf(.texts, requestFocus: false)
+        line.beginShelfSearch(.texts)
+        XCTAssertTrue(line.isShelfSearchActive)
+        line.revealed = false
+        XCTAssertFalse(line.isShelfSearchActive)
+        XCTAssertNil(line.searchEditingShelf)
+        XCTAssertEqual(line.shelfSearchQuery, "")
+        line.revealed = true
+        XCTAssertEqual(line.activeShelf, .images)
+        XCTAssertEqual(line.focusedID, image.id)
+        XCTAssertEqual(line.selectedIDs, [image.id])
+        XCTAssertTrue(line.texts.selectedIDs.isEmpty && line.links.selectedIDs.isEmpty)
+    }
+
 }

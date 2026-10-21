@@ -34,7 +34,8 @@ async function rendererPage(browser,{source,perKind=1000,width=1600}={}){
  await page.addInitScript(state=>{
   let current=state,subscriber,removed=[];const commands=[];
   const emit=patch=>{current={...current,...patch};subscriber?.(structuredClone(current));};
-  window.__shelfPerformance={commands,emit,snapshot:()=>structuredClone(current),ready:false};
+  const surface=patch=>{current={...current,...patch};subscriber?.({surfaceOnly:true,...structuredClone(patch)});};
+  window.__shelfPerformance={commands,emit,surface,snapshot:()=>structuredClone(current),ready:false};
   window.clipboardLine={subscribe:fn=>{subscriber=fn;return()=>{};},state:async()=>structuredClone(current),command:async(action,payload={})=>{commands.push({action,payload});if(action==='setSettings')current.settings={...current.settings,...payload.patch};if(action==='remove'){removed=current.items.filter(value=>payload.ids.includes(value.id)).map(value=>structuredClone(value));for(const value of current.items)if(payload.ids.includes(value.id))value.hiddenFromShelf=true;current.canUndo=true;}if(action==='undo'){for(const value of removed)Object.assign(current.items.find(item=>item.id===value.id),value);current.canUndo=false;}if(action==='pin')for(const value of current.items)if(payload.ids.includes(value.id))value.pinned=!value.pinned;emit({});return structuredClone(current);}};
  },raw);
  await page.goto('https://clipboardline-performance.test/');await page.waitForFunction(()=>!!window.__shelfPerformance?.renderer&&document.querySelectorAll('.shelf').length===3);
@@ -55,6 +56,7 @@ async function referenceMeasurements(page,{iterations=50}={}){
   await measure('keyboard-up-down',at=>r.perform(at%2?'up':'down'));
   await measure('page-forward-back',at=>r.perform(at%2?'previousPage':'nextPage'));
   await measure('background-index-progress',at=>f.emit({imageSearch:{available:true,indexing:true,revision:at+2}}));
+  await measure('close-reopen-three-shelves',()=>{f.surface({windowVisible:false});f.surface({windowVisible:true});});
   await measure('shared-search',at=>{r.ui.search=at%2?'reference 42':'reference 7';r.focusFirst();r.render();},12);
   return{...result,loadedImages:document.querySelectorAll('.shelves img').length,visibleCards:document.querySelectorAll('.shelves .card').length,totalItems:f.snapshot().items.length};
  },iterations);

@@ -151,6 +151,7 @@ enum HistoryTestRunner {
         let keyboardPickerTests = KeyboardPickerTests()
         let shelfPerformance = ShelfPerformanceTests()
         let shelfProjection = ShelfProjectionTests()
+        let shelfPresentation = ShelfPresentationTests()
         let textIdentityParity = TextIdentityParityTests()
         let keyboardSpeedTests = KeyboardSpeedTests()
         let shelfPaging = ShelfPagingTests()
@@ -169,7 +170,12 @@ enum HistoryTestRunner {
         let namedShelfLabel = NamedShelfLabelTests()
         let publicUpdates = PublicUpdateChannelTests()
         let cases: [(String, () throws -> Void)] = [
+            ("testNativeVisibilityKeepsWindowContentAndHitCoordinatesFixed", shelfPresentation.testNativeVisibilityKeepsWindowContentAndHitCoordinatesFixed),
+            ("testRapidVisibilityReversalCannotRunAnEarlierCloseCompletion", shelfPresentation.testRapidVisibilityReversalCannotRunAnEarlierCloseCompletion),
+            ("testReducedMotionIsImmediateAndPresentationDoesNotClaimKeyboardOwnership", shelfPresentation.testReducedMotionIsImmediateAndPresentationDoesNotClaimKeyboardOwnership),
             ("testSharedTextIdentitiesAgainstLibraryAndLegacyHistory", textIdentityParity.testSharedTextIdentitiesAgainstLibraryAndLegacyHistory),
+            ("testRepeatedThreeShelfOpenCloseLeavesInactiveRowsQuietAndRestoresSingleSelection", shelfPerformance.testRepeatedThreeShelfOpenCloseLeavesInactiveRowsQuietAndRestoresSingleSelection),
+            ("testClosingActiveSearchClearsItBeforeFreshOpenChoosesImages", shelfPerformance.testClosingActiveSearchClearsItBeforeFreshOpenChoosesImages),
             ("testRepeatedScrollFocusDoesNotInvalidateAllRowsAndExplicitFocusStillWorks", shelfPerformance.testRepeatedScrollFocusDoesNotInvalidateAllRowsAndExplicitFocusStillWorks),
             ("testEveryOverflowingRowAcceptsGapScrollingAcrossAllPresentations", shelfPerformance.testEveryOverflowingRowAcceptsGapScrollingAcrossAllPresentations),
             ("testImageProjectionCacheReflectsPinEditsRemovalAndUndoWithoutLosingOrder", shelfPerformance.testImageProjectionCacheReflectsPinEditsRemovalAndUndoWithoutLosingOrder),

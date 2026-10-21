@@ -41,6 +41,7 @@ protocol.registerSchemesAsPrivileged([{scheme:'appmedia',privileges:{standard:tr
 let window,store,tray,trayPresentation,updates,updateScheduler,monitor,clipboardTimer,retentionTimer,updateTimer,updateLaunchTimer,previous=null,view='shelves',message='',viewEvent=null;
 let lastFingerprint='',ownFingerprint='',capturing=false,pendingClipboard=false,showing=false,closing=false,watchers=[],normalBounds=null,normalMaximized=false,applyingBounds=false;
 let pastePromise=null,hidePromise=null,pasteGeneration=0;
+let lastBroadcastLibraryRevision=-1,windowSurface=null;
 const pasteTargets=new PasteTargetTracker(process.pid);
 const entry = pathToFileURL(path.join(__dirname,'index.html')).href;
 const copyMarker = crypto.randomBytes(16);
@@ -64,8 +65,16 @@ async function readSemanticImage(id){
  const resized=image.getSize();return{bitmap:image.toBitmap(),width:resized.width,height:resized.height};
 }
 
-function state(result) { return {...store.publicState(),version:app.getVersion(),build:BUILD_NUMBER,platform:process.platform,development,view,windowMode:view==='shelves'?'overlay':'normal',windowMaximized:window?.isMaximized()||false,windowVisible:window?.isVisible()||false,message:message||store.privacyWarning||'',viewEvent,imageSearch:{...(imageSearch?.state||{available:false,indexing:false,pending:0,revision:0})},update:{...updates.state},...(result===undefined?{}:{result})}; }
-function broadcast() { refreshTray();if(window&&!window.isDestroyed())window.webContents.send('clipboardline:changed',state()); }
+function state(result,{surfaceOnly=false}={}) { const light=surfaceOnly&&lastBroadcastLibraryRevision===store.revision;return {...(light?{surfaceOnly:true}:store.publicState()),libraryRevision:store.revision,version:app.getVersion(),build:BUILD_NUMBER,platform:process.platform,development,view,windowMode:view==='shelves'?'overlay':'normal',windowMaximized:window?.isMaximized()||false,windowVisible:window?.isVisible()||false,message:message||store.privacyWarning||'',viewEvent,imageSearch:{...(imageSearch?.state||{available:false,indexing:false,pending:0,revision:0})},update:{...updates.state},...(result===undefined?{}:{result})}; }
+function broadcast({surfaceOnly=false}={}) {
+  // Visibility and native bounds do not change library content. Retain the
+  // renderer's existing rows instead of cloning and sending the full history
+  // for every hide/show/resize packet. A committed store change forces a full
+  // snapshot before subsequent surface packets can reuse it.
+  const packet=state(undefined,{surfaceOnly});if(!packet.surfaceOnly)refreshTray();
+  if(window&&!window.isDestroyed()){window.webContents.send('clipboardline:changed',packet);if(!packet.surfaceOnly)lastBroadcastLibraryRevision=store.revision;}
+  return packet;
+}
 function notify(text) { message=text;broadcast(); }
 function openUpdates(){return show('settings',{settingsTab:'updates'});}
 function refreshTray(){
@@ -109,11 +118,11 @@ async function show(next='shelves',event=null) {
     const display=screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     applyingBounds=true;
     try{if(window.isMinimized())window.restore();if(window.isMaximized())window.unmaximize();
-      window.setMinimumSize(next==='shelves'?1:640,next==='shelves'?1:360);window.setResizable(next!=='shelves');window.setMaximizable(next!=='shelves');window.setSkipTaskbar(next==='shelves');
-      window.setBackgroundColor(next==='shelves'?'#00000000':'#18191d');window.setHasShadow(next!=='shelves');
-      window.setBounds(next==='shelves'?display.workArea:fitNormalBounds(display.workArea));if(next!=='shelves'&&normalMaximized)window.maximize();
+      const surface=next==='shelves'?'overlay':'normal';
+      if(windowSurface!==surface){window.setMinimumSize(next==='shelves'?1:640,next==='shelves'?1:360);window.setResizable(next!=='shelves');window.setMaximizable(next!=='shelves');window.setSkipTaskbar(next==='shelves');window.setBackgroundColor(next==='shelves'?'#00000000':'#18191d');window.setHasShadow(next!=='shelves');window.setAlwaysOnTop(next==='shelves');windowSurface=surface;}
+      const bounds=next==='shelves'?display.workArea:fitNormalBounds(display.workArea),current=window.getBounds();if(['x','y','width','height'].some(key=>bounds[key]!==current[key]))window.setBounds(bounds);if(next!=='shelves'&&normalMaximized)window.maximize();
     }finally{applyingBounds=false;}
-    window.setAlwaysOnTop(next==='shelves');window.show();window.focus();broadcast();
+    window.show();window.focus();broadcast({surfaceOnly:true});
   }finally{showing=false;}
 }
 async function hide(restore=true) {
@@ -121,7 +130,7 @@ async function hide(restore=true) {
   if(restore&&pastePromise){pasteGeneration++;cancelNativePaste();}
   if(hidePromise)return hidePromise;
   const operation=(async()=>{
-    rememberNormalBounds();const target=previous;previous=null;window.hide();viewEvent=null;broadcast();
+    rememberNormalBounds();const target=previous;previous=null;window.hide();viewEvent=null;broadcast({surfaceOnly:true});
     if(restore&&target)await native.restore(target).catch(()=>{});
   })();
   hidePromise=operation;
@@ -352,7 +361,7 @@ async function command(action,payload={}) {
     await updates.install(launchInstaller);app.quit();
   }else if(action==='quit')app.quit();
   else throw new Error('Unknown command');
-  broadcast();return state(result);
+  const packet=broadcast({surfaceOnly:['show','search','hide','library','settings','windowClose','windowMinimize','windowMaximize'].includes(action)});return result===undefined?packet:{...packet,result};
 }
 
 let applicationIcon;
@@ -397,7 +406,8 @@ else app.whenReady().then(async()=>{
   window.webContents.session.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));
   window.on('focus',()=>{if(!showing&&!pastePromise)previous=pasteTargets.reenter();});
   window.on('close',event=>{if(!closing){event.preventDefault();void hide();}});
-  window.on('resize',()=>{rememberNormalBounds();broadcast();});window.on('move',rememberNormalBounds);window.on('maximize',()=>{rememberNormalBounds();broadcast();});window.on('unmaximize',()=>{rememberNormalBounds();broadcast();});
+  window.on('resize',()=>{if(applyingBounds)return;rememberNormalBounds();broadcast({surfaceOnly:true});});window.on('move',rememberNormalBounds);window.on('maximize',()=>{if(applyingBounds)return;rememberNormalBounds();broadcast({surfaceOnly:true});});window.on('unmaximize',()=>{if(applyingBounds)return;rememberNormalBounds();broadcast({surfaceOnly:true});});
+  window.webContents.on('did-finish-load',()=>{lastBroadcastLibraryRevision=-1;});
   ipcMain.handle('clipboardline:state',event=>{trusted(event);return state();});
   ipcMain.handle('clipboardline:command',async(event,action,payload)=>{trusted(event);try{return await command(action,payload);}catch(error){notify(error.message);return state({error:error.message});}});
   await window.loadURL(entry);

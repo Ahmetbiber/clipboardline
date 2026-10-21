@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 struct ShelfSearchFocus: Equatable {
     let shelf: Shelf
@@ -9,6 +10,8 @@ struct ShelfSearchFocus: Equatable {
 /// app and every Space except full screen ones, takes keyboard focus for browsing, and lets clicks pass through
 /// everywhere except over the photos.
 final class LinePanel: NSPanel {
+    private let reduceMotion: () -> Bool
+    private var visibilityGeneration = 0
     var keyboardFocusAllowed = false
     var onKey: ((NSEvent) -> Bool)?
     var onCommandKey: ((NSEvent) -> Bool)?
@@ -80,7 +83,8 @@ final class LinePanel: NSPanel {
         }
     }
 
-    init(content: NSView) {
+    init(content: NSView, reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
+        self.reduceMotion = reduceMotion
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         isOpaque = false
@@ -100,6 +104,35 @@ final class LinePanel: NSPanel {
     override var canBecomeKey: Bool { keyboardFocusAllowed }
     override var canBecomeMain: Bool { false }
 
+    /// Fade the already laid out native window instead of moving every
+    /// SwiftUI card. Window opacity is composited without new row layout or
+    /// geometry preferences on every animation frame. The fixed frame also
+    /// keeps hit coordinates and the owning display stable on stacked screens.
+    /// A rapid reversal invalidates an older close completion before it can
+    /// order out the newly opened window.
+    func setShelfRevealed(_ on: Bool, animated: Bool = true, completion: (() -> Void)? = nil) {
+        visibilityGeneration += 1
+        let generation = visibilityGeneration
+        let target: CGFloat = on ? 1 : 0
+        let duration: TimeInterval = animated && !reduceMotion() ? (on ? 0.12 : 0.10) : 0
+        if duration == 0 {
+            alphaValue = target
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.visibilityGeneration == generation else { return }
+                completion?()
+            }
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().alphaValue = target
+        } completionHandler: { [weak self] in
+            guard let self, self.visibilityGeneration == generation else { return }
+            completion?()
+        }
+    }
+
     /// The line hangs on the screen you are using, which is the one with the
     /// pointer: that is where you just took the screenshot.
     static func screenUnderPointer() -> NSScreen? {
@@ -112,6 +145,8 @@ final class LinePanel: NSPanel {
         guard let visible = (screen ?? LinePanel.screenUnderPointer())?.visibleFrame else { return }
         let target = NSRect(x: visible.minX, y: visible.maxY - contentHeight,
                             width: visible.width, height: contentHeight)
-        if frame != target { setFrame(target, display: true) }
+        // Presentation follows placement/capacity in the same turn. Do not
+        // force a synchronous SwiftUI draw before that final state is ready.
+        if frame != target { setFrame(target, display: false) }
     }
 }

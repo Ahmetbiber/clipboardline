@@ -29,7 +29,7 @@ versioned behavioral specification. Its synthetic items use portable aliases and
 are listed newest first. Every step contains an expected active row, focused
 item, complete selection, visible rows and native search-editing state.
 
-The current eleven scenarios (62 observations per platform) cover one selected image on opening, reopening,
+The current twelve scenarios (73 observations per platform) cover one selected image on opening, reopening,
 hidden/empty/filtered image fallback, column-preserving vertical navigation and
 clamping, hidden/empty row skipping, horizontal navigation, adding and hiding
 rows, search caret keys, empty shelves, remapping, disabling and restoring defaults.
@@ -125,3 +125,10 @@ metadata/media edits, visibility and reopen behavior. The Mac isolated live
 fixture covers the same three rows with 3,036 items. Large-history CPU/DOM
 benchmarks are supplementary and do not establish native display FPS or eliminate
 the separate cost of full background snapshots/store reloads.
+
+## Visibility performance (1.7.5)
+
+See [the toggle performance update](shelf-toggle-performance-1.7.5.md). Repeated
+three-row open/close and active-search teardown extend the shared contract.
+Native platform suites separately verify fixed hit geometry, focus return,
+rapid reopen and retained unchanged content.

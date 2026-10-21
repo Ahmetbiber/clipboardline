@@ -23,8 +23,15 @@ test('build67 requires the genuine published model-bearing build66 with exact si
   assert.ok(previousInstallerOptions(67).maximum <= 1024**3);
   assert.throws(() => { reviewedPrevious(67).size = 1024**3; }, TypeError);
 });
+test('build68 requires the genuine published 1.7.4 build67 with exact size, hash and source', () => {
+  assert.deepEqual(reviewedPrevious(68), {version:'1.7.4',build:67,size:545769370,sha256:'d6b9b2b066f4172c55ccf75bf38118430ab22a761306ef40ba0890e4ea18223f',sourceRevision:'ee7878362a8f740b36bb9a17114bc2aad3cfd0f3'});
+  assert.equal(previousInstallerURL(68), 'https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.4-build67/ClipBoardLine-Setup-1.7.4-x64.exe');
+  assert.deepEqual(previousInstallerOptions(68), {maximum:545769370,timeout:120000});
+  assert.equal(Object.isFrozen(reviewedPrevious(68)), true);
+  assert.throws(() => verifyPreviousInstaller(68, Buffer.alloc(100)), /exact reviewed size/);
+});
 test('unknown, coerced or missing candidate profiles cannot select a previous installer', () => {
-  for (const build of [undefined,null,true,'67',62,68,NaN,67.5]) {
+  for (const build of [undefined,null,true,'67','68',62,69,NaN,67.5]) {
     assert.throws(() => reviewedPrevious(build), /reviewed/);
     assert.throws(() => previousInstallerURL(build), /reviewed/);
     assert.throws(() => previousInstallerOptions(build), /reviewed/);

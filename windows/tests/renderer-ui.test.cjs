@@ -29,10 +29,10 @@ function fixture({deferInitialState=false,initialVisible=true}={}){
  const document={body:new Element('body'),activeElement:null,getElementById(id){if(!nodes.has(id))nodes.set(id,id==='markup-canvas'?new Canvas(id):new Element(id));return nodes.get(id);},createElement(tag){return tag==='canvas'?new Canvas():new Element();},querySelector(){return null;},addEventListener(name,listener){if(!listeners.has(name))listeners.set(name,[]);listeners.get(name).push(listener);}};
  const image='00000000-0000-4000-8000-000000000001',text1='00000000-0000-4000-8000-000000000002',text2='00000000-0000-4000-8000-000000000003',link='00000000-0000-4000-8000-000000000004';
  const base=(id,kind,createdAt,extra)=>({id,kind,createdAt,updatedAt:createdAt,name:'',title:'',text:'',url:'',pinned:false,folderIds:[],tags:[],trashedAt:null,hiddenFromShelf:false,...extra});
- const state={items:[base(image,'image',1000,{name:'Synthetic image',mediaUrl:'appmedia://media/'+image,originalMediaUrl:'appmedia://media/'+image+'/original'}),base(text1,'text',900,{text:'Text one'}),base(text2,'text',800,{text:'Text two'}),base(link,'link',700,{url:'https://example.com/reference',title:'Reference link'})],folders:[],settings:{visibleKinds:['image','text','link'],retentionDays:{image:30,text:30,link:30},shortcuts:{toggle:'Control+Alt+Space',search:'Control+Alt+S'},localShortcuts:{},language:'en',theme:'soft',cardSize:'medium'},view:'shelves',version:'1.7.0',windowVisible:initialVisible,canUndo:false};
+ const state={items:[base(image,'image',1000,{name:'Synthetic image',mediaUrl:'appmedia://media/'+image,originalMediaUrl:'appmedia://media/'+image+'/original'}),base(text1,'text',900,{text:'Text one'}),base(text2,'text',800,{text:'Text two'}),base(link,'link',700,{url:'https://example.com/reference',title:'Reference link'})],folders:[],settings:{visibleKinds:['image','text','link'],retentionDays:{image:30,text:30,link:30},shortcuts:{toggle:'Control+Alt+Space',search:'Control+Alt+S'},localShortcuts:{},language:'en',theme:'soft',cardSize:'medium'},view:'shelves',version:'1.7.0',windowVisible:initialVisible,canUndo:false,libraryRevision:0};
  let subscriber,removed=[],cleanupFailures=0,editFailures=0,delayedReply=null,releaseInitialState;
  const clone=value=>structuredClone(value);
- const api={emit(patch){Object.assign(state,patch);subscriber?.(clone(state));},state:async()=>{const initial=clone(state);if(deferInitialState)await new Promise(resolve=>{releaseInitialState=resolve;});return initial;},subscribe(fn){subscriber=fn;return()=>{};},async command(action,payload={}){commands.push({action,payload:clone(payload)});const selected=state.items.filter(item=>(payload.ids||[payload.id]).includes(item.id));
+ const api={emit(patch){Object.assign(state,patch);subscriber?.(clone(state));},surface(patch){Object.assign(state,patch);subscriber?.({surfaceOnly:true,...clone(patch)});},state:async()=>{const initial=clone(state);if(deferInitialState)await new Promise(resolve=>{releaseInitialState=resolve;});return initial;},subscribe(fn){subscriber=fn;return()=>{};},async command(action,payload={}){commands.push({action,payload:clone(payload)});const selected=state.items.filter(item=>(payload.ids||[payload.id]).includes(item.id));
   let cleanupError;if(action==='cleanup'){if(cleanupFailures){cleanupFailures--;cleanupError='Permanent deletion cleanup is still pending.';}else state.needsDeletionCleanup=false;}
   if(action==='editText'){if(editFailures){editFailures--;cleanupError='Synthetic draft write failure';}else selected.forEach(item=>item.text=payload.text);}
   if(action==='setSettings'){const patch=payload.patch||{},localShortcuts={...state.settings.localShortcuts,...patch.localShortcuts};for(const [action,value]of Object.entries(localShortcuts))if(value===null)delete localShortcuts[action];state.settings={...state.settings,...patch,localShortcuts};}
@@ -64,6 +64,39 @@ function focusedCard(f){return [...f.main.matchAll(/<article class="([^"]*)"[^>]
 function navigationItems(f,{image=13,text=11,link=10}={}){let serial=0;const values={};for(const [kind,count]of Object.entries({image,text,link})){const source=f.state.items.find(value=>value.kind===kind);values[kind]=Array.from({length:count},(_,index)=>({...structuredClone(source),id:'10000000-0000-4000-8000-'+String(++serial).padStart(12,'0'),createdAt:10000-index,name:kind==='image'?'Navigation image '+index:'',text:kind==='text'?'Navigation text '+index:'',title:kind==='link'?'Navigation link '+index:'',url:kind==='link'?'https://example.com/navigation/'+index:''}));}return values;}
 
 test('fresh shelves select only the first image; P pins it; Space previews it',async()=>{const f=fixture();await f.ready();assert.match(f.main,/card kind-image focused selected/);assert.deepEqual(selectedCards(f),[f.image]);await f.key('KeyP');assert.equal(f.state.items[0].pinned,true);await f.key('Space');assert.match(f.overlay,/id="preview-dialog"/);assert.match(f.overlay,/aria-label="Synthetic image"/);});
+
+test('lightweight native toggles retain current content and reset to a single first-image selection',async()=>{
+ const f=fixture();await f.ready();for(let index=0;index<8;index++){
+  await f.key('ArrowDown');assert.equal(activeKind(f),'text');await f.key('ArrowRight');
+  f.api.surface({view:'shelves',windowVisible:false});await f.ready();assert.deepEqual(selectedCards(f),[]);
+  f.api.surface({view:'shelves',windowVisible:true});await f.ready();assert.equal(activeKind(f),'image');assert.deepEqual(selectedCards(f),[f.image]);assert.match(f.main,/Text two/);
+ }
+ f.api.emit({items:f.state.items.map(value=>value.id===f.text1?{...value,text:'Latest hidden edit'}:value)});await f.ready();f.api.surface({windowVisible:false});f.api.surface({windowVisible:true});await f.ready();await f.key('ArrowDown');await f.key('Space');assert.match(f.overlay,/Latest hidden edit/);assert.deepEqual(selectedCards(f),[f.text1]);
+});
+
+test('a lightweight toggle before the first full snapshot preserves the later visibility event',async()=>{
+ const f=fixture({deferInitialState:true,initialVisible:false});f.api.surface({view:'shelves',windowVisible:true});f.releaseInitialState();await f.ready();assert.deepEqual(selectedCards(f),[f.image]);assert.equal(activeKind(f),'image');await f.key('Space');assert.match(f.overlay,/Synthetic image/);
+ const hidden=fixture({deferInitialState:true,initialVisible:true});hidden.api.surface({view:'shelves',windowVisible:false});hidden.releaseInitialState();await hidden.ready();assert.deepEqual(selectedCards(hidden),[]);assert.equal(hidden.overlay,'');
+});
+
+test('lightweight native hide saves a dirty text preview before clearing it and reopening',async()=>{
+ const f=fixture();await f.ready();await f.key('ArrowDown');await f.key('Space');await f.key('KeyE');await f.input('text-editor','Draft saved before lightweight hide');
+ f.api.surface({view:'shelves',windowVisible:false});await f.ready();assert.equal(f.state.items.find(value=>value.id===f.text1).text,'Draft saved before lightweight hide');assert.equal(f.commands.filter(value=>value.action==='editText').length,1);assert.equal(f.overlay,'');
+ f.api.surface({view:'shelves',windowVisible:true});await f.ready();assert.deepEqual(selectedCards(f),[f.image]);assert.equal(f.overlay,'');await f.key('ArrowDown');await f.key('Space');assert.match(f.overlay,/Draft saved before lightweight hide/);
+});
+
+test('new full content survives later lightweight visibility packets while an editor save is pending',async()=>{
+ const f=fixture();await f.ready();await f.key('ArrowDown');await f.key('Space');await f.key('KeyE');const release=f.deferReply('editText');await f.input('text-editor','Saved pending draft');
+ f.api.surface({view:'shelves',windowVisible:false});await f.ready();f.api.emit({items:f.state.items.map(value=>value.id===f.image?{...value,name:'Current image title',mediaUrl:'appmedia://media/'+f.image+'?v=new'}:value.id===f.text2?{...value,text:'Current second text'}:value),libraryRevision:7});
+ f.api.surface({view:'shelves',windowVisible:true,libraryRevision:7,viewEvent:{serial:'after-pending-save',selectId:f.text2,kind:'text',preview:true}});await f.ready();release();await f.ready();
+ assert.match(f.main,/Current image title/);assert.match(f.main,new RegExp('appmedia://media/'+f.image+'\\?v=new'));assert.match(f.overlay,/Current second text/);assert.doesNotMatch(f.overlay,/id="text-editor"/);assert.equal(f.state.items.find(value=>value.id===f.text1).text,'Saved pending draft');assert.equal(f.state.windowVisible,true);assert.deepEqual(selectedCards(f),[f.text2]);
+});
+
+test('an initial library older than a queued lightweight revision is refreshed before it is shown',async()=>{
+ const f=fixture({deferInitialState:true,initialVisible:false});f.state.libraryRevision=2;f.state.items=f.state.items.map(value=>value.id===f.image?{...value,name:'Current bootstrap image'}:value);f.api.surface({view:'shelves',windowVisible:true,libraryRevision:2});f.releaseInitialState();await f.ready();
+ // The fresh API read also uses the controllable initial-state gate.
+ f.releaseInitialState();await f.ready();assert.match(f.main,/Current bootstrap image/);assert.deepEqual(selectedCards(f),[f.image]);assert.equal(activeKind(f),'image');
+});
 
 test('preview arrows move across shelf kinds, S keeps preview on neighbor, Backspace restores',async()=>{const f=fixture();await f.ready();await f.key('Space');await f.key('ArrowDown');assert.match(f.overlay,/aria-label="Text one"/);await f.key('KeyS');assert.match(f.overlay,/aria-label="Text two"/);assert.ok(f.state.items.find(item=>item.id===f.text1).trashedAt);await f.key('Backspace');assert.match(f.overlay,/aria-label="Text one"/);assert.equal(f.state.items.find(item=>item.id===f.text1).trashedAt,null);});
 
