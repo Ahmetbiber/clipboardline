@@ -30,8 +30,14 @@ test('build68 requires the genuine published 1.7.4 build67 with exact size, hash
   assert.equal(Object.isFrozen(reviewedPrevious(68)), true);
   assert.throws(() => verifyPreviousInstaller(68, Buffer.alloc(100)), /exact reviewed size/);
 });
+test('build69 pins the genuine published 1.7.5 build68 size, hash and source', () => {
+  assert.deepEqual(reviewedPrevious(69), {version:'1.7.5',build:68,size:545769250,sha256:'d37f86b5e355a58e3303899aa6917efb495a7f1d2a02732fd7e843cc1ef442e7',sourceRevision:'0d71154257aef8042a53ee6ff169079eddbb42bd'});
+  assert.equal(previousInstallerURL(69), 'https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.5-build68/ClipBoardLine-Setup-1.7.5-x64.exe');
+  assert.deepEqual(previousInstallerOptions(69), {maximum:545769250,timeout:120000});
+  assert.throws(() => verifyPreviousInstaller(69, Buffer.alloc(100)), /exact reviewed size/);
+});
 test('unknown, coerced or missing candidate profiles cannot select a previous installer', () => {
-  for (const build of [undefined,null,true,'67','68',62,69,NaN,67.5]) {
+  for (const build of [undefined,null,true,'67','68','69',62,70,NaN,67.5]) {
     assert.throws(() => reviewedPrevious(build), /reviewed/);
     assert.throws(() => previousInstallerURL(build), /reviewed/);
     assert.throws(() => previousInstallerOptions(build), /reviewed/);

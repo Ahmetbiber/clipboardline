@@ -3,6 +3,7 @@ func XCTAssertTrue(_ value:Bool) {precondition(value,"Synthetic fixture creation
 import AppKit
 import SwiftUI
 import Darwin
+import QuartzCore
 
 @MainActor final class HarnessClipboard: ClipboardSource {
  var count = 17000
@@ -13,6 +14,33 @@ import Darwin
  func inject(){count += 1; values = [[.string:Data("New synthetic text 👋\n第二行\nmultiline capture".utf8)]]}
  func injectLink(){count += 1; values = [[.string:Data("https://youtu.be/jNQXAC9IVRw?t=20".utf8)]]}
  func injectText(_ text:String){count += 1;values = [[.string:Data(text.utf8)]]}
+}
+/// Samples the compositor without asking AppKit or SwiftUI to lay out/draw.
+/// All values belong to this process's disposable synthetic shelf window.
+@MainActor private struct HarnessShelfPresentationSample {
+ let elapsedMS:Double
+ let frame:NSRect
+ let visible:Bool
+ let key:Bool
+ let alpha:Double
+ let hasSlideHook:Bool
+ let layerAvailable:Bool
+ let modelY:Double?
+ let presentationY:Double?
+ let layerClips:Bool?
+ let geometryFlipped:Bool?
+ let hostingLayouts:Int?
+ let geometryUpdates:Int?
+ var json:[String:Any] {
+  ["elapsedMS":elapsedMS,"windowFrame":[frame.minX,frame.minY,frame.width,frame.height],
+   "visible":visible,"key":key,"alpha":alpha,"slideHookAvailable":hasSlideHook,
+   "layerAvailable":layerAvailable,"modelTranslationY":modelY.map{ $0 as Any } ?? NSNull(),
+   "presentationTranslationY":presentationY.map{ $0 as Any } ?? NSNull(),
+   "layerClips":layerClips.map{ $0 as Any } ?? NSNull(),
+   "geometryFlipped":geometryFlipped.map{ $0 as Any } ?? NSNull(),
+   "hostingLayouts":hostingLayouts.map{ $0 as Any } ?? NSNull(),
+   "hitGeometryUpdates":geometryUpdates.map{ $0 as Any } ?? NSNull()]
+ }
 }
 @MainActor final class HarnessDelegate:NSObject,NSApplicationDelegate,NSWindowDelegate {
  var f:SyntheticFixture!
@@ -400,81 +428,193 @@ import Darwin
   delegate.menuNeedsUpdate(menu)
   if let show=menu.items.firstIndex(where:{$0.title==L("Show line")}){menu.performActionForItem(at:show)}
  }
- /// Runs the real global-toggle target through its native menu item, with
- /// actual NSPanel/SwiftUI views and only this harness's disposable records.
- /// Main-loop lateness and process CPU measure work, never display FPS. The
- /// 0.48/0.42-second dwell lets the old spring/hide animation finish too; it is
- /// identical for baseline/candidate and excluded from action-call timings.
+ /// Samples read-only native/compositor state. Runtime guards keep this exact
+ /// fixture buildable against the unmodified 1.7.5 opacity baseline.
+ private func shelfCounter(_ owner:NSObject,_ key:String)->Int? {
+  guard owner.responds(to:NSSelectorFromString(key)) else{return nil}
+  return (owner.value(forKey:key) as? NSNumber)?.intValue
+ }
+ private func shelfPresentationSample(_ panel:LinePanel,since start:TimeInterval,geometryOwner:NSObject?=nil)->HarnessShelfPresentationSample {
+  let hook="shelfAnimationLayerForTesting",hasHook=panel.responds(to:NSSelectorFromString(hook))
+  let layer=hasHook ? panel.value(forKey:hook) as? CALayer : panel.contentView?.layer
+  return HarnessShelfPresentationSample(elapsedMS:(ProcessInfo.processInfo.systemUptime-start)*1000,
+   frame:panel.frame,visible:panel.isVisible,key:panel.isKeyWindow,alpha:Double(panel.alphaValue),
+   hasSlideHook:hasHook,layerAvailable:layer != nil,
+   modelY:layer.map{Double($0.sublayerTransform.m42)},
+   presentationY:layer?.presentation().map{Double($0.sublayerTransform.m42)},
+   layerClips:layer?.masksToBounds,geometryFlipped:layer?.isGeometryFlipped,
+   hostingLayouts:shelfCounter(panel,"shelfHostingLayoutCountForTesting"),
+   geometryUpdates:geometryOwner.flatMap{shelfCounter($0,"shelfHitGeometryUpdateCountForTesting")})
+ }
+ private func shelfTransitionResult(_ trace:[HarnessShelfPresentationSample],opening:Bool,reference:NSRect,reduceMotion:Bool)->[String:Any] {
+  guard let first=trace.first,let last=trace.last else{return ["passed":false,"reason":"No native samples"]}
+  let fixedFrame=trace.allSatisfy{$0.frame == reference}
+  let hasHook=first.hasSlideHook
+  let values=trace.filter{$0.elapsedMS>8 && $0.visible}.compactMap(\.presentationY)
+  let travel=(values.max() ?? 0)-(values.min() ?? 0)
+  let distinct=Set(values.map{Int(($0*10).rounded())}).count
+  let late=trace.filter{$0.elapsedMS>=80}
+  func delta(_ key:KeyPath<HarnessShelfPresentationSample,Int?>)->Int? {
+   let values=late.compactMap{ $0[keyPath:key] };guard let first=values.first,let last=values.last else{return nil};return last-first
+  }
+  let layouts=delta(\.hostingLayouts),geometry=delta(\.geometryUpdates)
+  let endpoint=last.modelY.map{opening ? abs($0)<0.5 : abs($0)>=Double(reference.height)-0.5} ?? false
+  let hiddenDirection=last.modelY.map{opening || (last.geometryFlipped == true ? $0<0 : $0>0)} ?? false
+  let direction=values.first.flatMap{start in values.last.map{end in opening ? end-start>4 : start-end>4}} ?? false
+  let measuredMotion=reduceMotion || (distinct>=3 && travel>max(4,Double(reference.height)*0.04) && direction)
+  let noLayoutChurn=(layouts.map{$0>=0 && $0<=1} ?? false) && (geometry.map{$0>=0 && $0<=1} ?? false)
+  let clipping=trace.allSatisfy{$0.layerAvailable && $0.layerClips == true}
+  let nativeOpacity=trace.allSatisfy{abs($0.alpha-1)<0.001}
+  // The baseline is explicitly classified; it may pass endpoint/focus checks
+  // while lacking the requested sliding behavior. Never infer motion from CPU.
+  let passed=fixedFrame && (!hasHook || (endpoint && hiddenDirection && measuredMotion && noLayoutChurn && clipping && nativeOpacity))
+  return ["phase":opening ? "opening" : "closing","passed":passed,
+   "implementation":hasHook ? "compositor-sublayer-slide" : "legacy-native-opacity",
+   "fixedNativeWindowFrame":fixedFrame,"slideHookAvailable":hasHook,
+   "presentationTranslationSampleCount":values.count,"distinctPresentationPositions":distinct,
+   "presentationTravelPoints":travel,"presentationDirectionCorrect":hasHook ? direction : false,"requiredMotionObserved":hasHook ? measuredMotion : false,
+   "modelEndpointCorrect":hasHook ? endpoint : false,"hiddenTranslationDirectionCorrect":hasHook ? hiddenDirection : false,
+   "clippedCompositorLayer":hasHook ? clipping : false,"windowOpacityRemainsOne":hasHook ? nativeOpacity : false,
+   "lateHostingLayoutDelta":layouts.map{$0 as Any} ?? NSNull(),
+   "lateHitGeometryUpdateDelta":geometry.map{$0 as Any} ?? NSNull(),
+   "noPerFrameLayoutOrHitGeometryChurn":hasHook ? noLayoutChurn : false,
+   "counterWindowStartsAfterMS":80,"samples":trace.map(\.json)]
+ }
+ private func shelfOpenState()->Bool {
+  let id=line.displayItems.first(where:{!$0.falling})?.id
+  let onlyFirst=id.map{line.selectedIDs==Set([$0])} ?? line.selectedIDs.isEmpty
+  return line.revealed && delegate.panel.isVisible && delegate.panel.isKeyWindow && delegate.panel.keyboardFocusAllowed && line.activeShelf == .images && onlyFirst && line.texts.selectedIDs.isEmpty && line.links.selectedIDs.isEmpty
+ }
+ private func shelfClosedState()->[String:Bool] {
+  ["modelHidden":!line.revealed,"panelHidden":!delegate.panel.isVisible,
+   "notKey":!delegate.panel.isKeyWindow,"keyboardDisabled":!delegate.panel.keyboardFocusAllowed,
+   "imagesClear":line.selectedIDs.isEmpty,"textsClear":line.texts.selectedIDs.isEmpty,"linksClear":line.links.selectedIDs.isEmpty]
+ }
+ private func shelfReducedMotionCheck() async->[String:Any] {
+  let panel=LinePanel(content:NSView(frame:NSRect(x:0,y:0,width:800,height:600)),reduceMotion:{true})
+  panel.contentHeight=600;panel.setFrame(NSRect(x:100,y:100,width:800,height:600),display:false)
+  let frame=panel.frame,start=ProcessInfo.processInfo.systemUptime
+  var oldClose=0,newOpen=0,finalClose=0
+  panel.setShelfRevealed(false){oldClose += 1};panel.setShelfRevealed(true){newOpen += 1}
+  try? await Task.sleep(nanoseconds:30_000_000)
+  let opened=shelfPresentationSample(panel,since:start)
+  let reversal=oldClose==0 && newOpen==1 && opened.frame==frame && (!opened.hasSlideHook || abs(opened.modelY ?? 999)<0.5)
+  panel.setShelfRevealed(false){finalClose += 1}
+  try? await Task.sleep(nanoseconds:30_000_000)
+  let closed=shelfPresentationSample(panel,since:start)
+  let hook="shelfAnimationLayerForTesting"
+  let layer=panel.responds(to:NSSelectorFromString(hook)) ? panel.value(forKey:hook) as? CALayer : panel.contentView?.layer
+  let noAnimations=(layer?.animationKeys() ?? []).isEmpty
+  let endpoint=closed.hasSlideHook ? abs(closed.modelY ?? 0)>=599.5 && abs(closed.alpha-1)<0.001 : abs(closed.alpha)<0.001
+  let passed=reversal && finalClose==1 && endpoint && noAnimations && !panel.isVisible && !panel.isKeyWindow && !panel.keyboardFocusAllowed && panel.frame==frame
+  panel.contentView=nil;panel.close()
+  return ["passed":passed,"fixture":"never-shown disposable native panel; injected Reduce Motion, no system setting changes",
+   "staleCloseCompletionCancelled":reversal,"oldCloseCompletions":oldClose,"openCompletions":newOpen,"finalCloseCompletions":finalClose,
+   "noCompositorAnimations":noAnimations,"closedEndpointCorrect":endpoint,"opened":opened.json,"closed":closed.json]
+ }
+ /// Runs the real global-toggle target with actual NSPanel/SwiftUI views.
+ /// Identical 0.60/0.48-second dwells cover the restored 420/220 ms slide and
+ /// the 1.7.5 baseline. Compositor sampling never forces layout or drawing.
+ /// Main-loop lateness and process CPU measure work, never display FPS.
  func runShelfToggleBenchmark(){
   guard !shelfToggleBenchmarkRunning else{return}
   shelfToggleBenchmarkRunning=true;timer?.invalidate();timer=nil
-  // A bulk fixture import would otherwise schedule 1,000 real OCR/model
-  // analyses. Isolate presentation work in both builds; restore the harness
-  // search service afterward. Production indexing behavior is untouched.
+  // Pause actual synthetic image analysis in both builds, then restore it.
   shelfToggleBenchmarkRestoresImageSearch=store.imageSearch != nil
   store.imageSearch?.stop();store.imageSearch=nil
   controlsWindow?.orderOut(nil);delegate.libraryController?.window?.orderOut(nil)
   delegate.settingsController?.window?.orderOut(nil)
-  let resultURL=output.appendingPathComponent("shelf-toggle-benchmark.json")
+  let resultURL=output.appendingPathComponent("shelf-slide-benchmark.json")
   func save(_ result:[String:Any]){
    if let data=try? JSONSerialization.data(withJSONObject:result,options:[.prettyPrinted,.sortedKeys]){try? data.write(to:resultURL,options:.atomic)}
   }
   save(["status":"running","fixture":"isolated synthetic history","processID":ProcessInfo.processInfo.processIdentifier])
   Task { @MainActor in
-   var groups=[[String:Any]](),allChecks=true
+   var groups=[[String:Any]](),allChecks=true,reversals=[[String:Any]]()
+   let reduceMotion=NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
    let timingStart=self.reflectedShelfPresentationTimings().count
    for stress in [false,true] {
     if stress {self.addShelfStress()}
     _ = self.line.closeShelfSearch(requestFocus:false)
     for shelf in Shelf.allCases {self.line.focusShelf(shelf,requestFocus:false);self.line.setActiveFavorites(false)}
-    self.line.setPresentation(.all,requestFocus:false)
-    self.line.focusShelf(.images,requestFocus:false)
+    self.line.setPresentation(.all,requestFocus:false);self.line.focusShelf(.images,requestFocus:false)
     let menu=NSMenu();self.delegate.menuNeedsUpdate(menu)
     guard let index=menu.items.firstIndex(where:{$0.title==L("Show line") || $0.title==L("Hide line")}) else{
      save(["status":"failed","reason":"Native toggle menu item missing"]);self.finishShelfToggleBenchmark();return
     }
     func toggle()->Double {
-     let start=ProcessInfo.processInfo.systemUptime
-     menu.performActionForItem(at:index)
+     let start=ProcessInfo.processInfo.systemUptime;menu.performActionForItem(at:index)
      return (ProcessInfo.processInfo.systemUptime-start)*1000
     }
     if self.line.revealed {_ = toggle()}
-    try? await Task.sleep(nanoseconds:400_000_000)
-    // One fully settled warmup is reported separately from the measured run.
-    let warmOpen=toggle();try? await Task.sleep(nanoseconds:480_000_000)
-    let warmClose=toggle();try? await Task.sleep(nanoseconds:420_000_000)
+    try? await Task.sleep(nanoseconds:480_000_000)
+    let warmOpen=toggle();try? await Task.sleep(nanoseconds:600_000_000)
+    let reference=self.delegate.panel.frame
+    let warmClose=toggle();try? await Task.sleep(nanoseconds:480_000_000)
     let counts=["images":self.line.items.count,"texts":self.line.texts.entries.count,"links":self.line.links.entries.count]
     let total=counts.values.reduce(0,+),expected=stress ? 3036 : 36
     var samples=[[String:Any]](),late=[Double](),phaseLate=[String:[Double]]()
-    var phase="idle",lastTick=ProcessInfo.processInfo.systemUptime
+    var transitions=[([HarnessShelfPresentationSample],[HarnessShelfPresentationSample])]()
+    var phase="idle",lastTick=ProcessInfo.processInfo.systemUptime,phaseStart=lastTick
+    var trace=[HarnessShelfPresentationSample]()
     let pulse=Timer(timeInterval:0.016,repeats:true){_ in
      MainActor.assumeIsolated {
       let now=ProcessInfo.processInfo.systemUptime,delay=max(0,(now-lastTick-0.016)*1000)
       late.append(delay);phaseLate[phase,default:[]].append(delay);lastTick=now
+      trace.append(self.shelfPresentationSample(self.delegate.panel,since:phaseStart,geometryOwner:self.delegate))
      }
     }
     pulse.tolerance=0;RunLoop.main.add(pulse,forMode:.common)
     let wallStart=ProcessInfo.processInfo.systemUptime,cpuStart=self.processCPUSeconds()
     for cycle in 0..<20 {
-     phase="opening";let openMS=toggle()
+     phase="opening";phaseStart=ProcessInfo.processInfo.systemUptime;trace=[]
+     let openMS=toggle();trace.append(self.shelfPresentationSample(self.delegate.panel,since:phaseStart,geometryOwner:self.delegate))
+     try? await Task.sleep(nanoseconds:600_000_000)
+     trace.append(self.shelfPresentationSample(self.delegate.panel,since:phaseStart,geometryOwner:self.delegate))
+     let opening=trace,openCheck=self.shelfOpenState()
+     phase="closing";phaseStart=ProcessInfo.processInfo.systemUptime;trace=[]
+     let closeMS=toggle();trace.append(self.shelfPresentationSample(self.delegate.panel,since:phaseStart,geometryOwner:self.delegate))
      try? await Task.sleep(nanoseconds:480_000_000)
-     let expectedID=self.line.displayItems.first(where:{!$0.falling})?.id
-     let onlyFirstImage=expectedID.map{self.line.selectedIDs==Set([$0])} ?? self.line.selectedIDs.isEmpty
-     let openCheck=self.line.revealed && self.delegate.panel.isVisible && self.delegate.panel.isKeyWindow && self.delegate.panel.keyboardFocusAllowed && self.line.activeShelf == .images && onlyFirstImage && self.line.texts.selectedIDs.isEmpty && self.line.links.selectedIDs.isEmpty
-     phase="closing";let closeMS=toggle()
-     try? await Task.sleep(nanoseconds:420_000_000)
-     let closeCheck = !self.line.revealed && !self.delegate.panel.isVisible && !self.delegate.panel.isKeyWindow && !self.delegate.panel.keyboardFocusAllowed && self.line.selectedIDs.isEmpty && self.line.texts.selectedIDs.isEmpty && self.line.links.selectedIDs.isEmpty
-     samples.append(["cycle":cycle+1,"openActionMS":openMS,"closeActionMS":closeMS,"openedWithOnlyFirstImageAndKeyFocus":openCheck,"closedAndReleasedFocus":closeCheck,"closedState":["modelHidden":!self.line.revealed,"panelHidden":!self.delegate.panel.isVisible,"notKey":!self.delegate.panel.isKeyWindow,"keyboardDisabled":!self.delegate.panel.keyboardFocusAllowed,"imagesClear":self.line.selectedIDs.isEmpty,"textsClear":self.line.texts.selectedIDs.isEmpty,"linksClear":self.line.links.selectedIDs.isEmpty]])
+     trace.append(self.shelfPresentationSample(self.delegate.panel,since:phaseStart,geometryOwner:self.delegate))
+     let closedState=self.shelfClosedState(),closeCheck=closedState.values.allSatisfy{$0}
+     transitions.append((opening,trace))
+     samples.append(["cycle":cycle+1,"openActionMS":openMS,"closeActionMS":closeMS,"openedWithOnlyFirstImageAndKeyFocus":openCheck,"closedAndReleasedFocus":closeCheck,"closedState":closedState])
     }
     let cpuSeconds=max(0,self.processCPUSeconds()-cpuStart),wallSeconds=ProcessInfo.processInfo.systemUptime-wallStart
     pulse.invalidate()
-    let passed=total==expected && samples.allSatisfy{($0["openedWithOnlyFirstImageAndKeyFocus"] as? Bool)==true && ($0["closedAndReleasedFocus"] as? Bool)==true}
+    // Analyze/serialize after the measured interval; raw sampling stays small.
+    for index in samples.indices {
+     samples[index]["openingCompositor"]=self.shelfTransitionResult(transitions[index].0,opening:true,reference:reference,reduceMotion:reduceMotion)
+     samples[index]["closingCompositor"]=self.shelfTransitionResult(transitions[index].1,opening:false,reference:reference,reduceMotion:reduceMotion)
+    }
+    let passed=total==expected && samples.allSatisfy{sample in
+     (sample["openedWithOnlyFirstImageAndKeyFocus"] as? Bool)==true && (sample["closedAndReleasedFocus"] as? Bool)==true &&
+     ((sample["openingCompositor"] as? [String:Any])?["passed"] as? Bool)==true && ((sample["closingCompositor"] as? [String:Any])?["passed"] as? Bool)==true
+    }
     allChecks = allChecks && passed
     groups.append(["fixture":stress ? "stress" : "small","itemCounts":counts,"totalItems":total,"expectedTotalItems":expected,"cycles":20,"passed":passed,"samples":samples,"warmupOpenActionMS":warmOpen,"warmupCloseActionMS":warmClose,"openAction":self.millisecondSummary(samples.compactMap{$0["openActionMS"] as? Double}),"closeAction":self.millisecondSummary(samples.compactMap{$0["closeActionMS"] as? Double}),"mainLoopLateness":self.millisecondSummary(late),"phaseMainLoopLateness":phaseLate.mapValues{self.millisecondSummary($0)},"processCPUSeconds":cpuSeconds,"wallSecondsIncludingIdenticalDwell":wallSeconds,"processCPUPercentOfOneCoreIncludingDwell":wallSeconds>0 ? cpuSeconds/wallSeconds*100 : 0])
     save(["status":"running","completedGroups":groups,"processID":ProcessInfo.processInfo.processIdentifier])
+    // Actual delegate reversals run after CPU measurement, on each fixture size.
+    for cycle in 0..<3 {
+     _=toggle();try? await Task.sleep(nanoseconds:600_000_000)
+     _=toggle();try? await Task.sleep(nanoseconds:60_000_000);_=toggle()
+     try? await Task.sleep(nanoseconds:600_000_000)
+     let openSample=self.shelfPresentationSample(self.delegate.panel,since:ProcessInfo.processInfo.systemUptime,geometryOwner:self.delegate)
+     let reopen=self.shelfOpenState() && self.delegate.panel.frame==reference && (!openSample.hasSlideHook || abs(openSample.modelY ?? 999)<0.5)
+     _=toggle();try? await Task.sleep(nanoseconds:480_000_000)
+     _=toggle();try? await Task.sleep(nanoseconds:60_000_000);_=toggle()
+     try? await Task.sleep(nanoseconds:480_000_000)
+     let closeSample=self.shelfPresentationSample(self.delegate.panel,since:ProcessInfo.processInfo.systemUptime,geometryOwner:self.delegate)
+     let reclose=self.shelfClosedState().values.allSatisfy{$0} && self.delegate.panel.frame==reference && (!closeSample.hasSlideHook || abs(closeSample.modelY ?? 0)>=Double(reference.height)-0.5)
+     let passed=reopen && reclose;allChecks=allChecks && passed
+     reversals.append(["fixture":stress ? "stress" : "small","cycle":cycle+1,"passed":passed,"closingReversedToOpenKeptFocus":reopen,"openingReversedToClosedReleasedFocus":reclose,"opened":openSample.json,"closed":closeSample.json])
+    }
    }
+   let reducedMotion=await self.shelfReducedMotionCheck();allChecks=allChecks && (reducedMotion["passed"] as? Bool)==true
    let timings=self.reflectedShelfPresentationTimings()
-   save(["status":"complete","passed":allChecks,"fixture":"isolated synthetic history; no real clipboard or external AX access","measurement":"Native toggle target synchronous elapsed time, total process CPU, and 16 ms main-run-loop timer lateness; not display FPS","backgroundImageIndexingPaused":true,"processID":ProcessInfo.processInfo.processIdentifier,"sourceRevision":Bundle.main.object(forInfoDictionaryKey:"ClipboardLineForkRevision") as? String ?? "unknown","version":Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "unknown","reduceMotion":NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,"openDwellSeconds":0.48,"closeDwellSeconds":0.42,"groups":groups,"candidatePresentationTimingsAvailable":!timings.isEmpty,"candidatePresentationTimings":Array(timings.dropFirst(min(timingStart,timings.count)))])
+   save(["status":"complete","passed":allChecks,"fixture":"isolated synthetic history; no real clipboard or external AX access",
+    "measurement":"Native toggle synchronous elapsed time, process CPU, 16 ms main-run-loop timer lateness and read-only CALayer presentation transform; not display FPS",
+    "backgroundImageIndexingPaused":true,"processID":ProcessInfo.processInfo.processIdentifier,"sourceRevision":Bundle.main.object(forInfoDictionaryKey:"ClipboardLineForkRevision") as? String ?? "unknown","version":Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "unknown","reduceMotion":reduceMotion,"openDwellSeconds":0.60,"closeDwellSeconds":0.48,"groups":groups,"rapidReversals":reversals,"reducedMotionValidation":reducedMotion,"candidatePresentationTimingsAvailable":!timings.isEmpty,"candidatePresentationTimings":Array(timings.dropFirst(min(timingStart,timings.count)))])
    self.finishShelfToggleBenchmark()
   }
  }

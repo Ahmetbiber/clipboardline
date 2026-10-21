@@ -17,6 +17,9 @@ struct ShelfPresentationTiming {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let line: Line
+#if STANDALONE_TESTS
+    @objc var shelfHitGeometryUpdateCountForTesting: Int { line.shelfHitGeometryUpdateCount }
+#endif
     private let clipboardSource: (any ClipboardSource)?
     private let watchesFiles: Bool
     private let startupError: String?
@@ -174,10 +177,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         EditingMenu.install(onSettings: { [weak self] in self?.showSettings() })
         if startupError != nil { setUpStatusItem(); DispatchQueue.main.async { [weak self] in self?.showStartupFailure() }; return }
-        let host = NSHostingView(rootView: LineView(line: line))
+        let host = ShelfHostingView(rootView: LineView(line: line))
         host.sizingOptions = []
         panel = LinePanel(content: host)
-        panel.alphaValue = 0
         panel.onBeforeMouseKeyFocus = { [weak self] in self?.capturePasteTarget() }
         panel.searchEditorTarget = { [weak line] in
             guard let line, let shelf = line.searchEditingShelf else { return nil }
@@ -625,9 +627,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Tucked away, the line leaves no window behind: an invisible strip
         // over the top of the screen would still sit above other apps for
         // anything that checks what is on top, like screen automation.
-        if on {
-            if isPresent { panel.orderFrontRegardless() }
-        }
         if !on {
             pointerFocus = false
             pinned = false
@@ -642,9 +641,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             previousApplication = nil
         }
         panel.setShelfRevealed(on) { [weak self] in
-            guard let self, !on, !self.isRevealed else { return }
-            self.panel.orderOut(nil)
+            guard let self, on == self.isRevealed else { return }
+            if on { self.updateMousePassThrough(NSEvent.mouseLocation) }
+            else { self.panel.orderOut(nil) }
         }
+        // Install the hidden-to-open transform before exposing the window;
+        // otherwise its first committed frame can flash fully open.
+        if on, isPresent { panel.orderFrontRegardless() }
     }
 
     @objc private func toggle() {
@@ -801,6 +804,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// mouse while the cursor is over a photo. Everywhere else, clicks go to
     /// whatever is underneath.
     private func updateMousePassThrough(_ mouse: NSPoint) {
+        guard !panel.isShelfTransitioning else { panel.ignoresMouseEvents = true; return }
         guard !GrabView.isDragging else { return }
         let local = panel.convertPoint(fromScreen: mouse)
         let flipped = CGPoint(x: local.x, y: panel.frame.height - local.y)

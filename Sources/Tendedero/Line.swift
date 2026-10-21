@@ -58,6 +58,7 @@ final class Line: ObservableObject {
     /// Card frames in window coordinates, reported by the views. The panel
     /// uses them to only catch clicks over photos and let the rest through.
     var hitRects: [UUID: CGRect] = [:]
+    var shelfHitGeometryUpdateCount = 0
 
     @Published private(set) var scrollOffset: CGFloat = 0
     @Published private(set) var favoritesOnly = false { didSet { filteredItems = nil; cachedSelectedItems = nil } }

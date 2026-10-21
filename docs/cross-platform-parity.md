@@ -29,7 +29,7 @@ versioned behavioral specification. Its synthetic items use portable aliases and
 are listed newest first. Every step contains an expected active row, focused
 item, complete selection, visible rows and native search-editing state.
 
-The current twelve scenarios (73 observations per platform) cover one selected image on opening, reopening,
+The current eleven scenarios (62 observations per platform) cover one selected image on opening, reopening,
 hidden/empty/filtered image fallback, column-preserving vertical navigation and
 clamping, hidden/empty row skipping, horizontal navigation, adding and hiding
 rows, search caret keys, empty shelves, remapping, disabling and restoring defaults.
@@ -106,29 +106,22 @@ On Windows PowerShell, set `$env:CLIPBOARDLINE_PARITY_REPORT` before `npm test`.
 Commit no generated evidence, real clipboard content, local preferences,
 credentials or signing material.
 
-## Three-shelf performance acceptance (1.7.4)
 
-Performance work preserves the shared opening selection, row/page navigation,
-search, preview, copy, pin and delete behavior. Mac caches row projections and
-scopes observation to the row that changes. Windows retains unchanged shelf DOM
-and updates focus/selection/ARIA in place. A page or visible content/media change
-must still update its row, including new pixels at a stable canonical media path.
-Managed PNG URLs include their content hash; the media handler verifies that
-generation against the actual managed file. This prevents Chromium's decoded
-image reuse from showing an old thumbnail or edited image despite `no-store`.
-Legacy unversioned media paths remain accepted.
+## 1.7.6: restored shelf slide
 
-The Windows native source, packaged and installed suites run a disposable
-3,000-item shelf fixture with real PNG thumbnails and ordinary application
-IPC/keyboard commands. It checks rendering, bounded pages, selection, search,
-metadata/media edits, visibility and reopen behavior. The Mac isolated live
-fixture covers the same three rows with 3,036 items. Large-history CPU/DOM
-benchmarks are supplementary and do not establish native display FPS or eliminate
-the separate cost of full background snapshots/store reloads.
+Mac build75 and Windows build69 retain the prepared shelf contents and fixed
+native window bounds while restoring the downward reveal/upward dismissal.
+The retained layer tree moves for 420ms opening and 220ms closing, using matching
+curves on both platforms. Rapid reversal continues from the current presentation
+position; generation guards reject stale hide completions. Pointer input waits
+for the moving content to settle; keyboard navigation remains available. Reduce
+Motion uses immediate endpoints.
 
-## Visibility performance (1.7.5)
-
-See [the toggle performance update](shelf-toggle-performance-1.7.5.md). Repeated
-three-row open/close and active-search teardown extend the shared contract.
-Native platform suites separately verify fixed hit geometry, focus return,
-rapid reopen and retained unchanged content.
+Native validation must observe real compositor movement and fixed window bounds,
+not infer animation from the target transform. Keep the existing performance,
+focus, selection, retained-card and hidden-edit acceptance checks. The genuine
+Windows upgrade baseline is 1.7.5/build68: 545769250 bytes, SHA256
+`d37f86b5e355a58e3303899aa6917efb495a7f1d2a02732fd7e843cc1ef442e7`,
+source `0d71154257aef8042a53ee6ff169079eddbb42bd`.
+Stage `clipboardline-1.7.6-build75`, then publish `windows-1.7.6-build69`
+with that exact counterpart; both feeds must say 1.7.6 before Latest promotion.

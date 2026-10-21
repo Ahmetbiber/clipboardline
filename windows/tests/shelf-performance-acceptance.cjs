@@ -1,5 +1,5 @@
 'use strict';
-const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),exercise=require('./shelf-dom-acceptance.cjs');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),exercise=require('./shelf-dom-acceptance.cjs'),motionAcceptance=require('./shelf-motion-acceptance.cjs');
 module.exports=async function shelfPerformanceAcceptance({page,application,check,until,output}){
  const fixture=await application.evaluate(async({nativeImage})=>{
   const h=global.__clipboardLineTest,crypto=process.getBuiltinModule('node:crypto'),prefix='ShelfPerformance '+crypto.randomUUID(),owned=new Set(),original=Object.fromEntries(['visibleKinds','cardSize','theme','language'].map(key=>[key,h.store.data.settings[key]]));
@@ -47,6 +47,9 @@ module.exports=async function shelfPerformanceAcceptance({page,application,check
   await until(()=>page.locator('.shelves .card.selected').evaluateAll(nodes=>nodes.map(node=>node.dataset.itemId)),value=>value.length===1&&value[0]===fixture.rows.image[0]);
   assert.equal(await page.evaluate(()=>window.__toggleShelfNodes.every(node=>node.isConnected)),true);
   record('four actual native three-shelf close/reopen cycles retain connected cards and decoded images, send no full history projections, skip unchanged bounds, restore window focus and select only the first image');
+  evidence.motion=await motionAcceptance({page,application,until,firstImage:fixture.rows.image[0]});
+  record('native compositor samples prove downward opening and upward closing on retained three-row shelves with fixed bounds, immediate keyboard navigation and moving-pointer suppression');
+  record('native rapid close/reopen and open/close reverse safely without stale hide or focus restoration; reduced motion creates no animations');
   const hiddenEdit=await application.evaluate(async()=>{
    const h=global.__clipboardLineTest;await h.command('hide');const id=h.store.data.items.find(value=>value.kind==='text'&&!value.trashedAt).id,note='Committed while shelves are hidden';h.store.modify('details',{id,note});
    let fullPacket;const window=h.getWindow(),send=window.webContents.send;window.webContents.send=function(channel,packet,...rest){if(channel==='clipboardline:changed'&&Array.isArray(packet?.items))fullPacket={items:packet.items.length,note:packet.items.find(value=>value.id===id)?.note};return send.call(this,channel,packet,...rest);};

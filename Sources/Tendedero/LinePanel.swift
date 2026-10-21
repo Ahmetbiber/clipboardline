@@ -1,5 +1,20 @@
 import AppKit
 import QuartzCore
+import SwiftUI
+
+protocol ShelfHostingLayoutCounting: AnyObject {
+    var shelfLayoutCount: Int { get }
+}
+
+/// Keep SwiftUI layout out of the compositor-only reveal animation.
+final class ShelfHostingView<Content: View>: NSHostingView<Content>, ShelfHostingLayoutCounting {
+    private(set) var shelfLayoutCount = 0
+    override func layout() { shelfLayoutCount += 1; super.layout() }
+}
+
+private final class ShelfCompositorView: NSView {
+    override var isFlipped: Bool { true }
+}
 
 struct ShelfSearchFocus: Equatable {
     let shelf: Shelf
@@ -12,13 +27,30 @@ struct ShelfSearchFocus: Equatable {
 final class LinePanel: NSPanel {
     private let reduceMotion: () -> Bool
     private var visibilityGeneration = 0
+    private let compositor = ShelfCompositorView()
+    private let hostedContent: NSView
+    private var shelfRevealed = false
+    private(set) var isShelfTransitioning = false
+    static let shelfAnimationKey = "shelfRevealTranslation"
+    var shelfModelOffset: CGFloat { compositor.layer?.sublayerTransform.m42 ?? 0 }
+    var shelfPresentationOffset: CGFloat { compositor.layer?.presentation()?.sublayerTransform.m42 ?? shelfModelOffset }
+    private var hiddenShelfOffset: CGFloat { -(contentHeight + 12) }
+#if STANDALONE_TESTS
+    @objc var shelfAnimationLayerForTesting: CALayer? { compositor.layer }
+    @objc var shelfHostingLayoutCountForTesting: Int { (hostedContent as? ShelfHostingLayoutCounting)?.shelfLayoutCount ?? 0 }
+#endif
     var keyboardFocusAllowed = false
     var onKey: ((NSEvent) -> Bool)?
     var onCommandKey: ((NSEvent) -> Bool)?
     var onBeforeMouseKeyFocus: (() -> Void)?
     var onScroll: ((CGFloat, CGFloat, Bool) -> Void)?
     var onScrollLocation: ((NSPoint) -> Void)?
-    var contentHeight = Layout.panelHeight
+    var contentHeight = Layout.panelHeight {
+        didSet {
+            // A hidden single row can become three rows before its next reveal.
+            if !shelfRevealed && !isShelfTransitioning { setShelfOffset(hiddenShelfOffset) }
+        }
+    }
     var searchEditorTarget: (() -> ShelfSearchFocus?)?
     private var pendingSearchTarget: ShelfSearchFocus?
     private var pendingSearchKeys = [NSEvent]()
@@ -51,6 +83,9 @@ final class LinePanel: NSPanel {
     }
 
     override func sendEvent(_ event: NSEvent) {
+        if isShelfTransitioning, [.leftMouseDown, .leftMouseUp, .leftMouseDragged,
+            .rightMouseDown, .rightMouseUp, .rightMouseDragged, .otherMouseDown,
+            .otherMouseUp, .otherMouseDragged, .scrollWheel].contains(event.type) { return }
         prepareForMouseKeyFocus(event, isFocused: isKeyWindow)
         if event.type == .leftMouseDown { prepareSearchMouseFocus(at: event.locationInWindow) }
         if routeKey(event, isFocused: isKeyWindow) { return }
@@ -85,6 +120,7 @@ final class LinePanel: NSPanel {
 
     init(content: NSView, reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
         self.reduceMotion = reduceMotion
+        self.hostedContent = content
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         isOpaque = false
@@ -98,37 +134,61 @@ final class LinePanel: NSPanel {
         isMovable = false
         becomesKeyOnlyIfNeeded = true
         ignoresMouseEvents = true
-        contentView = content
+        compositor.frame = content.frame
+        compositor.wantsLayer = true
+        compositor.layer?.masksToBounds = true
+        compositor.layer?.isGeometryFlipped = true
+        content.frame = compositor.bounds
+        content.autoresizingMask = [.width, .height]
+        compositor.addSubview(content)
+        contentView = compositor
+        setShelfOffset(hiddenShelfOffset)
     }
 
     override var canBecomeKey: Bool { keyboardFocusAllowed }
     override var canBecomeMain: Bool { false }
 
-    /// Fade the already laid out native window instead of moving every
-    /// SwiftUI card. Window opacity is composited without new row layout or
-    /// geometry preferences on every animation frame. The fixed frame also
-    /// keeps hit coordinates and the owning display stable on stacked screens.
-    /// A rapid reversal invalidates an older close completion before it can
-    /// order out the newly opened window.
+    private func setShelfOffset(_ offset: CGFloat) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        compositor.layer?.sublayerTransform = CATransform3DMakeTranslation(0, offset, 0)
+        CATransaction.commit()
+    }
+
+    /// Slide the retained layer tree down from above the display. Only the
+    /// compositor transform moves: window, hosting bounds and SwiftUI geometry
+    /// remain fixed, including on vertically stacked monitors. Reverse from the
+    /// current presentation position rather than jumping to an old endpoint.
     func setShelfRevealed(_ on: Bool, animated: Bool = true, completion: (() -> Void)? = nil) {
         visibilityGeneration += 1
         let generation = visibilityGeneration
-        let target: CGFloat = on ? 1 : 0
-        let duration: TimeInterval = animated && !reduceMotion() ? (on ? 0.12 : 0.10) : 0
-        if duration == 0 {
-            alphaValue = target
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.visibilityGeneration == generation else { return }
-                completion?()
-            }
-            return
+        let current = shelfPresentationOffset
+        compositor.layer?.removeAnimation(forKey: Self.shelfAnimationKey)
+        shelfRevealed = on
+        let target: CGFloat = on ? 0 : hiddenShelfOffset
+        let duration: TimeInterval = animated && !reduceMotion() ? (on ? 0.42 : 0.22) : 0
+        isShelfTransitioning = duration > 0 && abs(current - target) > 0.01
+        // NSView hit testing uses the unchanged model geometry. Accept pointer
+        // actions only once the translated cards reach those coordinates.
+        if isShelfTransitioning { ignoresMouseEvents = true }
+        alphaValue = 1
+        setShelfOffset(target)
+        if isShelfTransitioning {
+            let animation = CABasicAnimation(keyPath: "sublayerTransform")
+            animation.fromValue = NSValue(caTransform3D: CATransform3DMakeTranslation(0, current, 0))
+            animation.toValue = NSValue(caTransform3D: CATransform3DMakeTranslation(0, target, 0))
+            animation.duration = duration
+            animation.beginTime = compositor.layer?.convertTime(CACurrentMediaTime(), from: nil) ?? CACurrentMediaTime()
+            animation.timingFunction = on
+                ? CAMediaTimingFunction(controlPoints: 0.2, 1.12, 0.3, 1)
+                : CAMediaTimingFunction(controlPoints: 0.4, 0, 1, 1)
+            compositor.layer?.add(animation, forKey: Self.shelfAnimationKey)
         }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = duration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            animator().alphaValue = target
-        } completionHandler: { [weak self] in
+        let delay = isShelfTransitioning ? duration : 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, self.visibilityGeneration == generation else { return }
+            self.compositor.layer?.removeAnimation(forKey: Self.shelfAnimationKey)
+            self.isShelfTransitioning = false
             completion?()
         }
     }

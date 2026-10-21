@@ -1407,6 +1407,103 @@
           }
         }
       ]
+    },
+    {
+      "id": "slide-toggle-with-hidden-middle-row",
+      "itemSet": "standard",
+      "visibleKinds": [
+        "image",
+        "link"
+      ],
+      "pinnedOnlyKinds": [],
+      "steps": [
+        {
+          "action": "open",
+          "expect": {
+            "activeKind": "image",
+            "focused": "i1",
+            "selected": [
+              "i1"
+            ],
+            "visibleKinds": [
+              "image",
+              "link"
+            ],
+            "searchEditing": false
+          }
+        },
+        {
+          "action": "down",
+          "expect": {
+            "activeKind": "link",
+            "focused": "l1",
+            "selected": [
+              "l1"
+            ],
+            "visibleKinds": [
+              "image",
+              "link"
+            ],
+            "searchEditing": false
+          }
+        },
+        {
+          "action": "close",
+          "expect": {
+            "activeKind": "link",
+            "focused": null,
+            "selected": [],
+            "visibleKinds": [
+              "image",
+              "link"
+            ],
+            "searchEditing": false
+          }
+        },
+        {
+          "action": "open",
+          "expect": {
+            "activeKind": "image",
+            "focused": "i1",
+            "selected": [
+              "i1"
+            ],
+            "visibleKinds": [
+              "image",
+              "link"
+            ],
+            "searchEditing": false
+          }
+        },
+        {
+          "action": "close",
+          "expect": {
+            "activeKind": "image",
+            "focused": null,
+            "selected": [],
+            "visibleKinds": [
+              "image",
+              "link"
+            ],
+            "searchEditing": false
+          }
+        },
+        {
+          "action": "open",
+          "expect": {
+            "activeKind": "image",
+            "focused": "i1",
+            "selected": [
+              "i1"
+            ],
+            "visibleKinds": [
+              "image",
+              "link"
+            ],
+            "searchEditing": false
+          }
+        }
+      ]
     }
   ]
 }

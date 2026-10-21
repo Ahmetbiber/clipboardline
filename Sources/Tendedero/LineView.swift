@@ -74,7 +74,7 @@ struct LineView: View {
                 .onAppear { line.setViewportWidth(width) }
                 .onChange(of: width) { _, value in line.setViewportWidth(value) }
         }
-        .onPreferenceChange(HitRectsKey.self) { line.hitRects = $0 }
+        .onPreferenceChange(HitRectsKey.self) { line.hitRects = $0; line.shelfHitGeometryUpdateCount += 1 }
     }
     private func hitRect(_ id: UUID) -> some View {
         GeometryReader { g in Color.clear.preference(key: HitRectsKey.self, value: [id: g.frame(in: .global)]) }

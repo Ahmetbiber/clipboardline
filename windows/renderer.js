@@ -805,6 +805,7 @@ window.addEventListener('blur',clearLibraryDrag);
 window.addEventListener('resize',()=>{if(ui.view==='shelves'&&!dirtyPreview()){const current=item(ui.focus);if(current)select(current);render();}});
 window.addEventListener('blur',()=>{ui.spacePan=false;finishPointerGesture();});
 if(!api){root.innerHTML='<main class="loading"><h1>ClipBoardLine</h1><p>The secure desktop connection is unavailable. Open this interface through the installed application.</p></main>';root.setAttribute('aria-busy','false');return;}
+if(api.subscribeMotion&&window.clipboardLineShelfMotion){const motion=new window.clipboardLineShelfMotion.ShelfMotion({body:document.body,computed:node=>getComputedStyle(node),height:()=>innerHeight,motion:matchMedia('(prefers-reduced-motion: reduce)')});api.subscribeMotion(value=>motion.run(value));}
 api.subscribe(next=>{nativeStateRevision++;const message=next.message;if(message&&message!==state.message)toast(message);applyState(next);});
 const initialStateRevision=nativeStateRevision;
 api.state().then(next=>{if(initialStateRevision===nativeStateRevision||!receivedLibraryState)applyState(next,{initial:true});}).catch(error=>{root.innerHTML=`<main class="loading"><h1>ClipBoardLine</h1><p>${esc(error.message)}</p></main>`;});

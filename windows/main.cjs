@@ -30,6 +30,7 @@ const {GlobalShortcuts}=require('./lib/global-shortcuts.cjs');
 const {ImageSearch,modelPaths}=require('./lib/image-search.cjs');
 const {StatusTray,trayIcon,translated}=require('./lib/status-summary.cjs');
 const {WindowBounds}=require('./lib/window-bounds.cjs');
+const {MotionBridge}=require('./lib/shelf-motion.cjs');
 const BUILD_NUMBER=Number(require('./package.json').clipboardLineBuild)||63;
 const testMode = process.argv.includes('--test-mode');
 const testFolder = process.argv.find(value=>value.startsWith('--test-data='))?.slice('--test-data='.length);
@@ -40,9 +41,11 @@ if(development){const directory=path.join(app.getPath('appData'),'ClipBoardLine 
 app.setName(development?'ClipBoardLine Dev':'ClipBoardLine');
 protocol.registerSchemesAsPrivileged([{scheme:'appmedia',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}}]);
 let window,store,tray,trayPresentation,updates,updateScheduler,monitor,clipboardTimer,retentionTimer,updateTimer,updateLaunchTimer,previous=null,view='shelves',message='',viewEvent=null;
-let lastFingerprint='',ownFingerprint='',capturing=false,pendingClipboard=false,showing=false,closing=false,watchers=[],normalBounds=null,normalMaximized=false,applyingBounds=false;
+let lastFingerprint='',ownFingerprint='',capturing=false,pendingClipboard=false,showing=0,closing=false,watchers=[],normalBounds=null,normalMaximized=false,applyingBounds=false;
 let pastePromise=null,hidePromise=null,pasteGeneration=0;
 let lastBroadcastLibraryRevision=-1,windowSurface=null;
+let visibilityGeneration=0,desiredVisible=false;
+const shelfMotion=new MotionBridge(value=>{if(window&&!window.isDestroyed())window.webContents.send('clipboardline:shelf-motion',value);});
 const windowBounds=new WindowBounds();
 const pasteTargets=new PasteTargetTracker(process.pid);
 const entry = pathToFileURL(path.join(__dirname,'index.html')).href;
@@ -67,7 +70,7 @@ async function readSemanticImage(id){
  const resized=image.getSize();return{bitmap:image.toBitmap(),width:resized.width,height:resized.height};
 }
 
-function state(result,{surfaceOnly=false}={}) { const light=surfaceOnly&&lastBroadcastLibraryRevision===store.revision;return {...(light?{surfaceOnly:true}:store.publicState()),libraryRevision:store.revision,version:app.getVersion(),build:BUILD_NUMBER,platform:process.platform,development,view,windowMode:view==='shelves'?'overlay':'normal',windowMaximized:window?.isMaximized()||false,windowVisible:window?.isVisible()||false,message:message||store.privacyWarning||'',viewEvent,imageSearch:{...(imageSearch?.state||{available:false,indexing:false,pending:0,revision:0})},update:{...updates.state},...(result===undefined?{}:{result})}; }
+function state(result,{surfaceOnly=false}={}) { const light=surfaceOnly&&lastBroadcastLibraryRevision===store.revision;return {...(light?{surfaceOnly:true}:store.publicState()),libraryRevision:store.revision,version:app.getVersion(),build:BUILD_NUMBER,platform:process.platform,development,view,windowMode:view==='shelves'?'overlay':'normal',windowMaximized:window?.isMaximized()||false,windowVisible:desiredVisible&&(window?.isVisible()||false),message:message||store.privacyWarning||'',viewEvent,imageSearch:{...(imageSearch?.state||{available:false,indexing:false,pending:0,revision:0})},update:{...updates.state},...(result===undefined?{}:{result})}; }
 function broadcast({surfaceOnly=false}={}) {
   // Visibility and native bounds do not change library content. Retain the
   // renderer's existing rows instead of cloning and sending the full history
@@ -91,7 +94,7 @@ function createTray(){
     return Menu.buildFromTemplate([{id:'tray-show',label:t('Show line'),click:()=>show('shelves')},{id:'tray-library',label:t('Library'),click:()=>show('library')},{id:'tray-capture',label:t('Screenshots'),click:()=>capture()},{id:'tray-settings',label:t('Settings'),click:()=>show('settings')},
       ...(summary.updateVersion?[{id:'tray-update',label:t('Update available')+': '+summary.updateVersion+'…',click:openUpdates}]:[]),{id:'tray-check',label:t('Check for updates…'),click:async()=>{await openUpdates();await updates.check();}},{type:'separator'},{id:'tray-quit',label:t('Quit %@','ClipBoardLine'),click:()=>app.quit()}]);
   }});
-  refreshTray();tray.on('click',()=>window.isVisible()?hide():show('shelves'));
+  refreshTray();tray.on('click',()=>desiredVisible?hide():show('shelves'));
 }
 
 function updateAvailable(manifest){
@@ -107,13 +110,15 @@ function fitNormalBounds(area){const width=Math.min(area.width,normalBounds?.wid
 async function show(next='shelves',event=null) {
   cancelRecordingTrims();
   if(pastePromise){pasteGeneration++;cancelNativePaste();}
-  if(showing)return; showing=true;
+  const generation=++visibilityGeneration,wasClosing=!desiredVisible&&window.isVisible();desiredVisible=true;shelfMotion.cancel();showing++;
   try {
     // A hidden window can still be restoring its previous native field.
     // Complete that operation before a rapid reopen captures and takes focus.
     if(hidePromise)await hidePromise;
+    if(generation!==visibilityGeneration)return;
     if(!window.isVisible() || !window.isFocused()) {
       const target=await native.capture().catch(()=>null);
+      if(generation!==visibilityGeneration)return;
       previous=pasteTargets.capture(target);
     }
     rememberNormalBounds();view=next;viewEvent=event?{...event,serial:crypto.randomUUID()}:null;message='';
@@ -124,15 +129,31 @@ async function show(next='shelves',event=null) {
       if(windowSurface!==surface){window.setMinimumSize(next==='shelves'?1:640,next==='shelves'?1:360);window.setResizable(next!=='shelves');window.setMaximizable(next!=='shelves');window.setSkipTaskbar(next==='shelves');window.setBackgroundColor(next==='shelves'?'#00000000':'#18191d');window.setHasShadow(next!=='shelves');window.setAlwaysOnTop(next==='shelves');windowSurface=surface;}
       const bounds=next==='shelves'?display.workArea:fitNormalBounds(display.workArea);windowBounds.apply(window,bounds,{overlay:next==='shelves'});if(next!=='shelves'&&normalMaximized)window.maximize();
     }finally{applyingBounds=false;}
+    const animate=next==='shelves'&&(!window.isVisible()||wasClosing);
+    if(animate)await shelfMotion.request('prepare',{hidden:!window.isVisible()});else await shelfMotion.request('reset');
+    if(generation!==visibilityGeneration)return;
     window.show();window.focus();windowBounds.shown(window);broadcast({surfaceOnly:true});
-  }finally{showing=false;}
+    // Commands can await the settled pixels, but the window and keyboard are
+    // available immediately. A concurrent toggle can cancel this animation.
+    if(animate)await shelfMotion.request('open');
+  }finally{showing--;}
 }
 async function hide(restore=true) {
   cancelRecordingTrims();
   if(restore&&pastePromise){pasteGeneration++;cancelNativePaste();}
-  if(hidePromise)return hidePromise;
+  // A reopen can cancel an older close while its promise is still unwinding.
+  // A subsequent close must supersede that reopen rather than reuse the
+  // canceled operation and lose the user's newest toggle.
+  if(hidePromise&&!desiredVisible)return hidePromise;
+  const pendingHide=hidePromise;
+  const generation=++visibilityGeneration;desiredVisible=false;shelfMotion.cancel();
   const operation=(async()=>{
-    rememberNormalBounds();const target=previous;previous=null;window.hide();viewEvent=null;broadcast({surfaceOnly:true});
+    if(pendingHide)await pendingHide;
+    if(generation!==visibilityGeneration)return;
+    rememberNormalBounds();const target=previous;viewEvent=null;broadcast({surfaceOnly:true});
+    if(view==='shelves'&&window.isVisible())await shelfMotion.request('close');
+    if(generation!==visibilityGeneration)return;
+    previous=null;window.hide();
     if(restore&&target)await native.restore(target).catch(()=>{});
   })();
   hidePromise=operation;
@@ -161,7 +182,7 @@ async function readClipboard() {
     const item=store.insert(content.kind,content.value);broadcast();
     if(item.kind==='link')void enrich(item.id);
     if(item.kind==='image'){queueOCR(item.id);refreshImageSearch();}
-    if(item.kind==='image'&&store.data.settings.openAfterScreenshot&&!window.isVisible())await show('shelves',{selectId:item.id,kind:'image'});
+    if(item.kind==='image'&&store.data.settings.openAfterScreenshot&&!desiredVisible)await show('shelves',{selectId:item.id,kind:'image'});
   }catch(error){notify('Clipboard capture: '+error.message);}finally{capturing=false;if(pendingClipboard){pendingClipboard=false;queueMicrotask(()=>void readClipboard());}}
 }
 async function enrich(id,{refresh=false}={}) {
@@ -238,7 +259,7 @@ async function importFile(file) {
   const image=nativeImage.createFromPath(file);if(image.isEmpty())throw new Error('Unsupported image file');const item=store.insert('image',image.toPNG());queueOCR(item.id);refreshImageSearch();return item;
 }
 async function capture() {
-  const wasVisible=window.isVisible();if(wasVisible)window.hide();
+  const wasVisible=window.isVisible();visibilityGeneration++;desiredVisible=false;shelfMotion.cancel();if(wasVisible)window.hide();viewEvent=null;broadcast({surfaceOnly:true});await shelfMotion.request('reset');
   try{
     // Capture only after the shelf window has left the compositor.
     await new Promise(resolve=>setTimeout(resolve,150));
@@ -272,7 +293,7 @@ function configureWatchers() {
 let shortcutRegistry;
 function configureShortcuts(previousPreferences=null) {
   shortcutRegistry??=new GlobalShortcuts(globalShortcut,{
-    toggle:()=>window.isVisible()?hide():show('shelves'),
+    toggle:()=>desiredVisible?hide():show('shelves'),
     search:()=>show('shelves',{search:true}),library:()=>show('library'),
     copyLatest:async()=>{const image=store.data.items.filter(item=>item.kind==='image'&&!item.trashedAt&&!item.hiddenFromShelf).sort((a,b)=>b.createdAt-a.createdAt)[0];if(image){await writeClipboard([image]);notify('Copied');if(store.data.settings.sounds)shell.beep();}},
     screenshot:capture
@@ -411,6 +432,7 @@ else app.whenReady().then(async()=>{
   window.on('resize',()=>{if(applyingBounds)return;rememberNormalBounds();broadcast({surfaceOnly:true});});window.on('move',rememberNormalBounds);window.on('maximize',()=>{if(applyingBounds)return;rememberNormalBounds();broadcast({surfaceOnly:true});});window.on('unmaximize',()=>{if(applyingBounds)return;rememberNormalBounds();broadcast({surfaceOnly:true});});
   window.webContents.on('did-finish-load',()=>{lastBroadcastLibraryRevision=-1;});
   ipcMain.handle('clipboardline:state',event=>{trusted(event);return state();});
+  ipcMain.on('clipboardline:shelf-motion-finished',(event,value)=>{trusted(event);shelfMotion.acknowledge(value);});
   ipcMain.handle('clipboardline:command',async(event,action,payload)=>{trusted(event);try{return await command(action,payload);}catch(error){notify(error.message);return state({error:error.message});}});
   await window.loadURL(entry);
   monitor=native.monitor(()=>{if(!testMode)void readClipboard();},error=>{monitor?.kill();monitor=null;pasteTargets.clear();if(!closing)notify(error.message+' Falling back to bounded clipboard polling.');},focus=>pasteTargets.observe(focus));
@@ -434,4 +456,4 @@ else app.whenReady().then(async()=>{
 }).catch(error=>{dialog.showErrorBox('ClipBoardLine could not start',error.message);app.exit(1);});
 app.on('second-instance',()=>{if(window)void show('shelves');});
 app.on('activate',()=>{if(window)void show('shelves');});
-app.on('before-quit',()=>{closing=true;trayPresentation?.dispose();tray?.destroy();cancelRecordingTrims();mediaJobs?.dispose();dragFiles?.dispose();clearTimeout(imageSearchTimer);void imageSearch?.stop();clearInterval(clipboardTimer);clearInterval(retentionTimer);clearInterval(updateTimer);clearTimeout(updateLaunchTimer);monitor?.kill();watchers.forEach(w=>w.close());shortcutRegistry?.dispose();globalShortcut.unregisterAll();});
+app.on('before-quit',()=>{closing=true;visibilityGeneration++;shelfMotion.cancel();trayPresentation?.dispose();tray?.destroy();cancelRecordingTrims();mediaJobs?.dispose();dragFiles?.dispose();clearTimeout(imageSearchTimer);void imageSearch?.stop();clearInterval(clipboardTimer);clearInterval(retentionTimer);clearInterval(updateTimer);clearTimeout(updateLaunchTimer);monitor?.kill();watchers.forEach(w=>w.close());shortcutRegistry?.dispose();globalShortcut.unregisterAll();});
