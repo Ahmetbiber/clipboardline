@@ -9,6 +9,7 @@ const {boundedFetch}=require('../lib/network.cjs');
 const {windowsEnvironment}=require('../lib/windows-environment.cjs');
 const {collectUpgradeFailure,observeInstallRequest}=require('./upgrade-failure-diagnostics.cjs');
 const {reviewedPrevious,previousInstallerURL,previousInstallerOptions,verifyPreviousInstaller}=require('./upgrade-profile.cjs');
+const {quitPhaseMatches,nativeQuitEvidence}=require('./upgrade-lifecycle.cjs');
 const pkg=require('../package.json');
 if(process.platform!=='win32'||process.env.GITHUB_ACTIONS!=='true')throw new Error('Run upgrade acceptance only on the disposable Windows GitHub runner.');
 const output=path.resolve(process.env.CLIPBOARDLINE_VALIDATION||'validation/upgrade');fs.mkdirSync(output,{recursive:true});
@@ -32,6 +33,14 @@ function processInfo(){const script="$payload=[Console]::In.ReadToEnd()|ConvertF
 function installDiagnostics(){
   const script=String.raw`$payload=[Console]::In.ReadToEnd()|ConvertFrom-Json;$processes=@(Get-CimInstance Win32_Process|Where-Object {$_.ProcessId -ne $PID -and ($_.Name -like '*ClipBoardLine*' -or $_.CommandLine -like '*ClipBoardLine-Setup-*')}|ForEach-Object {@{pid=$_.ProcessId;parent=$_.ParentProcessId;name=$_.Name;path=$_.ExecutablePath;commandLine=$_.CommandLine}});$registry=@('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKCU:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*')|ForEach-Object {Get-ItemProperty $_ -ErrorAction SilentlyContinue}|Where-Object {$_.DisplayName -like 'ClipBoardLine*'}|ForEach-Object {@{name=$_.DisplayName;version=$_.DisplayVersion;location=$_.InstallLocation;uninstall=$_.UninstallString}};$exe=@{path=$payload.path;canonicalPath=$payload.canonicalPath;exists=(Test-Path -LiteralPath $payload.path)};if($exe.exists){$exe.version=(Get-Item -LiteralPath $payload.path).VersionInfo.ProductVersion};$shortcuts=@();try{$shell=New-Object -ComObject WScript.Shell;foreach($directory in @((Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'),(Join-Path $env:USERPROFILE 'Desktop'))){if(Test-Path $directory){Get-ChildItem -LiteralPath $directory -Filter 'ClipBoardLine.lnk' -Recurse -ErrorAction SilentlyContinue|ForEach-Object {$link=$shell.CreateShortcut($_.FullName);$shortcuts+=@{path=$_.FullName;target=$link.TargetPath;arguments=$link.Arguments}}}}}catch{};@{expectedExecutable=$exe;processes=$processes;registry=@($registry);shortcuts=$shortcuts;explorerProcesses=@(Get-Process -Name explorer -ErrorAction SilentlyContinue).Count}|ConvertTo-Json -Compress -Depth 5`;
   try{const raw=execFileSync(powershell,['-NoProfile','-NonInteractive','-Command',script],{input:JSON.stringify({path:installed,canonicalPath:fs.realpathSync.native(installed)}),encoding:'utf8',timeout:20000,windowsHide:true,env:windowsEnvironment()});return JSON.parse(raw.replace(/^\uFEFF/,'').trim());}catch(error){return{error:String(error.message).slice(0,500)};}
+}
+function candidateExitEvidence(){
+  const expected={pid:candidatePID,executable:fs.realpathSync.native(candidate)},phase=JSON.parse(fs.readFileSync(candidatePhaseFile,'utf8'));
+  phase.executable=fs.realpathSync.native(phase.executable);
+  if(!quitPhaseMatches(phase,expected))return null;
+  const script="$ErrorActionPreference='Stop';$payload=[Console]::In.ReadToEnd()|ConvertFrom-Json;$rows=@(Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$payload.pid)|ForEach-Object {@{pid=[int]$_.ProcessId;path=$_.ExecutablePath}});ConvertTo-Json -InputObject $rows -Compress";
+  const raw=execFileSync(powershell,['-NoProfile','-NonInteractive','-Command',script],{input:JSON.stringify({pid:candidatePID}),encoding:'utf8',timeout:15000,windowsHide:true,env:windowsEnvironment()});
+  return nativeQuitEvidence(phase,expected,JSON.parse(raw.replace(/^\uFEFF/,'').trim()||'[]'));
 }
 async function startInstallerObserver(sourceProcessId,userdata){
   observerOutput=path.join(temporary,'installer-process.json');const config=path.join(temporary,'installer-observer-config.json');
@@ -87,12 +96,25 @@ async function main(){
   candidatePID=await application.evaluate(({app},file)=>{
     const fs=process.getBuiltinModule('node:fs'),h=global.__clipboardLineTest,phase={pid:process.pid,executable:process.execPath,argv:process.argv,events:[],startedAt:new Date().toISOString()};
     const record=event=>{phase.events.push({event,at:new Date().toISOString(),updateStatus:h.getUpdates().state.status});try{fs.writeFileSync(file,JSON.stringify(phase));}catch{}};
-    record('observer-attached');app.on('before-quit',()=>record('before-quit'));app.on('will-quit',()=>record('will-quit'));h.getWindow().on('close',()=>record('window-close'));return process.pid;
+    record('observer-attached');app.on('before-quit',()=>record('before-quit'));app.on('will-quit',()=>{
+      record('will-quit');
+      // Playwright owns --inspect=0. Release only this test transport after the
+      // application's real updater has naturally reached will-quit; otherwise
+      // Node can wait forever for its debugger despite closing every window.
+      // Never request app.quit/exit or terminate the application from here.
+      const inspector=process.getBuiltinModule('node:inspector');
+      if(inspector.url()){record('debugger-detach-started');inspector.close();record('debugger-detached');}
+      else record('debugger-not-attached');
+    });h.getWindow().on('close',()=>record('window-close'));return process.pid;
   },candidatePhaseFile);
-  report.candidateProcess={pid:candidatePID,executable:candidate};report.beforeInstallation=installDiagnostics();await startInstallerObserver(candidatePID,userdata);
-  const closed=application.waitForEvent('close',{timeout:60000});
+  report.candidateProcess={pid:candidatePID,executable:fs.realpathSync.native(candidate)};report.beforeInstallation=installDiagnostics();await startInstallerObserver(candidatePID,userdata);
+  let transportClosed=false;application.on('close',()=>{transportClosed=true;});
+  const closed=until(candidateExitEvidence,Boolean,60000);
   const request=observeInstallRequest(page.evaluate(()=>window.clipboardLine.command('installUpdate')),value=>installRequestState=value).then(result=>{if(result?.result?.error)throw new Error(result.result.error);return closed;}).catch(error=>{if(/closed|Target|destroyed/i.test(error.message))return closed;throw error;});
-  await Promise.race([closed,request]);application=null;
+  report.nativeQuit=await Promise.race([closed,request]);
+  // The exact application PID is already gone. Dispose Playwright's owned
+  // launch/inspector transport now; it is not used to make the app exit.
+  await application.close().catch(()=>{});report.nativeQuit.playwrightTransportClosed=transportClosed;application=null;
   let reopened;try{reopened=await until(processInfo,rows=>rows.some(row=>row.commandLine?.includes('--updated')&&row.window&&String(row.version).startsWith(pkg.version)),180000);}finally{
     report.afterInstallation=installDiagnostics();try{report.installerProcess=JSON.parse(fs.readFileSync(observerOutput,'utf8'));}catch(error){report.installerProcess={error:String(error.message).slice(0,300)};}
     console.log('Upgrade installation diagnostics '+JSON.stringify({before:report.beforeInstallation,after:report.afterInstallation,installer:report.installerProcess}));
