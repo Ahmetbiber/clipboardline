@@ -1,5 +1,12 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+// Resolve and mutate the live viewport in one renderer task. A locator's
+// ElementHandle may detach between resolution and evaluation when an ordinary
+// state packet rebuilds the view; detached nodes report zero scroll ranges.
+function setViewportPosition({selector,top,left}){
+ const node=document.querySelector(selector);if(!node?.isConnected)throw new Error('The current scroll viewport is unavailable.');
+ if(top!==undefined)node.scrollTop=top;if(left!==undefined)node.scrollLeft=left;return{top:node.scrollTop,left:node.scrollLeft};
+}
 module.exports=async function scrollStateAcceptance({page,application,check,until,output}){
  const fixture=await application.evaluate(async()=>{
   const h=global.__clipboardLineTest,crypto=process.getBuiltinModule('node:crypto'),prefix='Viewport '+crypto.randomUUID(),ids=[],folders=[];
@@ -31,7 +38,7 @@ module.exports=async function scrollStateAcceptance({page,application,check,unti
   await page.locator('.library-grid [data-item-id="'+fixture.primary+'"]').click();await until(()=>page.locator('#detail-name').inputValue(),value=>value===fixture.originals[fixture.primary].name);
   const selectors=['.library-results','.sidebar','.inspector'];await page.evaluate(selectors=>{for(const selector of selectors){const node=document.querySelector(selector);node.scrollTop=200;}},selectors);const before=await positions(selectors);for(const selector of selectors)assert.ok(before[selector].top>0,selector+' fixture must overflow');await packet();assert.deepEqual(await positions(selectors),before);
   await page.locator('#search-input').fill(fixture.originals[fixture.primary].name);assert.equal((await positions(['.library-results']))['.library-results'].top,0);await page.locator('#search-input').fill(fixture.prefix);
-  await switchListMode(true);const horizontal={'.library-results':await page.locator('.library-results').evaluate(node=>{node.scrollTop=160;node.scrollLeft=100;return{top:node.scrollTop,left:node.scrollLeft};})};assert.deepEqual(horizontal['.library-results'],{top:160,left:100});await packet();assert.deepEqual(await positions(['.library-results']),horizontal);
+  await switchListMode(true);const horizontal={'.library-results':await page.evaluate(setViewportPosition,{selector:'.library-results',top:160,left:100})};assert.deepEqual(horizontal['.library-results'],{top:160,left:100});await packet();assert.deepEqual(await positions(['.library-results']),horizontal);
   await switchListMode(false);await page.locator('.library-grid [data-item-id="'+fixture.primary+'"]').click();
   for(const [field,key]of [['detail-name','name'],['detail-text','text'],['detail-note','note']]){
    const editor=page.locator('#'+field),original=fixture.originals[fixture.primary][key],suffix='_Edited'+key,draft=original+suffix;
@@ -42,7 +49,7 @@ module.exports=async function scrollStateAcceptance({page,application,check,unti
    if(key==='text'){await application.evaluate((_electron,id)=>global.__clipboardLineTest.store.modify('pin',{ids:[id],value:true}),fixture.primary);await packet();assert.match(await page.locator('.inspector-primary-actions [data-action="pin"]').innerText(),/Unpin/);assert.equal(await editor.evaluate(node=>node===window.__inspectorAcceptance.field),true);}
   }
   await packet(fixture.secondary);await until(()=>page.locator('#detail-name').inputValue(),value=>value===fixture.originals[fixture.secondary].name);assert.equal(await page.locator('#detail-text').inputValue(),fixture.originals[fixture.secondary].text);assert.equal(await page.locator('#detail-note').inputValue(),fixture.originals[fixture.secondary].note);const secondary=await stored(fixture.secondary);for(const key of ['name','text','note'])assert.equal(secondary[key],fixture.originals[fixture.secondary][key]);
-  await application.evaluate(()=>global.__clipboardLineTest.command('settings'));await page.locator('[data-action="settings-tab"][data-tab="shortcuts"]').click();await page.locator('#shortcut-filter').fill('');await page.locator('.settings-main').evaluate(node=>node.scrollTop=250);const settingsBefore=await positions(['.settings-main']);assert.ok(settingsBefore['.settings-main'].top>0);await packet();assert.deepEqual(await positions(['.settings-main']),settingsBefore);await page.locator('[data-action="settings-tab"][data-tab="general"]').click();assert.equal((await positions(['.settings-main']))['.settings-main'].top,0);
+  await application.evaluate(()=>global.__clipboardLineTest.command('settings'));await page.locator('[data-action="settings-tab"][data-tab="shortcuts"]').click();await page.locator('#shortcut-filter').fill('');await page.evaluate(setViewportPosition,{selector:'.settings-main',top:250});const settingsBefore=await positions(['.settings-main']);assert.ok(settingsBefore['.settings-main'].top>0);await packet();assert.deepEqual(await positions(['.settings-main']),settingsBefore);await page.locator('[data-action="settings-tab"][data-tab="general"]').click();assert.equal((await positions(['.settings-main']))['.settings-main'].top,0);
   check('ordinary native state packets preserve overflowing Library, sidebar, inspector and settings viewports; query/tab contexts reset and list horizontal scrolling survives');
   check('all three inspector fields retain native undo/redo, caret and connected editing ancestors through autosave and packets; new-record bodies and generated controls stay current');
  }catch(error){
@@ -52,3 +59,5 @@ module.exports=async function scrollStateAcceptance({page,application,check,unti
   await application.evaluate(async(_electron,value)=>{const h=global.__clipboardLineTest;h.store.modify('trash',{ids:value.ids});h.store.modify('delete',{ids:value.ids});for(const id of value.folders)h.store.modify('removeFolder',{id});await h.command('setSettings',{patch:value.original});await h.command('hide');},fixture);
  }
 };
+
+module.exports.setViewportPosition=setViewportPosition;
