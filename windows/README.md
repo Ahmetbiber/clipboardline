@@ -107,6 +107,10 @@ npm test
 npm start
 ```
 
+`npm test` runs test files serially so concurrent PowerShell ACL setup does not
+compete on constrained Windows runners. All model/security checks still run with
+the production permission checks and their existing time bounds.
+
 The unit suite covers persistence, shared Unicode/newline text deduplication, per-kind retention,
 batches, Trash/undo, preference validation, network/update boundaries and renderer
 keyboard state. It uses synthetic fixtures. Native acceptance must run on an
@@ -184,7 +188,10 @@ Mac’te Quick Look/AVKit pencereleri kullanılır ve mevcut Trim kaynak dosyay�
 değiştirir. Aday henüz doğrulanmış veya yayımlanmış sayılmaz.
 
 `npm start`, resmî uygulamadan ayrı ClipBoardLine Dev veri alanını kullanır ve
-resmî güncelleme kuramaz. `npm test` sentetik testleri çalıştırır. Gerçek Windows
+resmî güncelleme kuramaz. `npm test` sentetik test dosyalarını sırayla çalıştırır;
+böylece kısıtlı Windows koşucusunda PowerShell ACL hazırlıkları aynı anda yarışmaz.
+Tüm model/güvenlik testleri, üretimdeki izin kontrolleri ve süre sınırlarıyla
+çalışmaya devam eder. Gerçek Windows
 masaüstü oturumunda `npm run dist` ve `npm run test:electron` ile yerel kabulü
 inceleyin. Windows kurulumunun şu anda Authenticode sertifikası yoktur; normal
 sistem onayını kullanın, güvenlik korumalarını kapatmayın.
