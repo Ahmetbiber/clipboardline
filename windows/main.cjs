@@ -29,6 +29,7 @@ const {Updates,AutomaticUpdateScheduler} = require('./lib/updates.cjs');
 const {GlobalShortcuts}=require('./lib/global-shortcuts.cjs');
 const {ImageSearch,modelPaths}=require('./lib/image-search.cjs');
 const {StatusTray,trayIcon,translated}=require('./lib/status-summary.cjs');
+const {WindowBounds}=require('./lib/window-bounds.cjs');
 const BUILD_NUMBER=Number(require('./package.json').clipboardLineBuild)||63;
 const testMode = process.argv.includes('--test-mode');
 const testFolder = process.argv.find(value=>value.startsWith('--test-data='))?.slice('--test-data='.length);
@@ -42,6 +43,7 @@ let window,store,tray,trayPresentation,updates,updateScheduler,monitor,clipboard
 let lastFingerprint='',ownFingerprint='',capturing=false,pendingClipboard=false,showing=false,closing=false,watchers=[],normalBounds=null,normalMaximized=false,applyingBounds=false;
 let pastePromise=null,hidePromise=null,pasteGeneration=0;
 let lastBroadcastLibraryRevision=-1,windowSurface=null;
+const windowBounds=new WindowBounds();
 const pasteTargets=new PasteTargetTracker(process.pid);
 const entry = pathToFileURL(path.join(__dirname,'index.html')).href;
 const copyMarker = crypto.randomBytes(16);
@@ -117,12 +119,12 @@ async function show(next='shelves',event=null) {
     rememberNormalBounds();view=next;viewEvent=event?{...event,serial:crypto.randomUUID()}:null;message='';
     const display=screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
     applyingBounds=true;
-    try{if(window.isMinimized())window.restore();if(window.isMaximized())window.unmaximize();
+    try{
       const surface=next==='shelves'?'overlay':'normal';
       if(windowSurface!==surface){window.setMinimumSize(next==='shelves'?1:640,next==='shelves'?1:360);window.setResizable(next!=='shelves');window.setMaximizable(next!=='shelves');window.setSkipTaskbar(next==='shelves');window.setBackgroundColor(next==='shelves'?'#00000000':'#18191d');window.setHasShadow(next!=='shelves');window.setAlwaysOnTop(next==='shelves');windowSurface=surface;}
-      const bounds=next==='shelves'?display.workArea:fitNormalBounds(display.workArea),current=window.getBounds();if(['x','y','width','height'].some(key=>bounds[key]!==current[key]))window.setBounds(bounds);if(next!=='shelves'&&normalMaximized)window.maximize();
+      const bounds=next==='shelves'?display.workArea:fitNormalBounds(display.workArea);windowBounds.apply(window,bounds,{overlay:next==='shelves'});if(next!=='shelves'&&normalMaximized)window.maximize();
     }finally{applyingBounds=false;}
-    window.show();window.focus();broadcast({surfaceOnly:true});
+    window.show();window.focus();windowBounds.shown(window);broadcast({surfaceOnly:true});
   }finally{showing=false;}
 }
 async function hide(restore=true) {
