@@ -126,23 +126,32 @@ source `0d71154257aef8042a53ee6ff169079eddbb42bd`.
 Stage `clipboardline-1.7.6-build75`, then publish `windows-1.7.6-build69`
 with that exact counterpart; both feeds must say 1.7.6 before Latest promotion.
 
+## 1.7.8: keyboard-complete Library
 
-## 1.7.7: BAMA-inspired quality improvements
+Mac build77 and Windows build71 implement the same Library keyboard workflow.
+See [the bilingual guide](library-keyboard.md). The additive
+`contracts/library-keyboard.json` specifies 10 scenarios / 87 observations through the
+shipping Mac Model/Store and Windows renderer/Store. This contract proves state,
+not physical focus; native Mac focus/workflow tests, Cua acceptance and Windows
+source/packaged/installed keyboard journeys separately verify controls, panes,
+search, dialogs, mixed previews, recoverable Trash and undo.
 
-Mac build76 and Windows build70 retain the 1.7.6 shelf compositor and add retained
-image-editor bases, recoverable per-type unsaved-history cleanup, capture-admission
-protection and owned-global shortcut recorder suspension. The additive shared
-contracts are `clipboard-admission.json`, `history-cleanup.json` and
-`shortcut-recording.json` under `contracts/`. Their actual platform tests cover
-literal private markers, unchanged nonblank bytes, identity/version-bound cleanup,
-later copies and saves, cancellation, owned-registration lifecycle and conflicts.
-The screenshot global action remains a Windows-specific native integration;
-Command/Control follow platform conventions. Neither implementation may steal a
-shortcut another process acquires while the recorder has released it.
+The existing Mac `macos.json` workflow artifact embeds an independently hashed
+`libraryKeyboard` report; Windows adds `validation/parity/library-windows.json`
+inside its existing validation artifact. Explicit separate-file Mac reporting is
+also supported. The publisher reads both from the same authenticated archives as
+the shelf reports and runs the strict Library checker. No broader workflow or
+credential permission is required.
+Windows publication requires all seven real Library acceptance checks in all
+three runtime modes. Native text/IME undo stays owned by its editor; image
+Command/Control-Z keeps markup priority. Control+Tab uses Control on both systems
+because macOS Command+Tab switches applications. No global OS keyboard preference
+is changed. Trash undo is a bounded, in-process journal; persistent Trash remains
+restorable after restarting. Windows has one application-owned Store and does not
+watch foreign direct JSON edits while running.
 
-Native Windows source/package/installed acceptance additionally exercises real
-clipboard generation queries/replacement, 4K/8K editing with persisted pixel-exact
-output, localized History UI, saved/media preservation and OS shortcut capture.
-The signed candidate-updater gate uses the genuine published 1.7.6/build69 baseline.
-Both exact-source native workflows and the original shelf/upgrade/signature gates
-remain required. See [the research and measured scope](bama-adaptation-2026-10-27.md).
+The genuine Windows upgrade baseline is 1.7.7/build70: 545777945 bytes, SHA256
+`89b9d3d3ddc91d1ddddfb6b07ee73930686d9d2cbbc80a4785746befc9ad9768`,
+source `1c93c163e7e45d102d13c1077dd8baa969eab8ba`. Stage
+`clipboardline-1.7.8-build77`, then publish `windows-1.7.8-build71` with that
+verified counterpart. Latest must contain both signed 1.7.8 feeds and packages.

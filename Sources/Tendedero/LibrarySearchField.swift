@@ -21,6 +21,7 @@ import SwiftUI
             window.makeFirstResponder(self); self.selectText(nil)
         }
         model.onSearchEscape = { [weak self] in self?.leaveSearch() ?? false }
+        model.onSearchNavigation = { [weak self] event in self?.navigateToResults(event) ?? false }
     }
     required init?(coder: NSCoder) { fatalError() }
     func controlTextDidChange(_ notification: Notification) { if model?.search != stringValue { model?.search = stringValue } }
@@ -28,9 +29,15 @@ import SwiftUI
         guard let window else { return false }
         let editor = currentEditor()
         guard window.firstResponder === self || (editor != nil && window.firstResponder === editor) else { return false }
-        model?.onContentFocus?()
+        guard (editor as? NSTextView)?.hasMarkedText() != true else { return false }
+        guard model?.focusContent() == true else { return true }
         if window.firstResponder === self || (editor != nil && window.firstResponder === editor) { window.makeFirstResponder(nil) }
         return true
+    }
+    private func navigateToResults(_ event: NSEvent) -> Bool {
+        guard [36, 76, 125].contains(Int(event.keyCode)),
+              event.modifierFlags.intersection([.command, .control, .shift, .option]).isEmpty else { return false }
+        return leaveSearch()
     }
 }
 

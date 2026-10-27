@@ -490,3 +490,9 @@
 
 
 "A shortcut could not be restored after recording. Choose another combination in Settings." = "录制后无法恢复某个快捷键。请在设置中选择其他组合键。";
+
+"Focus next pane" = "聚焦下一个面板";
+
+"Focus previous pane" = "聚焦上一个面板";
+
+"Undo Move to Trash" = "撤销移到废纸篓";

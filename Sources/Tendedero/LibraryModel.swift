@@ -28,7 +28,16 @@ import Combine
     var onPreview: ((UUID) -> Void)?
     var onSearchFocus: (() -> Void)?
     var onSearchEscape: (() -> Bool)?
-    var onContentFocus: (() -> Void)?
+    var onContentFocus: (() -> Void)? { didSet { onContentFocusReady = nil } }
+    var onContentFocusReady: (() -> Bool)?
+    var onInspectorFocusRequested: (() -> Void)?
+    var onFocusNextPane: (() -> Void)?
+    var onFocusPreviousPane: (() -> Void)?
+    var onSearchNavigation: ((NSEvent) -> Bool)?
+    var onFinishEditor: (() -> Bool)?
+    var onNewFolderRequested: (() -> Void)?
+    var onEditPreviewRequested: ((KeyboardAction, UUID) -> Void)?
+    var onKeyboardSelectionCompleted: ((UUID) -> Void)?
     var onTagRequested: (() -> Void)?
     var onPinToFolderRequested: (([UUID]) -> Void)?
     var onNameAndPinRequested: ((UUID) -> Void)?
@@ -65,6 +74,8 @@ import Combine
     private var wantedPages = [Int]()
     private var runningPages = Set<Int>()
     private var feedbackGeneration = 0
+    private(set) var contentFocusPending = false
+    private var pendingKeyboardSelection: (id: UUID?, query: LibraryQuery)?
     private struct PendingDetailsSelection {
         let id: UUID
         let query: LibraryQuery
@@ -99,12 +110,40 @@ import Combine
     }
     func clearNotice() { notice = nil; store.notice = nil }
     func report(_ message: String) { notice = message }
+    /// Explicit keyboard entry is distinct from keeping a selection visible.
+    /// In particular, background packets and sidebar browsing never steal focus.
+    @discardableResult func focusContent() -> Bool {
+        guard flushEdits() else { return false }
+        pendingQuery?.cancel(); pendingQuery = nil
+        let searchChanged = applyPendingSearch()
+        contentFocusPending = true
+        if searchChanged { reload(reset: true) }
+        if loading { if let ready = onContentFocusReady { _ = ready() } else { onContentFocus?() } }
+        else { finishContentFocus() }
+        return true
+    }
+    func cancelContentFocus() { contentFocusPending = false }
+    func finishContentFocus() {
+        guard contentFocusPending, !updatesSuspended, !loading else { return }
+        if focusedID.flatMap({ indices[$0] }) == nil, let first = ids.first { _ = select(first) }
+        if let ready = onContentFocusReady { if ready() { contentFocusPending = false } }
+        else if let focus = onContentFocus { contentFocusPending = false; focus() }
+    }
+    private func finishKeyboardSelection() {
+        guard let pending = pendingKeyboardSelection else { return }
+        pendingKeyboardSelection = nil
+        var expected = pending.query, actual = query
+        expected.visualIDs = []; actual.visualIDs = []
+        guard expected == actual else { return }
+        if let id = pending.id, indices[id] != nil { if select(id) { onKeyboardSelectionCompleted?(id) } }
+        else if let id = ids.first { if select(id) { onKeyboardSelectionCompleted?(id) } }
+    }
     /// Keep capture and indexing in the shared store alive, but stop work for a
     /// closed Library. In-flight read completions are discarded by generation.
     @discardableResult func suspendUpdates() -> Bool {
         guard !updatesSuspended else { return true }
         guard flushEdits() else { return false }
-        updatesSuspended = true; queryGeneration += 1; pendingDetailsSelection = nil
+        updatesSuspended = true; queryGeneration += 1; pendingDetailsSelection = nil; contentFocusPending = false; pendingKeyboardSelection = nil
         pendingQuery?.cancel(); pendingQuery = nil
         pages.removeAll(); pageOrder.removeAll(); wantedPages.removeAll(); runningPages.removeAll()
         return true
@@ -163,7 +202,7 @@ import Combine
         inspectorVisible = true
         if indices[id] != nil {
             if loading { pendingDetailsSelection = PendingDetailsSelection(id: id, query: query, mayBroaden: true) }
-            else { _ = select(id); onContentFocus?() }
+            else { _ = select(id); onInspectorFocusRequested?() }
         } else { broadenDetailsQuery(record) }
     }
     private func broadenDetailsQuery(_ record: LibraryRecord) {
@@ -180,7 +219,7 @@ import Combine
         expected.visualIDs = []; actual.visualIDs = []
         guard expected == actual, search == query.search else { return }
         if indices[pending.id] != nil {
-            if select(pending.id) { inspectorVisible = true; onContentFocus?() }
+            if select(pending.id) { inspectorVisible = true; onInspectorFocusRequested?() }
         } else if pending.mayBroaden, let record = try? store.item(pending.id) {
             // At most one broader reload: an in-flight filtered query may have
             // removed the item from the old IDs observed when the command ran.
@@ -225,6 +264,8 @@ import Combine
                 // Revisions update sidebar metadata without destroying an editor.
                 if !self.dirty, let id = self.focusedID { _ = self.inspect(id) }
                 self.finishDetailsSelection()
+                self.finishKeyboardSelection()
+                self.finishContentFocus()
             case let .failure(error): self.pendingDetailsSelection = nil; self.notice = error.localizedDescription
             }
           }
@@ -288,6 +329,21 @@ import Combine
         let target = focusedID.flatMap { indices[$0] }.map { max(0, min(ids.count - 1, $0 + delta)) } ?? 0
         _ = select(ids[target], extending: extending)
     }
+    func moveVertically(_ direction: Int, extending: Bool = false) {
+        guard !ids.isEmpty else { return }
+        guard let focusedID, let index = indices[focusedID] else { _ = select(ids[0]); return }
+        let width = listMode ? 1 : max(1, columns)
+        let row = index / width, column = index % width, lastRow = (ids.count - 1) / width
+        let targetRow = max(0, min(lastRow, row + direction))
+        guard targetRow != row else { return }
+        _ = select(ids[min(ids.count - 1, targetRow * width + column)], extending: extending)
+    }
+    func moveToBoundary(last: Bool) { guard let id = last ? ids.last : ids.first else { return }; _ = select(id) }
+    func movePage(_ direction: Int) {
+        guard !ids.isEmpty else { return }
+        let index = focusedID.flatMap { indices[$0] } ?? 0
+        _ = select(ids[max(0, min(ids.count - 1, index + direction * 9))])
+    }
     var actionIDs: [UUID] {
         if selectedIDs.isEmpty { return focusedID.map { [$0] } ?? [] }
         if selectedIDs.count == ids.count { return ids }
@@ -315,7 +371,28 @@ import Combine
     }
     func favorite() { guard flushEdits() else { return }; perform { try store.toggleFavorite(actionIDs) } }
     func retain() { guard flushEdits() else { return }; perform { try store.retain(actionIDs) } }
-    func trash() { guard flushEdits() else { return }; perform { try store.trash(actionIDs) } }
+    func trash() { trashSelection() }
+    func trashSelection(_ explicitIDs: [UUID]? = nil) {
+        guard query.scope != .trash, flushEdits() else { return }
+        let targets = explicitIDs ?? actionIDs, removed = Set(targets)
+        guard !targets.isEmpty else { return }
+        let pivot = focusedID.flatMap { indices[$0] } ?? 0
+        let next = ids.dropFirst(pivot).first { !removed.contains($0) }
+            ?? ids.prefix(pivot).reversed().first { !removed.contains($0) }
+        pendingKeyboardSelection = (next, query)
+        do { try store.trashUndoably(targets) }
+        catch { pendingKeyboardSelection = nil; report(error.localizedDescription) }
+    }
+    var canUndoTrash: Bool { store.canUndoTrash }
+    func undoTrash() {
+        guard flushEdits() else { return }
+        do {
+            let restored = try store.undoTrash()
+            guard let first = restored.first else { report(L("Nothing to undo")); return }
+            pendingKeyboardSelection = (first, query)
+            if !loading { finishKeyboardSelection() }
+        } catch { report(error.localizedDescription) }
+    }
     func restore() { perform { try store.restore(actionIDs) } }
     func assign(_ folder: UUID, moving: Bool = false) {
         guard flushEdits() else { return }
@@ -326,7 +403,7 @@ import Combine
     func unassign(_ folder: UUID) { guard flushEdits(), let id = inspected?.id else { return }; perform { try store.unassign(id, from: folder) } }
     func removeTag(_ tag: UUID) { guard flushEdits(), let id = inspected?.id else { return }; perform { try store.removeTag(tag, from: id) } }
     func open() { guard let id = focusedID, let record = try? store.item(id), let url = record.linkURL ?? record.fileURL else { return }; NSWorkspace.shared.open(url) }
-    func newNote() { guard flushEdits() else { return }; perform { let note = try store.createNote(); query = LibraryQuery(scope: .saved, kind: .text); search = ""; pendingQuery?.cancel(); inspectorVisible = true; focusedID = note.id; selectedIDs = [note.id]; _ = inspect(note.id); reload() } }
+    func newNote() { guard flushEdits() else { return }; perform { let note = try store.createNote(); query = LibraryQuery(scope: .saved, kind: .text); search = ""; pendingQuery?.cancel(); inspectorVisible = true; focusedID = note.id; selectedIDs = [note.id]; _ = inspect(note.id); pendingDetailsSelection = PendingDetailsSelection(id: note.id, query: query, mayBroaden: false); reload() } }
     func perform(_ action: () throws -> Void) { do { try action() } catch { notice = error.localizedDescription } }
     @discardableResult private func inspect(_ id: UUID?) -> Bool {
         if inspected?.id != id, !flushEdits() { return false }
@@ -363,9 +440,16 @@ import Combine
     func handleKey(_ event: NSEvent, editing: Bool) -> Bool {
         let action = keyboardBindings.action(for: event, in: .library)
         if action == .commandPalette, !editing || !event.modifierFlags.intersection([.command, .control]).isEmpty { return perform(.commandPalette) }
-        if action == .search, !editing || !event.modifierFlags.intersection([.command, .control]).isEmpty { onSearchFocus?(); return true }
+        if action == .search, !editing || !event.modifierFlags.intersection([.command, .control]).isEmpty { return perform(.search) }
+        let modified = !event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+        let functionKey = [122,120,99,118,96,97,98,100,101,109,103,111,105,107,113,106,64,79,80,90].contains(Int(event.keyCode))
+        if action == .focusNextPane || action == .focusPreviousPane, !editing || modified || functionKey { return perform(action!) }
+        if action == .newNote || action == .newFolder, !editing || modified { return perform(action!) }
+        if editing, onSearchNavigation?(event) == true { return true }
         if event.keyCode == 53, event.modifierFlags.intersection([.command, .shift, .control, .option]).isEmpty, onSearchEscape?() == true { return true }
+        if editing, event.keyCode == 53, event.modifierFlags.intersection([.command, .shift, .control, .option]).isEmpty, onFinishEditor?() == true { return true }
         guard !editing, let action else { return false }
+        if loading && contentFocusPending && ![.search, .commandPalette, .close].contains(action) { return true }
         return perform(action)
     }
     /// Execute a chosen action without manufacturing a keyboard event. Native
@@ -374,8 +458,13 @@ import Combine
         switch action {
         case .paste: if flushEdits() { onPasteRequested?(actionIDs) }
         case .copyImageText: if let focusedID { onImageTextCopyRequested?(focusedID) }
-        case .commandPalette: onCommandsRequested?()
-        case .search: onSearchFocus?()
+        case .commandPalette: cancelContentFocus(); onCommandsRequested?()
+        case .focusNextPane: cancelContentFocus(); onFocusNextPane?()
+        case .focusPreviousPane: cancelContentFocus(); onFocusPreviousPane?()
+        case .undoTrash: undoTrash()
+        case .newNote: newNote()
+        case .newFolder: if flushEdits() { onNewFolderRequested?() }
+        case .search: cancelContentFocus(); onSearchFocus?()
         case .selectAll: selectAll()
         case .copy: copy()
         case .pin: favorite()
@@ -383,23 +472,30 @@ import Combine
         case .nameAndPin:
             // actionIDs uses the current filtered/sorted visible order, never Set order.
             if flushEdits(), !actionIDs.isEmpty { onNameAndPinBatchRequested?(actionIDs) }
-        case .pinnedOnly: togglePinnedOnly()
+        case .pinnedOnly: togglePinnedOnly(); _ = focusContent()
         case .open: open()
-        case .allTypes: setKind(nil)
-        case .images: setKind(.image)
-        case .texts: setKind(.text)
-        case .links: setKind(.link)
+        case .allTypes: setKind(nil); _ = focusContent()
+        case .images: setKind(.image); _ = focusContent()
+        case .texts: setKind(.text); _ = focusContent()
+        case .links: setKind(.link); _ = focusContent()
         case .tag: onTagRequested?()
         case .export: onExportRequested?()
-        case .trash: onTrashRequested?()
+        case .trash: trashSelection()
+        case .editText, .markup, .cropImage:
+            if actionIDs.count == 1, let id = actionIDs.first, let record = try? store.item(id), record.deletedAt == nil,
+               (action == .editText ? record.kind == .text : record.kind == .image) { onEditPreviewRequested?(action, id) }
         case .previous: move(-1)
         case .next: move(1)
-        case .up: move(listMode ? -1 : -max(1, columns))
-        case .down: move(listMode ? 1 : max(1, columns))
+        case .up: moveVertically(-1)
+        case .down: moveVertically(1)
+        case .first: moveToBoundary(last: false)
+        case .last: moveToBoundary(last: true)
+        case .previousPage: movePage(-1)
+        case .nextPage: movePage(1)
         case .extendPrevious: move(-1, extending: true)
         case .extendNext: move(1, extending: true)
-        case .extendUp: move(listMode ? -1 : -max(1, columns), extending: true)
-        case .extendDown: move(listMode ? 1 : max(1, columns), extending: true)
+        case .extendUp: moveVertically(-1, extending: true)
+        case .extendDown: moveVertically(1, extending: true)
         case .preview: if let id = focusedID { onPreview?(id) }
         case .close: guard let onCloseRequested else { return false }; onCloseRequested()
         default: return false

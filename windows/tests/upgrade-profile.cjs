@@ -12,7 +12,8 @@ const profiles = Object.freeze({
   67: Object.freeze({version:'1.7.3',build:66,size:545768617,sha256:'191731aa02077ac975dee65566640c62a23430b49fed54915a2e75f99e84d100',sourceRevision:'8bb1543507ba79854f654c63dfb074c38a40fb9d'}),
   68: Object.freeze({version:'1.7.4',build:67,size:545769370,sha256:'d6b9b2b066f4172c55ccf75bf38118430ab22a761306ef40ba0890e4ea18223f',sourceRevision:'ee7878362a8f740b36bb9a17114bc2aad3cfd0f3'}),
   69: Object.freeze({version:'1.7.5',build:68,size:545769250,sha256:'d37f86b5e355a58e3303899aa6917efb495a7f1d2a02732fd7e843cc1ef442e7',sourceRevision:'0d71154257aef8042a53ee6ff169079eddbb42bd'}),
-  70: Object.freeze({version:'1.7.6',build:69,size:545771823,sha256:'76af8435fca09d076ae7eb17c396399fc4dfdfd5099b8ce9b5ad67ddc7e9d531',sourceRevision:'9517b92eb83deb619a4a8f0ab1fbc288e87747e5'})
+  70: Object.freeze({version:'1.7.6',build:69,size:545771823,sha256:'76af8435fca09d076ae7eb17c396399fc4dfdfd5099b8ce9b5ad67ddc7e9d531',sourceRevision:'9517b92eb83deb619a4a8f0ab1fbc288e87747e5'}),
+  71: Object.freeze({version:'1.7.7',build:70,size:545777945,sha256:'89b9d3d3ddc91d1ddddfb6b07ee73930686d9d2cbbc80a4785746befc9ad9768',sourceRevision:'1c93c163e7e45d102d13c1077dd8baa969eab8ba'})
 });
 function reviewedPrevious(build) {
   assert.ok(Number.isInteger(build) && Object.hasOwn(profiles, build), 'The candidate needs a reviewed, pinned previous-installation profile.');

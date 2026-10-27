@@ -49,6 +49,41 @@ import SwiftUI
         }.store(in: &subscriptions)
     }
     required init?(coder: NSCoder) { fatalError() }
+    var isSidebarFocused: Bool { sidebar.isFocused }
+    @discardableResult func focusSidebar() -> Bool {
+        guard model.flushEdits() else { return false }
+        splitViewItems[0].isCollapsed = false
+        view.layoutSubtreeIfNeeded()
+        return sidebar.focusSelection()
+    }
+    @discardableResult func focusInspector() -> Bool {
+        guard model.inspected != nil, model.flushEdits() else { return false }
+        if !model.inspectorVisible { model.inspectorVisible = true }
+        if inspectorItem.isCollapsed { inspectorItem.isCollapsed = false }
+        view.layoutSubtreeIfNeeded()
+        guard let target = editableInspectorViews.first, let window = view.window else { return false }
+        return window.makeFirstResponder(target)
+    }
+    func inspectorFocusContains(_ responder: NSResponder?) -> Bool {
+        guard let responder else { return false }
+        let inspector = inspectorItem.viewController.view
+        if let native = responder as? NSView, native === inspector || native.isDescendant(of: inspector) { return true }
+        // AppKit shares a window field editor; it need not be a descendant of
+        // the SwiftUI inspector whose NSTextField is currently being edited.
+        return nativeInspectorViews.contains { ($0 as? NSTextField)?.currentEditor() === responder }
+    }
+    private var nativeInspectorViews: [NSView] {
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        return descendants(inspectorItem.viewController.view)
+    }
+    private var editableInspectorViews: [NSView] {
+        nativeInspectorViews.filter { native in
+            guard !native.isHiddenOrHasHiddenAncestor, native.bounds.width > 0, native.bounds.height > 0 else { return false }
+            if let field = native as? NSTextField { return field.isEditable && field.isEnabled }
+            if let editor = native as? NSTextView { return editor.isEditable }
+            return false
+        }
+    }
 }
 
 private final class SidebarOutlineView: NSOutlineView {
@@ -77,6 +112,13 @@ private final class SidebarOutlineView: NSOutlineView {
     private var subscriptions = Set<AnyCancellable>()
     private var updating = false
     private var initialized = false
+    var keyboardMenuPresenter: (NSMenu, NSView, NSPoint) -> Void = { menu, view, point in
+        menu.popUp(positioning: nil, at: point, in: view)
+    }
+    var isFocused: Bool {
+        guard let responder = view.window?.firstResponder as? NSView else { return false }
+        return responder === view || responder.isDescendant(of: view)
+    }
     init(model: LibraryModel, actions: LibraryWindowController) { self.model = model; self.actions = actions; super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) { fatalError() }
     override func loadView() {
@@ -101,6 +143,28 @@ private final class SidebarOutlineView: NSOutlineView {
         NSLayoutConstraint.activate([scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor), scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor), scroll.topAnchor.constraint(equalTo: root.topAnchor), scroll.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -10), bottom.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16), bottom.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16), bottom.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -12), bottom.heightAnchor.constraint(equalToConstant: 24)])
         model.$collections.combineLatest(model.$tags).removeDuplicates { $0.0 == $1.0 && $0.1 == $1.1 }.sink { [weak self] folders, tags in self?.rebuild(folders, tags: tags) }.store(in: &subscriptions)
         model.$query.map(\.scope).removeDuplicates().sink { [weak self] scope in self?.select(scope) }.store(in: &subscriptions)
+    }
+    @discardableResult func focusSelection() -> Bool {
+        guard model.flushEdits(), let window = view.window else { return false }
+        select(model.query.scope)
+        if outline.selectedRow >= 0 { outline.scrollRowToVisible(outline.selectedRow) }
+        return window.makeFirstResponder(outline)
+    }
+    /// Sidebar arrows keep AppKit's tree semantics. Enter, or Right on a leaf
+    /// or already-expanded folder, deliberately enters the selected results.
+    @discardableResult func performKeyboardEntry(_ event: NSEvent) -> Bool {
+        guard view.window?.firstResponder === outline, event.type == .keyDown else { return false }
+        let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        if (event.keyCode == 109 && flags == [.shift]) || (event.keyCode == 110 && flags.isEmpty) {
+            let row = outline.selectedRow, menu = menu(for: row)
+            let frame = row >= 0 ? outline.rect(ofRow: row) : outline.visibleRect
+            keyboardMenuPresenter(menu, outline, NSPoint(x: frame.minX + 24, y: frame.midY))
+            return true
+        }
+        guard flags.isEmpty, [UInt16(36), 76, 124].contains(event.keyCode),
+              let node = outline.item(atRow: outline.selectedRow) as? LibrarySidebarNode, node.scope != nil else { return false }
+        if event.keyCode == 124, !node.children.isEmpty, !outline.isItemExpanded(node) { return false }
+        model.focusContent(); return true
     }
     private func rebuild(_ folders: [LibraryCollection], tags: [LibraryTag]) {
         let expanded = initialized ? Set(allNodes.filter { outline.isItemExpanded($0) }.map(\.key)) : model.store.defaults.stringArray(forKey: "libraryExpandedSidebarNodes").map(Set.init)

@@ -92,12 +92,20 @@ import XCTest
         XCTAssertEqual(controller.splitController.splitViewItems.count, 3)
         let searchItem = try XCTUnwrap(window.toolbar?.items.first { $0.itemIdentifier == LibraryToolbarController.searchID } as? NSSearchToolbarItem)
         XCTAssertTrue(searchItem.searchField === controller.toolbarController.searchField)
-        let paletteItem = try XCTUnwrap(controller.toolbarController.toolbar(try XCTUnwrap(window.toolbar), itemForItemIdentifier: LibraryToolbarController.searchID, willBeInsertedIntoToolbar: false) as? NSSearchToolbarItem)
-        let palette = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 40))
-        palette.addSubview(paletteItem.searchField)
-        XCTAssertFalse(searchItem.searchField.isDescendant(of: palette))
+        let liveField = searchItem.searchField, liveSuperview = liveField.superview, liveWindow = liveField.window
+        let liveToolbar = try XCTUnwrap(window.toolbar)
+        let paletteItem = try XCTUnwrap(controller.toolbarController.toolbar(liveToolbar, itemForItemIdentifier: LibraryToolbarController.searchID, willBeInsertedIntoToolbar: false) as? NSSearchToolbarItem)
+        // AppKit owns each NSSearchToolbarItem's field container and layout.
+        // Creating a palette prototype must preserve the live item; moving the
+        // prototype field out of its managed container is not a valid probe.
+        XCTAssertFalse(paletteItem.searchField === liveField)
         XCTAssertFalse(paletteItem.searchField is LibrarySearchTextField)
-        XCTAssertTrue(searchItem.searchField === controller.toolbarController.searchField)
+        XCTAssertNil(paletteItem.toolbar)
+        XCTAssertTrue(searchItem.toolbar === liveToolbar)
+        XCTAssertTrue(liveToolbar.items.first { $0.itemIdentifier == LibraryToolbarController.searchID } === searchItem)
+        XCTAssertTrue(searchItem.searchField === liveField)
+        XCTAssertTrue(liveField.superview === liveSuperview); XCTAssertTrue(liveField.window === liveWindow)
+        XCTAssertTrue(liveField === controller.toolbarController.searchField)
         XCTAssertEqual(controller.splitController.splitViewItems[0].behavior, .sidebar)
         XCTAssertEqual(controller.splitController.inspectorItem.behavior, .inspector)
         controller.model.inspectorVisible = false
@@ -108,8 +116,8 @@ import XCTest
         window.setContentSize(NSSize(width: 870, height: 560)); window.contentView?.layoutSubtreeIfNeeded()
         XCTAssertTrue(controller.splitController.splitViewItems[1].viewController.view.frame.width >= 359)
         XCTAssertEqual(try store.item(record.id), before)
-        try controller.model.keyboardBindings.set([KeyShortcut(keyCode: 1, modifiers: 0, keyLabel: "S")], for: .search)
-        let typing = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "s", charactersIgnoringModifiers: "s", isARepeat: false, keyCode: 1))
+        try controller.model.keyboardBindings.set([KeyShortcut(keyCode: 38, modifiers: 0, keyLabel: "J")], for: .search)
+        let typing = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "j", charactersIgnoringModifiers: "j", isARepeat: false, keyCode: 38))
         XCTAssertFalse(controller.model.handleKey(typing, editing: true))
     }
     func testSidebarArrowKeysAndNestedScopeUseNativeSelectionAndRevealAncestors() throws {

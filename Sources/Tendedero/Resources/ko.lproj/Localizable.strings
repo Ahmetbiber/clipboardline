@@ -490,3 +490,9 @@
 
 
 "A shortcut could not be restored after recording. Choose another combination in Settings." = "기록 후 단축키를 복원하지 못했습니다. 설정에서 다른 키 조합을 선택하세요.";
+
+"Focus next pane" = "다음 패널로 포커스 이동";
+
+"Focus previous pane" = "이전 패널로 포커스 이동";
+
+"Undo Move to Trash" = "휴지통으로 이동 실행 취소";

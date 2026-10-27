@@ -196,7 +196,7 @@ import XCTest
             XCTAssertEqual(bindings.action(for: key(123, .option), in: context), .previousPage)
             XCTAssertEqual(bindings.action(for: key(124, .option), in: context), .nextPage)
         }
-        XCTAssertNil(bindings.action(for: key(124, .option), in: .library))
+        XCTAssertEqual(bindings.action(for: key(124, .option), in: .library), .nextPage)
         let legacy = ["next": [KeyShortcut(keyCode: 124, modifiers: optionKey, keyLabel: "→")]]
         f.defaults.set(try JSONEncoder().encode(legacy), forKey: "contextKeyboardBindingsV1")
         XCTAssertEqual(bindings.action(for: key(124, .option), in: .line), .next)

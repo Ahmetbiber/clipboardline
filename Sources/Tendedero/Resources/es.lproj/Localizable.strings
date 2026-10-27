@@ -490,3 +490,9 @@
 
 
 "A shortcut could not be restored after recording. Choose another combination in Settings." = "No se pudo restaurar un atajo tras grabarlo. Elige otra combinación en Ajustes.";
+
+"Focus next pane" = "Enfocar el panel siguiente";
+
+"Focus previous pane" = "Enfocar el panel anterior";
+
+"Undo Move to Trash" = "Deshacer mover a la papelera";

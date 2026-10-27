@@ -490,3 +490,9 @@
 
 
 "A shortcut could not be restored after recording. Choose another combination in Settings." = "Un raccourci n’a pas pu être rétabli après l’enregistrement. Choisissez une autre combinaison dans Réglages.";
+
+"Focus next pane" = "Activer le volet suivant";
+
+"Focus previous pane" = "Activer le volet précédent";
+
+"Undo Move to Trash" = "Annuler le déplacement vers la corbeille";

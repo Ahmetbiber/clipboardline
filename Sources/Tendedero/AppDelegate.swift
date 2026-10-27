@@ -1637,6 +1637,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         value.hasLatestImage = line.newestID != nil
         value.globalToggleHint = Shortcut.current?.display ?? ""; value.copyLatestHint = line.copyLatestShortcut?.title ?? ""
         value.canUndoShelfRemoval = line.library?.canUndoShelfRemoval == true
+        value.canUndoLibraryTrash = line.library?.canUndoTrash == true
         value.activeFavorites = snapshot.inLibrary ? libraryController?.model.showingPinnedOnly == true : line.activeFavoritesOnly
         value.visibleShelves = Set(line.presentation.shelves)
         value.lineRevealed = isRevealed; value.libraryAvailable = line.library != nil
@@ -1749,6 +1750,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 else { _ = preview?.perform(action) }
             }
         case .allTypes, .images, .texts, .links:
+            _ = actionBarLibrary(from: snapshot)?.model.perform(action)
+        case .focusNextPane, .focusPreviousPane, .undoTrash, .newNote, .newFolder:
             _ = actionBarLibrary(from: snapshot)?.model.perform(action)
         case .export: exportActionBarItems(snapshot)
         case .trash: trashActionBarItems(snapshot)

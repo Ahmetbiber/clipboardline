@@ -47,6 +47,7 @@ enum ActionBarMenuAction: String, CaseIterable {
         var hasItems = false
         var hasLatestImage = false
         var canUndoShelfRemoval = false
+        var canUndoLibraryTrash = false
         var isMarkupEditing = false
         var annotationSelected = false
         var canUndoMarkup = false
@@ -97,7 +98,7 @@ enum ActionBarMenuAction: String, CaseIterable {
         // browsing shortcut remains discoverable, including navigation.
         let leading: [KeyboardAction] = [.searchShelf, .library, .copy, .paste, .preview, .pin, .pinToFolder, .nameAndPin,
             .tag, .cropImage, .markupMarker, .markup, .editText, .copyImageText, .pinnedOnly]
-        let keyboard = leading + KeyboardAction.allCases.filter { $0 != .commandPalette && !leading.contains($0) }
+        let keyboard = leading + KeyboardAction.allCases.filter { ![.commandPalette, .newNote, .newFolder].contains($0) && !leading.contains($0) }
         for action in keyboard {
             let availability = keyboardAvailability(action, c)
             let metadata = keyboardMetadata(action)
@@ -117,7 +118,7 @@ enum ActionBarMenuAction: String, CaseIterable {
             if action == .toggleLine { title = c.lineRevealed ? L("Hide line") : L("Show line") }
             if action == .toggleInspector { title = c.libraryInspectorVisible ? L("Hide details") : L("Show details") }
             result.append(Entry(action: semantic, command: .init(id: semantic.id, title: title,
-                keyHint: menuHint(action, c), systemImage: metadata.symbol,
+                keyHint: action == .newNote ? bindings.title(.newNote, in: .library) : action == .newFolder ? bindings.title(.newFolder, in: .library) : menuHint(action, c), systemImage: metadata.symbol,
                 isEnabled: availability.0, group: metadata.group, keywords: metadata.keywords,
                 disabledReason: availability.1, isActive: menuActive(action, c))))
         }
@@ -189,13 +190,16 @@ enum ActionBarMenuAction: String, CaseIterable {
         case .trash: return require(selected, L("Select an item first"))
         case .removeFromLine: return require(!c.isLibrary && selected, c.isLibrary ? L("Available on the shelves") : L("Select an item first"))
         case .undoRemoveFromLine: return require(!c.isLibrary && c.canUndoShelfRemoval, L("Nothing to undo"))
+        case .undoTrash: return require(c.isLibrary && c.canUndoLibraryTrash, L("Nothing to undo"))
+        case .focusNextPane, .focusPreviousPane: return require(c.origin == .library, L("Library unavailable"))
+        case .newNote, .newFolder: return require(c.libraryAvailable, L("Library unavailable"))
         case .close: return require(browsing && (c.lineRevealed || c.isLibrary || c.isPreview), L("Open a shelf or Library first"))
         case .switchShelf: return require(c.origin == .line, L("Available on the shelves"))
         case .selectAll: return require(browsing && !c.isPreview && c.hasItems, c.isPreview ? L("Available on the shelves or in Library") : L("No items in this view"))
         case .select1, .select2, .select3, .select4, .select5, .select6, .select7, .select8, .select9:
             return require(c.origin == .line && c.hasItems, L("Available on the shelves"))
         case .first, .last, .previousPage, .nextPage:
-            return require(!c.isLibrary && browsing && c.hasItems, c.isLibrary ? L("Available on the shelves") : L("No items in this view"))
+            return require(browsing && c.hasItems, L("No items in this view"))
         case .extendPrevious, .extendNext, .extendUp, .extendDown:
             return require(browsing && !c.isPreview && c.hasItems, c.isPreview ? L("Available on the shelves or in Library") : L("No items in this view"))
         case .previous, .next, .up, .down: return require(browsing && c.hasItems, L("No items in this view"))
@@ -210,9 +214,10 @@ enum ActionBarMenuAction: String, CaseIterable {
         case .library: return L("On the line")
         case .cropImage, .markup, .markupSelect, .markupPen, .markupMarker, .markupRectangle, .markupEllipse, .markupArrow, .markupLine, .markupText: return L("Image markup")
         case .editText, .finishEditing: return L("Text preview")
-        case .allTypes, .images, .texts, .links: return L("Library")
+        case .allTypes, .images, .texts, .links, .focusNextPane, .focusPreviousPane, .undoTrash, .newNote, .newFolder: return L("Library")
+        case .first, .last, .previousPage, .nextPage: return c.isLibrary ? L("Library") : L("On the line")
         case .toggleShelves, .toggleImages, .toggleTexts, .toggleLinks, .switchShelf, .select1, .select2, .select3, .select4, .select5, .select6, .select7, .select8, .select9,
-             .first, .last, .previousPage, .nextPage, .removeFromLine, .undoRemoveFromLine: return L("On the line")
+             .removeFromLine, .undoRemoveFromLine: return L("On the line")
         default: return c.selectedCount > 1 ? String(format: L("%d selected"), c.selectedCount) : c.isLibrary ? L("Library") : c.isPreview ? L("Preview") : L("On the line")
         }
     }
@@ -225,10 +230,12 @@ enum ActionBarMenuAction: String, CaseIterable {
         if [.search, .allTypes, .images, .texts, .links].contains(action) { return bindings.title(action, in: .library) }
         let tools: [KeyboardAction] = [.markupSelect, .markupPen, .markupMarker, .markupRectangle, .markupEllipse, .markupArrow, .markupLine, .markupText]
         if action == .cropImage {
+            if c.origin == .library { return bindings.title(action, in: .library) }
             let hint = bindings.title(.cropImage, in: c.isMarkupEditing ? .imageMarkup : .imagePreview)
             return c.isPreview ? hint : sequence([context.map { bindings.title(.preview, in: $0) } ?? "", hint])
         }
         if action == .markup {
+            if c.origin == .library { return bindings.title(action, in: .library) }
             let hint = bindings.title(.markup, in: c.isMarkupEditing ? .imageMarkup : .imagePreview)
             return c.isPreview ? hint : sequence([context.map { bindings.title(.preview, in: $0) } ?? "", hint])
         }
@@ -239,6 +246,7 @@ enum ActionBarMenuAction: String, CaseIterable {
             return sequence(prefix + [bindings.title(.markup, in: .imagePreview), tool])
         }
         if action == .editText && !c.isPreview {
+            if c.origin == .library { return bindings.title(action, in: .library) }
             return sequence([context.map { bindings.title(.preview, in: $0) } ?? "", bindings.title(.editText, in: .textPreview)])
         }
         if action == .open && !c.isLibrary && !c.isPreview {
@@ -320,6 +328,10 @@ enum ActionBarMenuAction: String, CaseIterable {
         case .trash: return (selection, "trash", ["delete", "trash", "sil", "çöp", "recoverable"])
         case .removeFromLine: return (selection, "minus.circle", ["remove", "delete", "take down", "sil", "askıdan", "indir"])
         case .undoRemoveFromLine: return (selection, "arrow.uturn.backward", ["undo", "restore", "backspace", "geri al", "silme"])
+        case .undoTrash: return (L("Library"), "arrow.uturn.backward", ["undo", "trash", "backspace", "geri al", "çöp"])
+        case .focusNextPane, .focusPreviousPane: return (navigation, "rectangle.split.3x1", ["focus", "pane", "keyboard", "tab", "odak", "bölme", "klavye"])
+        case .newNote: return (L("Library"), "square.and.pencil", ["new", "note", "yeni", "not"])
+        case .newFolder: return (L("Library"), "folder.badge.plus", ["new", "folder", "yeni", "klasör"])
         case .markup: return (markup, "pencil.tip.crop.circle", ["markup", "annotate", "draw", "edit image", "işaretle", "çiz", "görsel düzenle"])
         case .cropImage: return (markup, "crop", ["crop", "trim", "kırp", "kirp", "kes"])
         case .markupSelect: return (markup, "cursorarrow", ["select", "annotation", "seç", "işaretleme"])

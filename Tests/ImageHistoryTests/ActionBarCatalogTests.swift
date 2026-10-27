@@ -21,7 +21,9 @@ import XCTest
         let entries = ActionBarCatalog.entries(context: context, bindings: bindings)
         let keyboard = entries.compactMap { entry -> KeyboardAction? in if case let .keyboard(action) = entry.action { return action }; return nil }
         let menu = entries.compactMap { entry -> ActionBarMenuAction? in if case let .menu(action) = entry.action { return action }; return nil }
-        XCTAssertEqual(Set(keyboard), Set(KeyboardAction.allCases.filter { $0 != .commandPalette }))
+        XCTAssertEqual(Set(keyboard), Set(KeyboardAction.allCases.filter { ![.commandPalette, .newNote, .newFolder].contains($0) }))
+        XCTAssertEqual(try command(.menu(.newNote), context: context, bindings: bindings).keyHint, bindings.title(.newNote, in: .library))
+        XCTAssertEqual(try command(.menu(.newFolder), context: context, bindings: bindings).keyHint, bindings.title(.newFolder, in: .library))
         XCTAssertEqual(Set(menu), Set(ActionBarMenuAction.allCases))
         XCTAssertEqual(entries.count, Set(entries.map { $0.command.id }).count)
         XCTAssertTrue(entries.allSatisfy { !$0.command.title.isEmpty && !$0.command.group.isEmpty && !$0.command.systemImage.isEmpty })
@@ -65,7 +67,8 @@ import XCTest
         XCTAssertEqual(try command(.keyboard(.markup), context: context, bindings: bindings).keyHint, "Space → M")
         XCTAssertEqual(try command(.keyboard(.trash), context: context, bindings: bindings).keyHint, "⌦")
         context.origin = .library
-        XCTAssertEqual(try command(.keyboard(.trash), context: context, bindings: bindings).keyHint, "⌦ / ⌫")
+        XCTAssertEqual(try command(.keyboard(.trash), context: context, bindings: bindings).keyHint, "S / ⌦ / ⌘⌫")
+        XCTAssertEqual(try command(.keyboard(.undoTrash), context: context, bindings: bindings).keyHint, "⌫ / ⌘Z")
         XCTAssertEqual(try command(.keyboard(.searchShelf), context: context, bindings: bindings).keyHint, bindings.title(.search))
         context.origin = .libraryPreview
         XCTAssertEqual(try command(.keyboard(.markupMarker), context: context, bindings: bindings).keyHint, "M → H")
@@ -108,9 +111,12 @@ import XCTest
         context.hasLatestImage = true
         XCTAssertTrue(try command(.menu(.copyLatestImage), context: context, bindings: bindings).isEnabled)
         context.origin = .library
-        for action in [KeyboardAction.removeFromLine, .undoRemoveFromLine, .switchShelf, .nextPage, .select1] {
+        for action in [KeyboardAction.removeFromLine, .undoRemoveFromLine, .switchShelf, .select1] {
             XCTAssertFalse(try command(.keyboard(action), context: context, bindings: bindings).isEnabled)
         }
+        XCTAssertTrue(try command(.keyboard(.nextPage), context: context, bindings: bindings).isEnabled)
+        context.canUndoLibraryTrash = true
+        XCTAssertTrue(try command(.keyboard(.undoTrash), context: context, bindings: bindings).isEnabled)
         context.libraryScope = .trash; context.isDeleted = true
         XCTAssertTrue(try command(.menu(.restore), context: context, bindings: bindings).isEnabled)
         XCTAssertFalse(try command(.menu(.retain), context: context, bindings: bindings).isEnabled)
@@ -211,9 +217,10 @@ import XCTest
         let fixture = try SyntheticFixture(); defer { fixture.cleanup() }
         let bindings = KeyboardBindings(defaults: fixture.defaults)
         XCTAssertEqual(bindings.effectiveShortcuts(.trash, in: .line).map(\.keyCode), [117])
-        XCTAssertEqual(bindings.effectiveShortcuts(.trash, in: .library).map(\.keyCode), [117, 51])
+        XCTAssertEqual(bindings.effectiveShortcuts(.trash, in: .library).map(\.keyCode), [1, 117, 51])
         XCTAssertTrue(bindings.effectiveShortcuts(.trash, in: .imagePreview).isEmpty)
         try bindings.set([], for: .undoRemoveFromLine)
+        try bindings.set([], for: .undoTrash)
         try bindings.set([KeyShortcut(keyCode: 51, modifiers: 0, keyLabel: "⌫")], for: .trash)
         var context = ActionBarCatalog.Context()
         context.origin = .line; context.selectedCount = 1; context.kind = .text

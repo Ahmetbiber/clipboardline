@@ -7,6 +7,8 @@ import Combine
     private(set) var image: ImagePreview?
     private(set) var text: TextPreview?
     private(set) var link: LinkPreview?
+    private(set) var empty: EmptyShelfPreview?
+    var window: ActionPreviewPanel? { (image?.window ?? text?.window ?? link?.window ?? empty?.window) as? ActionPreviewPanel }
     var onBeforeMouseKeyFocus: (() -> Void)?
     private var generation = 0
     private var currentIndex = 0
@@ -14,15 +16,25 @@ import Combine
     private var contentSubscription: AnyCancellable?
     init(model: LibraryModel) {
         self.model = model
+        model.onKeyboardSelectionCompleted = { [weak self] id in
+            guard let self, self.window != nil else { return }
+            self.show(id)
+        }
         subscription = model.$ids.dropFirst().receive(on: RunLoop.main).sink { [weak self] ids in
-            guard let self, let currentID = self.currentID else { return }
+            guard let self else { return }
+            if self.empty != nil {
+                if let id = self.model.focusedID, ids.contains(id) { self.show(id) }
+                else if let id = ids.first { _ = self.model.select(id); self.show(id) }
+                return
+            }
+            guard let currentID = self.currentID else { return }
             if ids.contains(currentID) { self.updateControls() }
             else if self.text?.isEditing == true { self.updateControls() }
             else if !ids.isEmpty {
                 let neighbor = ids[min(self.currentIndex, ids.count - 1)]
                 _ = self.model.select(neighbor); self.show(neighbor)
             }
-            else { self.close() }
+            else { self.showEmpty() }
         }
         // IDs deliberately stay quiet when result membership/order is stable.
         // Metadata and pin changes must still refresh the currently open preview.
@@ -40,7 +52,22 @@ import Combine
         text?.controls.position.stringValue = message
         link?.controls.position.stringValue = message
     }
-    func close() { guard flush() else { return }; generation += 1; image?.window.close(); text?.requestClose(); link?.window.close(); image = nil; text = nil; link = nil; currentID = nil }
+    func close() { guard flush() else { return }; generation += 1; window?.close(); image = nil; text = nil; link = nil; empty = nil; currentID = nil }
+    private func showEmpty() {
+        guard let window, flush() else { return }
+        generation += 1; let token = generation
+        let preview = EmptyShelfPreview(window: window, keyboardBindings: model.keyboardBindings, message: L("No matching items"), undoAction: .undoTrash)
+        preview.onUndo = { [weak model] in model?.undoTrash() }
+        preview.onKey = { [weak self] event in
+            guard let self, let action = self.model.keyboardBindings.action(for: event, in: .library) else { return false }
+            if action == .undoTrash { self.model.undoTrash(); return true }
+            if action == .commandPalette { self.model.onCommandsRequested?(); return true }
+            return false
+        }
+        preview.onClose = { [weak self] in self?.didClose(token) }
+        image?.scroll.endPan(); image = nil; text = nil; link = nil; currentID = nil; empty = preview
+        window.makeKeyAndOrderFront(nil)
+    }
     func show(_ id: UUID) {
         guard flush(), model.flushEdits(), let record = try? model.store.item(id), record.deletedAt == nil else { return }
         let previousID = currentID
@@ -49,11 +76,13 @@ import Combine
             guard previousID == id || image.replaceImage(url: url) else { return }; currentID = id; if previousID != id { wireImageMarkup(image, id: id) }; updateControls(); image.show(); return
         }
         if record.kind == .link, let link { link.replace(record); currentID = id; updateControls(); link.show(); return }
-        close(); currentID = id; generation += 1; let token = generation
+        let reusable = window
+        image?.scroll.endPan(); image = nil; text = nil; link = nil; empty = nil
+        currentID = id; generation += 1; let token = generation
         let controls: PreviewControls
         switch record.kind {
         case .text:
-            let preview = TextPreview(text: record.text ?? "", copyPasteboard: model.copyPasteboard, keyboardBindings: model.keyboardBindings); text = preview; controls = preview.controls
+            let preview = TextPreview(text: record.text ?? "", copyPasteboard: model.copyPasteboard, keyboardBindings: model.keyboardBindings, window: reusable); text = preview; controls = preview.controls
             preview.window.collectionBehavior = [.fullScreenAuxiliary, .canJoinAllSpaces]
             preview.onSave = { [weak self] value in
                 guard let self, let id = self.currentID else { return false }
@@ -62,14 +91,14 @@ import Combine
             preview.onKey = { [weak self] in self?.handle($0) ?? false }
             preview.onClose = { [weak self] in self?.didClose(token) }; wireMouseFocus(preview.window); preview.show()
         case .image:
-            guard let url = record.fileURL else { currentID = nil; return }
-            if isRecordingFile(url) { QuickLook.shared.show([url], at: 0); currentID = nil; return }
-            guard let preview = ImagePreview(url: url, keyboardBindings: model.keyboardBindings) else { model.perform { throw HistoryFiles.Failure.unsafeFile }; currentID = nil; return }
+            guard let url = record.fileURL else { reusable?.close(); model.perform { throw HistoryFiles.Failure.unsafeFile }; currentID = nil; return }
+            if isRecordingFile(url) { reusable?.close(); QuickLook.shared.show([url], at: 0); currentID = nil; return }
+            guard let preview = ImagePreview(url: url, keyboardBindings: model.keyboardBindings, window: reusable) else { reusable?.close(); model.perform { throw HistoryFiles.Failure.unsafeFile }; currentID = nil; return }
             image = preview; controls = preview.controls; wireImageMarkup(preview, id: id)
             preview.window.collectionBehavior = [.fullScreenAuxiliary, .canJoinAllSpaces]
             preview.onKey = { [weak self] in self?.handle($0) ?? false }; preview.onClose = { [weak self] in self?.didClose(token) }; wireMouseFocus(preview.window); preview.show()
         case .link:
-            let preview = LinkPreview(record: record, keyboardBindings: model.keyboardBindings); link = preview; controls = preview.controls
+            let preview = LinkPreview(record: record, keyboardBindings: model.keyboardBindings, window: reusable); link = preview; controls = preview.controls
             preview.onKey = { [weak self] in self?.handle($0) ?? false }; preview.onClose = { [weak self] in self?.didClose(token) }; wireMouseFocus(preview.window); preview.show()
         }
         controls.onMove = { [weak self] in self?.move($0) }; controls.onCopy = { [weak self] in self?.copy() }; controls.onPin = { [weak self] in self?.pin() }
@@ -82,8 +111,14 @@ import Combine
     @discardableResult func performNavigation(_ action: KeyboardAction) -> Bool {
         guard currentID != nil else { return false }
         switch action {
-        case .previous, .up: move(-1)
-        case .next, .down: move(1)
+        case .previous: move(-1)
+        case .next: move(1)
+        case .up, .down:
+            guard flush(), let id = currentID, model.select(id, preservingSelection: true) else { return false }
+            model.moveVertically(action == .up ? -1 : 1)
+            if let target = model.focusedID { show(target) }
+        case .previousPage: move(-9)
+        case .nextPage: move(9)
         case .first, .last:
             guard flush(), let id = action == .first ? model.ids.first : model.ids.last else { return false }
             guard model.select(id) else { return false }; show(id)
@@ -104,7 +139,7 @@ import Combine
         }
     }
 
-    private func didClose(_ token: Int) { guard token == generation else { return }; image = nil; text = nil; link = nil; currentID = nil }
+    private func didClose(_ token: Int) { guard token == generation else { return }; image = nil; text = nil; link = nil; empty = nil; currentID = nil; _ = model.focusContent() }
     private func move(_ delta: Int) {
         guard flush(), let id = currentID, !model.ids.isEmpty else { return }
         // An edited note can stop matching the current search. Keep its draft
@@ -130,6 +165,15 @@ import Combine
         image?.controls.update(position: position, pinned: record.favorite); text?.controls.update(position: position, pinned: record.favorite); link?.controls.update(position: position, pinned: record.favorite)
     }
     private func handle(_ event: NSEvent) -> Bool {
+        if image?.isMarkupEditing != true, text?.isEditing != true,
+           let libraryAction = model.keyboardBindings.action(for: event, in: .library) {
+            if libraryAction == .trash, let id = currentID {
+                guard flush(), model.select(id, preservingSelection: true) else { return true }
+                model.trashSelection([id]); return true
+            }
+            let imageMarkupUndo = image != nil && event.keyCode == 6 && event.modifierFlags.contains(.command)
+            if libraryAction == .undoTrash, !imageMarkupUndo { model.undoTrash(); return true }
+        }
         let context: KeyboardContext = text != nil ? .textPreview : link != nil ? .linkPreview : .imagePreview
         guard let action = model.keyboardBindings.action(for: event, in: context) else { return false }
         switch action {
@@ -143,7 +187,7 @@ import Combine
         case .pinToFolder: if flush(), let id = currentID { model.onPinToFolderRequested?([id]) }
         case .nameAndPin: if flush(), let id = currentID { model.onNameAndPinRequested?(id) }
         case .pinnedOnly: guard flush() else { return true }; model.togglePinnedOnly()
-        case .previous, .up, .next, .down: return performNavigation(action)
+        case .previous, .up, .next, .down, .first, .last, .previousPage, .nextPage: return performNavigation(action)
         case .open: link?.openCurrent()
         default: return false
         }

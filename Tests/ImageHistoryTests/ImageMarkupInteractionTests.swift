@@ -348,7 +348,13 @@ import XCTest
         library.model.trash()
         let trashed = try XCTUnwrap(store.item(record.id))
         XCTAssertEqual(trashed.imageMarkup, final); XCTAssertTrue(trashed.deletedAt != nil)
-        wait { library.previewWindow == nil }
+        wait { library.previewCurrentID == nil && library.model.ids.isEmpty && !library.model.loading }
+        XCTAssertTrue(library.previewWindow?.isVisible == true)
+        XCTAssertTrue(store.canUndoTrash)
+        library.model.undoTrash()
+        wait { library.previewCurrentID == record.id && library.model.ids == [record.id] && !library.model.loading }
+        XCTAssertEqual(try store.item(record.id)?.imageMarkup, final)
+        XCTAssertNil(try store.item(record.id)?.deletedAt)
     }
 
     func testFailedMainLibraryFlushBlocksCopyDragAndTrashWithoutLosingDraft() throws {

@@ -12,6 +12,7 @@ const expectedVersion=require('../package.json').version;
 const keyboardLibrary=require('./keyboard-library-acceptance.cjs');
 const shortcutParity=require('./shortcut-parity-acceptance.cjs');
 const libraryPreview=require('./library-preview-acceptance.cjs');
+const libraryKeyboardAcceptance=require('./library-keyboard-acceptance.cjs');
 const imageEditorNativeAcceptance=require('./image-editor-native-acceptance.cjs');
 const historyCleanupNativeAcceptance=require('./history-cleanup-native-acceptance.cjs');
 const textPreview=require('./text-preview-acceptance.cjs');
@@ -155,6 +156,7 @@ async function main(){
   await keyboardLibrary({page,application,textItem,folder,check,until,output});
   await shortcutParity({page,application,check,until,output});
   await libraryPreview({page,application,check,until,output,waitForCropBox});
+  await libraryKeyboardAcceptance({page,application,check,until,output});
   await textPreview({page,application,check,until,output});
   await scrollStateAcceptance({page,application,check,until,output});
   await libraryFolderDrag({page,application,check,until,output});

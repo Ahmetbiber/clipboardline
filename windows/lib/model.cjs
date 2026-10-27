@@ -78,6 +78,9 @@ function settings(patch, previous = DEFAULTS) {
   }
   return out;
 }
+function trashUndoFingerprint(item){return crypto.createHash('sha256').update(JSON.stringify(item)).digest('hex');}
+function trashUndoMatches(item,entry){return !!item&&item.trashedAt!=null&&item.trashedAt===entry.afterTrashedAt&&item.updatedAt===entry.afterUpdatedAt&&(item.captureRevision??null)===entry.captureRevision&&trashUndoFingerprint(item)===entry.fingerprint;}
+function availableTrashUndo(items,journal){if(!journal?.length)return false;const byID=new Map(items.map(item=>[item.id,item]));for(let index=journal.length-1;index>=0;index--)if(journal[index].some(entry=>trashUndoMatches(byID.get(entry.id),entry)))return true;return false;}
 function saved(item) { return item.retainedAt != null || item.pinned || item.folderIds.length > 0 || item.tags.length > 0; }
 function plainURL(value) {
   if (typeof value !== 'string' || /\s/.test(value) || value.length > 8192) return null;
@@ -86,7 +89,7 @@ function plainURL(value) {
 
 class Store {
   constructor(directory, {clock = Date.now} = {}) {
-    this.directory = path.resolve(directory); this.clock = clock; this.undoStack = []; this.textIdentities = new WeakMap();this.revision=0;
+    this.directory = path.resolve(directory); this.clock = clock; this.undoStack = []; this.trashUndoStack = []; this.textIdentities = new WeakMap();this.revision=0;
     fs.mkdirSync(this.directory, {recursive: true, mode: 0o700});
     if(fs.lstatSync(this.directory).isSymbolicLink())fail('Application data must not be a symlink.');
     if(process.platform==='win32'){
@@ -116,7 +119,7 @@ class Store {
   }
   pruneRecentFolders(){const known=new Set(this.data.folders.map(folder=>folder.id));this.data.settings.recentPinFolderIds=(this.data.settings.recentPinFolderIds||[]).filter(id=>known.has(id));}
   validateStored(item) {
-    if(item.captureRevision!=null)ids([item.captureRevision]);
+    if(item.captureRevision!=null)ids([item.captureRevision]);if(item.trashRevision!=null)ids([item.trashRevision]);
     ids([item.id]); if (!KINDS.includes(item.kind) || !Array.isArray(item.folderIds) || !Array.isArray(item.tags)) fail('Invalid library record');
     if (item.text != null) text(item.text, 1024 * 1024, true);
     if(item.note!=null)text(item.note,1024*1024,true);
@@ -174,6 +177,7 @@ class Store {
     const items=this.data.items.filter(item=>!item.trashedAt&&!saved(item)&&(kind==='all'||item.kind===kind));
     return {kind,ids:items.map(item=>item.id).sort(),captures:Object.fromEntries(items.map(item=>[item.id,{revision:item.captureRevision??null,createdAt:item.createdAt,updatedAt:item.updatedAt,lastCopiedAt:item.lastCopiedAt??null}]))};
   }
+  invalidateTrashUndo(value){const affected=new Set(value);this.trashUndoStack=this.trashUndoStack.map(batch=>batch.filter(entry=>!affected.has(entry.id))).filter(batch=>batch.length);}
   markCopied(value){this.modify('markCopied',{ids:value});}
   putPNG(buffer) {
     if (!Buffer.isBuffer(buffer) || buffer.length < 24 || buffer.length > 64 * 1024 * 1024 || buffer.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') fail('Invalid PNG image');
@@ -271,16 +275,37 @@ class Store {
     let changed = false;
     for (const item of this.data.items) {
       const days = this.data.settings.retentionDays[item.kind];
-      if (!item.trashedAt && !saved(item) && days > 0 && item.createdAt < this.clock() - days * 86400000) { item.trashedAt = this.clock(); changed = true; }
+      if (!item.trashedAt && !saved(item) && days > 0 && item.createdAt < this.clock() - days * 86400000) { item.trashedAt = this.clock(); item.trashRevision=crypto.randomUUID(); changed = true; }
     }
     if (persist && changed) this.persist();
   }
   modify(action, payload = {}) {
-    const before=clone(this.data), undo=clone(this.undoStack);
-    try{return this.modifyTransaction(action,payload);}catch(error){if(!error.committed){this.data=before;this.undoStack=undo;}throw error;}
+    const before=clone(this.data), undo=clone(this.undoStack), trashUndo=clone(this.trashUndoStack);
+    try{return this.modifyTransaction(action,payload);}catch(error){if(!error.committed){this.data=before;this.undoStack=undo;this.trashUndoStack=trashUndo;}throw error;}
   }
   modifyTransaction(action, payload = {}) {
     const now = this.clock();
+    if(action==='trash'||action==='trashUndoably'){
+      const selected=ids(payload.ids||(payload.id?[payload.id]:[])),byID=new Map(this.data.items.map(item=>[item.id,item]));
+      const items=selected.map(id=>byID.get(id)).filter(item=>item&&item.trashedAt==null);
+      if(!items.length)return{ids:[]};
+      const entries=items.map(item=>({id:item.id,beforeHiddenFromShelf:item.hiddenFromShelf,beforeTrashedAt:item.trashedAt}));
+      for(const item of items){item.trashedAt=now;item.trashRevision=crypto.randomUUID();item.hiddenFromShelf=true;item.updatedAt=now;}
+      const batch=entries.map(entry=>{const item=byID.get(entry.id);return{...entry,afterTrashedAt:item.trashedAt,afterUpdatedAt:item.updatedAt,captureRevision:item.captureRevision??null,fingerprint:trashUndoFingerprint(item)};});
+      // Publish the ephemeral journal only after the all-or-nothing durable save.
+      this.persist();const affected=new Set(items.map(item=>item.id));
+      this.undoStack=this.undoStack.map(batch=>batch.filter(entry=>!affected.has(entry.id))).filter(batch=>batch.length);
+      this.trashUndoStack=this.trashUndoStack.map(batch=>batch.filter(entry=>!affected.has(entry.id))).filter(batch=>batch.length);
+      this.trashUndoStack.push(batch);if(this.trashUndoStack.length>80)this.trashUndoStack.shift();
+      return{ids:items.map(item=>item.id)};
+    }
+    if(action==='undoTrash'){
+      const byID=new Map(this.data.items.map(item=>[item.id,item]));let index=this.trashUndoStack.length-1,entries=[];
+      for(;index>=0;index--){entries=this.trashUndoStack[index].filter(entry=>trashUndoMatches(byID.get(entry.id),entry));if(entries.length)break;}
+      if(index<0){this.trashUndoStack=[];return{ids:[]};}
+      for(const entry of entries){const item=byID.get(entry.id);item.trashedAt=entry.beforeTrashedAt;item.trashRevision=null;item.hiddenFromShelf=entry.beforeHiddenFromShelf;item.updatedAt=now;}
+      this.persist();this.trashUndoStack=this.trashUndoStack.slice(0,index);return{ids:entries.map(entry=>entry.id)};
+    }
     if(action==='clearUnsavedHistory') {
       // A confirmation is a bounded identity snapshot, never a command to
       // include newly copied records or items saved while the dialog is open.
@@ -292,10 +317,10 @@ class Store {
       const eligible=new Set(current.ids);
       const affected=this.data.items.filter(item=>{const a=payload.captures[item.id],b=current.captures[item.id];return captured.has(item.id)&&eligible.has(item.id)&&a&&b&&a.revision===b.revision&&a.createdAt===b.createdAt&&a.updatedAt===b.updatedAt&&a.lastCopiedAt===b.lastCopiedAt;});
       if(!affected.length)return {ids:[]};
-      for(const item of affected){item.trashedAt=now;item.hiddenFromShelf=true;item.updatedAt=now;}
+      for(const item of affected){item.trashedAt=now;item.trashRevision=crypto.randomUUID();item.hiddenFromShelf=true;item.updatedAt=now;}
       const removed=new Set(affected.map(item=>item.id));
       this.undoStack=this.undoStack.map(batch=>batch.filter(item=>!removed.has(item.id))).filter(batch=>batch.length);
-      this.persist();return {ids:[...removed]};
+      this.persist();this.invalidateTrashUndo(removed);return {ids:[...removed]};
     }
     if(action==='cleanup'){this.finishPermanentDeletion();return;}
     if (action === 'setSettings') { this.data.settings = settings(payload.patch, this.data.settings);this.pruneRecentFolders();this.expire(false); this.persist(); return; }
@@ -306,10 +331,10 @@ class Store {
       const folder = {id: crypto.randomUUID(), name, parentId}; this.data.folders.push(folder); this.persist(); return folder;
     }
     if(action==='renameFolder'||action==='removeFolder') {
-      const folder=this.data.folders.find(f=>f.id===payload.id);if(!folder)fail('Folder unavailable');
+      const folder=this.data.folders.find(f=>f.id===payload.id);if(!folder)fail('Folder unavailable');const originalMemberships=new Map(this.data.items.map(item=>[item.id,JSON.stringify(item.folderIds)]));
       if(action==='renameFolder'){folder.name=text(payload.name,120).trim();if(!folder.name)fail('Folder name is empty');}
       else {const removed=new Set([folder.id]);let changed=true;while(changed){changed=false;for(const child of this.data.folders)if(removed.has(child.parentId)&&!removed.has(child.id)){removed.add(child.id);changed=true;}}this.data.folders=this.data.folders.filter(f=>!removed.has(f.id));for(const item of this.data.items)if(item.folderIds.some(id=>removed.has(id))){item.retainedAt??=now;item.folderIds=item.folderIds.filter(id=>!removed.has(id));}}
-      this.pruneRecentFolders();this.persist();return;
+      this.pruneRecentFolders();this.persist();this.invalidateTrashUndo(this.data.items.filter(item=>originalMemberships.get(item.id)!==JSON.stringify(item.folderIds)).map(item=>item.id));return;
     }
     if(action==='renameTag'||action==='deleteTag') {
       const tag=text(payload.tag,80).trim(),affected=this.data.items.filter(item=>item.tags.includes(tag));
@@ -322,11 +347,11 @@ class Store {
         if(this.data.items.some(item=>item.tags.some(value=>value!==tag&&folded(value)===folded(name))))fail('A tag with this name already exists');
       }
       for(const item of affected){item.retainedAt??=now;item.tags=action==='renameTag'?[...new Set(item.tags.map(value=>value===tag?name:value))]:item.tags.filter(value=>value!==tag);}
-      this.persist();return;
+      this.persist();this.invalidateTrashUndo(affected.map(item=>item.id));return;
     }
     if (action === 'undo') {
       const batch = this.undoStack.pop(); if (!batch) return;
-      for (const before of batch) { const item = this.data.items.find(i => i.id === before.id); if (item) { item.trashedAt = before.trashedAt; item.hiddenFromShelf = before.hiddenFromShelf; } }
+      for (const before of batch) { const item = this.data.items.find(i => i.id === before.id); if (item) { item.trashedAt = before.trashedAt; item.trashRevision=before.trashedAt==null?null:crypto.randomUUID(); item.hiddenFromShelf = before.hiddenFromShelf; } }
       this.persist(); return;
     }
     const items = this.selected(payload.ids || (payload.id ? [payload.id] : []));
@@ -361,9 +386,9 @@ class Store {
         if (!Array.isArray(payload.tags) || payload.tags.length > 50) fail('Invalid tags');
         item.tags = [...new Set(payload.tags.map(tag => text(tag, 80).trim()).filter(Boolean))];
         if(item.tags.length)item.retainedAt??=now;
-      } else if (action === 'remove') { if (saved(item)) item.hiddenFromShelf = true; else item.trashedAt = now; }
+      } else if (action === 'remove') { if (saved(item)) item.hiddenFromShelf = true; else{item.trashedAt = now;item.trashRevision=crypto.randomUUID();} }
       else if (action === 'trash') item.trashedAt = now;
-      else if (action === 'restore') { item.trashedAt = null; item.hiddenFromShelf = false; }
+      else if (action === 'restore') { item.trashedAt = null; item.trashRevision=null; item.hiddenFromShelf = false; }
       else if (action === 'editText') { if (item.kind !== 'text') fail('Only text can be edited'); item.text = text(payload.text, 1024 * 1024, true); }
       else if (action === 'saveImage') {
         if (item.kind !== 'image' || item.recording || typeof payload.dataUrl !== 'string' || !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(payload.dataUrl) || payload.dataUrl.length > 90_000_000) fail('Invalid image edit');
@@ -380,6 +405,7 @@ class Store {
     if (['delete', 'trash', 'restore'].includes(action)) this.undoStack = this.undoStack.filter(batch => !batch.some(old => items.some(i => i.id === old.id)));
     if(action==='delete')this.preparePermanentDeletion();
     this.persist();
+    {const affected=new Set(items.map(item=>item.id));this.trashUndoStack=this.trashUndoStack.map(batch=>batch.filter(entry=>!affected.has(entry.id))).filter(batch=>batch.length);}
     if(action==='delete')this.finishPermanentDeletion();
   }
   publicState() {
@@ -390,7 +416,7 @@ class Store {
         ...(thumbnailFile ? {thumbnailUrl: `appmedia://media/${item.id}/thumbnail?v=${thumbnailFile.slice(0,64)}`} : {}),
         ...(item.kind === 'image' ? {mediaUrl: `appmedia://media/${item.id}?v=${(renderedFile||imageFile).slice(0,64)}`, originalMediaUrl: `appmedia://media/${item.id}/original`} : {}),
         ...(item.recording?{videoUrl:`appmedia://media/${item.id}/video?v=${(renderedVideoFile||videoFile).slice(0,64)}`,originalVideoUrl:`appmedia://media/${item.id}/video/original`,sourceFingerprint:(renderedVideoFile||videoFile).slice(0,64)}:{})})),
-      folders: clone(this.data.folders), settings: clone(this.data.settings), canUndo: this.undoStack.length > 0,
+      folders: clone(this.data.folders), settings: clone(this.data.settings), canUndo: this.undoStack.length > 0, canUndoTrash:availableTrashUndo(this.data.items,this.trashUndoStack),
       needsDeletionCleanup:!!(this.data.pendingBackupRefresh||this.data.pendingDeletionFiles?.length)
     };
   }

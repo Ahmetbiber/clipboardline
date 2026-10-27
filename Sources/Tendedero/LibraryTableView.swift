@@ -9,6 +9,15 @@ struct LibraryList: NSViewControllerRepresentable {
 }
 
 private final class LibraryNativeTable: NSTableView {
+    var libraryKeyHandler: ((NSEvent) -> Bool)?
+    override func keyDown(with event: NSEvent) {
+        if window?.firstResponder === self, libraryKeyHandler?(event) == true || LibraryContentKeyRouting.ownsDefault(event) { return }
+        super.keyDown(with: event)
+    }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, libraryKeyHandler?(event) == true || LibraryContentKeyRouting.ownsDefault(event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
     var contextualMenu: ((Int) -> NSMenu?)?
     override func menu(for event: NSEvent) -> NSMenu? { contextualMenu?(row(at: convert(event.locationInWindow, from: nil))) }
 }
@@ -29,6 +38,7 @@ private final class LibraryNativeTable: NSTableView {
     private var dragWriters = [UUID: NSPasteboardWriting]()
     private var dragEvent: Int?
     private var dragSelection = Set<UUID>()
+    private var pendingRevealID: UUID?
     init(model: LibraryModel) { self.model = model; super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) { fatalError() }
     override func loadView() {
@@ -45,25 +55,40 @@ private final class LibraryNativeTable: NSTableView {
             nativeTable.addTableColumn(column)
         }
         nativeTable.dataSource = self; nativeTable.delegate = self; nativeTable.target = self; nativeTable.doubleAction = #selector(previewRow)
+        nativeTable.libraryKeyHandler = { [weak model] in model?.handleKey($0, editing: false) ?? false }
         nativeTable.setAccessibilityLabel(L("Library") + " · " + L("List"))
         nativeTable.setDraggingSourceOperationMask(.copy, forLocal: true); nativeTable.setDraggingSourceOperationMask(.copy, forLocal: false)
         nativeTable.contextualMenu = { [weak self] in self?.menu(for: $0) }
         thumbnails.onLoad = { [weak self] in self?.recordsDirty = true; self?.enqueueRefresh() }
         model.thumbnailStats = { [weak self] in self?.thumbnails.stats }
         model.onRecordsChanged = { [weak self] _ in self?.recordsDirty = true; self?.enqueueRefresh() }
-        model.onContentFocus = { [weak self] in guard let self else { return }; self.view.window?.makeFirstResponder(self.nativeTable) }
+        model.onContentFocus = { [weak self] in _ = self?.focusContent() }
+        model.onContentFocusReady = { [weak self] in self?.focusContent() ?? false }
         model.onSelectionReveal = { [weak self] id in
-            guard let self, let row = self.model.index(of: id) else { return }
-            self.nativeTable.scrollRowToVisible(row); self.view.window?.makeFirstResponder(self.nativeTable)
+            self?.pendingRevealID = id
+            self?.revealPendingSelection()
         }
         subscription = model.objectWillChange.sink { [weak self] _ in self?.enqueueRefresh() }
         NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification, object: scroll.contentView)
         refresh()
     }
+    @discardableResult func focusContent() -> Bool {
+        guard let window = view.window else { return false }
+        pendingRevealID = model.focusedID; revealPendingSelection()
+        return window.makeFirstResponder(nativeTable)
+    }
+    private func revealPendingSelection() {
+        guard let id = pendingRevealID else { return }
+        guard model.focusedID == id else { pendingRevealID = nil; return }
+        // Query IDs may arrive before NSTableView reloads its old row count.
+        guard previousIDs == model.ids, let row = model.index(of: id), row < nativeTable.numberOfRows else { return }
+        pendingRevealID = nil; nativeTable.scrollRowToVisible(row)
+    }
     func enqueueRefresh() {
         guard !pending else { return }; pending = true
         DispatchQueue.main.async { [weak self] in self?.pending = false; self?.refresh() }
     }
+    override func viewDidAppear() { super.viewDidAppear(); model.finishContentFocus() }
     override func viewDidLayout() { super.viewDidLayout(); requestVisible() }
     private var visibleRows: IndexSet {
         let range = nativeTable.rows(in: scroll.documentVisibleRect)
@@ -76,6 +101,7 @@ private final class LibraryNativeTable: NSTableView {
         if previousIDs != model.ids { previousIDs = model.ids; nativeTable.reloadData(); recordsDirty = true }
         let selection = IndexSet(model.selectedIDs.compactMap { model.index(of: $0) })
         if nativeTable.selectedRowIndexes != selection { nativeTable.selectRowIndexes(selection, byExtendingSelection: false) }
+        revealPendingSelection()
         if recordsDirty || previousSelection != model.selectedIDs || previousCopies != model.copiedIDs {
             nativeTable.reloadData(forRowIndexes: visibleRows, columnIndexes: IndexSet(integersIn: 0..<nativeTable.numberOfColumns))
             previousSelection = model.selectedIDs; previousCopies = model.copiedIDs; recordsDirty = false

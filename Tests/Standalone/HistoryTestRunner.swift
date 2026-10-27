@@ -115,6 +115,10 @@ func XCTUnwrap<T>(_ value: T?, file: StaticString = #filePath, line: UInt = #lin
 @main
 enum HistoryTestRunner {
     @MainActor static func main() {
+        let libraryTrashUndoTests = LibraryTrashUndoTests()
+        let libraryFocusNativeTests = LibraryFocusNativeTests()
+        let libraryKeyboardContractTests = LibraryKeyboardContractTests()
+        let libraryKeyboardWorkflowTests = LibraryKeyboardWorkflowTests()
         let libraryStore = LibraryStoreTests()
         let libraryInteraction = LibraryInteractionTests()
         let publicLinks = PublicLinkPolicyTests()
@@ -172,6 +176,39 @@ enum HistoryTestRunner {
         let cases: [(String, () throws -> Void)] = [
             ("testNativeVisibilityKeepsWindowContentAndHitCoordinatesFixed", shelfPresentation.testNativeVisibilityKeepsWindowContentAndHitCoordinatesFixed),
             ("testRapidVisibilityReversalCannotRunAnEarlierCloseCompletion", shelfPresentation.testRapidVisibilityReversalCannotRunAnEarlierCloseCompletion),
+            ("testMixedBatchRestoresOriginalShelfFlagsContentOrganizationAndFiles", libraryTrashUndoTests.testMixedBatchRestoresOriginalShelfFlagsContentOrganizationAndFiles),
+            ("testMissingAndAlreadyTrashedItemsDoNotReplaceThePendingUndoBatch", libraryTrashUndoTests.testMissingAndAlreadyTrashedItemsDoNotReplaceThePendingUndoBatch),
+            ("testNewestStaleBatchIsSkippedWithoutOverwritingForeignEdits", libraryTrashUndoTests.testNewestStaleBatchIsSkippedWithoutOverwritingForeignEdits),
+            ("testSameClockForeignRestoreAndRetrashHasANewGeneration", libraryTrashUndoTests.testSameClockForeignRestoreAndRetrashHasANewGeneration),
+            ("testOrdinaryRestoreAndTrashInvalidateOlderOwnUndoEvenAtTheSameClock", libraryTrashUndoTests.testOrdinaryRestoreAndTrashInvalidateOlderOwnUndoEvenAtTheSameClock),
+            ("testGenericForeignFlagTransitionsAlsoRotateTheTrashGeneration", libraryTrashUndoTests.testGenericForeignFlagTransitionsAlsoRotateTheTrashGeneration),
+            ("testForeignOrganizationAndColumnChangesAreNotOverwritten", libraryTrashUndoTests.testForeignOrganizationAndColumnChangesAreNotOverwritten),
+            ("testForeignPermanentRemovalIsSkippedWhileTheRemainingBatchRestores", libraryTrashUndoTests.testForeignPermanentRemovalIsSkippedWhileTheRemainingBatchRestores),
+            ("testTrashFailureRollsBackEveryRowAndKeepsThePreviousUndoBatch", libraryTrashUndoTests.testTrashFailureRollsBackEveryRowAndKeepsThePreviousUndoBatch),
+            ("testUndoFailureRollsBackTheWholeBatchAndKeepsItRetryable", libraryTrashUndoTests.testUndoFailureRollsBackTheWholeBatchAndKeepsItRetryable),
+            ("testTrashAndUndoAcquireTheWriterLockBeforeClockReadsOrRechecks", libraryTrashUndoTests.testTrashAndUndoAcquireTheWriterLockBeforeClockReadsOrRechecks),
+            ("testJournalKeepsTheNewestEightyBatchesAndDoesNotSurviveRestart", libraryTrashUndoTests.testJournalKeepsTheNewestEightyBatchesAndDoesNotSurviveRestart),
+            ("testTrashGenerationIsAdditiveAndCleanupAndShelfRemovalRotateIt", libraryTrashUndoTests.testTrashGenerationIsAdditiveAndCleanupAndShelfRemovalRotateIt),
+            ("testGridSelectionRevealDoesNotStealEditorFocusAndExplicitEntryStillWorks", libraryFocusNativeTests.testGridSelectionRevealDoesNotStealEditorFocusAndExplicitEntryStillWorks),
+            ("testListSelectionRevealDoesNotStealEditorFocusAndExplicitEntryStillWorks", libraryFocusNativeTests.testListSelectionRevealDoesNotStealEditorFocusAndExplicitEntryStillWorks),
+            ("testNativeContentDoesNotReviveDisabledKeysOrInterceptAnEditorsEquivalents", libraryFocusNativeTests.testNativeContentDoesNotReviveDisabledKeysOrInterceptAnEditorsEquivalents),
+            ("testSidebarKeepsNativeTreeExpansionAndCanEnterResultsWithKeyboard", libraryFocusNativeTests.testSidebarKeepsNativeTreeExpansionAndCanEnterResultsWithKeyboard),
+            ("testSidebarContextKeyUsesSelectedFolderAndTagMenusWithoutMovingFocus", libraryFocusNativeTests.testSidebarContextKeyUsesSelectedFolderAndTagMenusWithoutMovingFocus),
+            ("testInspectorFocusRecognizesSharedFieldEditorAndSkipsEmptySelection", libraryFocusNativeTests.testInspectorFocusRecognizesSharedFieldEditorAndSkipsEmptySelection),
+            ("testContentFocusRequestSurvivesAQueryCompletedBeforeTheNativeViewAttaches", libraryFocusNativeTests.testContentFocusRequestSurvivesAQueryCompletedBeforeTheNativeViewAttaches),
+            ("testExplicitSearchOrSidebarEntrySupersedesPendingResultFocus", libraryFocusNativeTests.testExplicitSearchOrSidebarEntrySupersedesPendingResultFocus),
+            ("testSharedLibraryKeyboardContract", libraryKeyboardContractTests.testSharedLibraryKeyboardContract),
+            ("testNativeSearchPendingQueryDownReturnAndEscapeEnterLatestResults", libraryKeyboardWorkflowTests.testNativeSearchPendingQueryDownReturnAndEscapeEnterLatestResults),
+            ("testPaneLetterRemapLeavesNativeEditorsAloneButFunctionKeysStillCycle", libraryKeyboardWorkflowTests.testPaneLetterRemapLeavesNativeEditorsAloneButFunctionKeysStillCycle),
+            ("testNewNoteAndNewFolderKeysUseNativeInspectorAndSheet", libraryKeyboardWorkflowTests.testNewNoteAndNewFolderKeysUseNativeInspectorAndSheet),
+            ("testMarkedSearchCompositionKeepsEscapeInNativeEditorUntilCommitted", libraryKeyboardWorkflowTests.testMarkedSearchCompositionKeepsEscapeInNativeEditorUntilCommitted),
+            ("testMixedPreviewKeepsWindowAcrossGridPageAndBoundaryKeys", libraryKeyboardWorkflowTests.testMixedPreviewKeepsWindowAcrossGridPageAndBoundaryKeys),
+            ("testPreviewTrashChoosesNeighborAndUndoReusesWindowForRestoredItem", libraryKeyboardWorkflowTests.testPreviewTrashChoosesNeighborAndUndoReusesWindowForRestoredItem),
+            ("testFinalPreviewTrashShowsEmptyStateInSameWindowAndBackspaceRestores", libraryKeyboardWorkflowTests.testFinalPreviewTrashShowsEmptyStateInSameWindowAndBackspaceRestores),
+            ("testPreviewReturnActivatesFocusedNativeButtonWithoutCopyingSelectedRecord", libraryKeyboardWorkflowTests.testPreviewReturnActivatesFocusedNativeButtonWithoutCopyingSelectedRecord),
+            ("testInvalidInspectorDraftBlocksEscapePaneCycleAndNewNoteUntilCorrected", libraryKeyboardWorkflowTests.testInvalidInspectorDraftBlocksEscapePaneCycleAndNewNoteUntilCorrected),
+            ("testInvalidPreviewDraftCannotEscapeOrNavigateAwayAndKeepsItsText", libraryKeyboardWorkflowTests.testInvalidPreviewDraftCannotEscapeOrNavigateAwayAndKeepsItsText),
+            ("testImageCommandZKeepsMarkupUndoPriorityAndBackspaceUndoesLibraryTrash", libraryKeyboardWorkflowTests.testImageCommandZKeepsMarkupUndoPriorityAndBackspaceUndoesLibraryTrash),
             ("testReducedMotionIsImmediateAndPresentationDoesNotClaimKeyboardOwnership", shelfPresentation.testReducedMotionIsImmediateAndPresentationDoesNotClaimKeyboardOwnership),
             ("testSharedTextIdentitiesAgainstLibraryAndLegacyHistory", textIdentityParity.testSharedTextIdentitiesAgainstLibraryAndLegacyHistory),
             ("testRepeatedThreeShelfOpenCloseLeavesInactiveRowsQuietAndRestoresSingleSelection", shelfPerformance.testRepeatedThreeShelfOpenCloseLeavesInactiveRowsQuietAndRestoresSingleSelection),

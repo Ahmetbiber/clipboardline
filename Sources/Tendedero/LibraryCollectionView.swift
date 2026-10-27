@@ -37,10 +37,36 @@ fileprivate struct LibraryCardState: Equatable {
     let shortcuts: String
 }
 
+/// AppKit otherwise supplies type selection, arrows and Select All after an
+/// app command is disabled. Only the focused results view owns these defaults;
+/// inactive views must never consume an inspector's editing equivalents.
+@MainActor enum LibraryContentKeyRouting {
+    static func ownsDefault(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, let key = KeyShortcut.capture(event, allowPlain: true) else { return false }
+        return KeyboardAction.allCases.contains { action in
+            action.contexts.contains(.library) && action.defaults(in: .library).contains {
+                $0.keyCode == key.keyCode && $0.modifiers == key.modifiers
+            }
+        }
+    }
+}
+
+@MainActor final class LibraryNativeCollectionView: NSCollectionView {
+    var libraryKeyHandler: ((NSEvent) -> Bool)?
+    override func keyDown(with event: NSEvent) {
+        if window?.firstResponder === self, libraryKeyHandler?(event) == true || LibraryContentKeyRouting.ownsDefault(event) { return }
+        super.keyDown(with: event)
+    }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, libraryKeyHandler?(event) == true || LibraryContentKeyRouting.ownsDefault(event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
 @MainActor final class LibraryCollectionController: NSViewController, NSCollectionViewDelegate {
     let model: LibraryModel
     let line: Line
-    private(set) var collection = NSCollectionView()
+    private(set) var collection = LibraryNativeCollectionView()
     private let scroll = NSScrollView()
     private var flow = NSCollectionViewFlowLayout()
     private let thumbs = ThumbnailStore()
@@ -53,6 +79,7 @@ fileprivate struct LibraryCardState: Equatable {
     private var pendingRefresh = false
     private var applyingSnapshot = false
     private var shortcutHint = ""
+    private var pendingRevealID: UUID?
     private(set) var cardConfigurationCount = 0
     private(set) var refreshPassCount = 0
     init(model: LibraryModel, line: Line) { self.model = model; self.line = line; super.init(nibName: nil, bundle: nil) }
@@ -67,18 +94,30 @@ fileprivate struct LibraryCardState: Equatable {
         subscription = model.objectWillChange.sink { [weak self] _ in self?.enqueueRefresh() }
         themeSubscription = line.$theme.dropFirst().removeDuplicates().sink { [weak self] _ in self?.enqueueRefresh() }
         model.onRecordsChanged = { [weak self] _ in self?.enqueueRefresh() }
-        model.onContentFocus = { [weak self] in
-            guard let self else { return }
-            self.view.window?.makeFirstResponder(self.collection)
-        }
+        model.onContentFocus = { [weak self] in _ = self?.focusContent() }
+        model.onContentFocusReady = { [weak self] in self?.focusContent() ?? false }
         model.onSelectionReveal = { [weak self] id in
-            guard let self, let path = self.dataSource.indexPath(for: id) else { return }
-            self.collection.scrollToItems(at: [path], scrollPosition: .nearestHorizontalEdge)
-            self.collection.scrollToItems(at: [path], scrollPosition: .nearestVerticalEdge)
-            self.view.window?.makeFirstResponder(self.collection)
+            self?.pendingRevealID = id
+            self?.revealPendingSelection()
         }
         NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification, object: scroll.contentView)
         refresh()
+    }
+    /// Selection can change while the sidebar or an inspector editor owns the
+    /// keyboard. Scrolling must not transfer that focus; deliberate content
+    /// entry and a mouse selection use this separate route.
+    @discardableResult func focusContent() -> Bool {
+        guard let window = view.window else { return false }
+        pendingRevealID = model.focusedID; revealPendingSelection()
+        return window.makeFirstResponder(collection)
+    }
+    private func revealPendingSelection() {
+        guard let id = pendingRevealID else { return }
+        guard model.focusedID == id else { pendingRevealID = nil; return }
+        guard !applyingSnapshot, previousIDs == model.ids, let dataSource, let path = dataSource.indexPath(for: id) else { return }
+        pendingRevealID = nil
+        collection.scrollToItems(at: [path], scrollPosition: .nearestHorizontalEdge)
+        collection.scrollToItems(at: [path], scrollPosition: .nearestVerticalEdge)
     }
     private func resetCollection() {
         // macOS can retain hosted card layers after a nonanimated diffable
@@ -87,7 +126,8 @@ fileprivate struct LibraryCardState: Equatable {
         // still reuse their cells, record pages and bounded thumbnail cache.
         let hadFocus = view.window?.firstResponder === collection
         collection.delegate = nil; scroll.documentView = nil; dataSource = nil
-        collection = NSCollectionView(); flow = NSCollectionViewFlowLayout()
+        collection = LibraryNativeCollectionView(); flow = NSCollectionViewFlowLayout()
+        collection.libraryKeyHandler = { [weak model] in model?.handleKey($0, editing: false) ?? false }
         flow.sectionInset = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20); flow.minimumInteritemSpacing = 16; flow.minimumLineSpacing = 16
         collection.collectionViewLayout = flow; collection.backgroundColors = [.clear]
         collection.autoresizingMask = [.width]
@@ -103,6 +143,7 @@ fileprivate struct LibraryCardState: Equatable {
         updateLayout()
         if hadFocus { view.window?.makeFirstResponder(collection) }
     }
+    override func viewDidAppear() { super.viewDidAppear(); model.finishContentFocus() }
     override func viewDidLayout() { super.viewDidLayout(); updateLayout(); visibleChanged() }
     private func enqueueRefresh() {
         guard !pendingRefresh else { return }; pendingRefresh = true
@@ -129,6 +170,7 @@ fileprivate struct LibraryCardState: Equatable {
         let height = max(scroll.contentSize.height, flow.collectionViewContentSize.height)
         if collection.frame.height != height { collection.setFrameSize(NSSize(width: scroll.contentSize.width, height: height)) }
         collection.selectionIndexPaths = Set(model.selectedIDs.compactMap { dataSource.indexPath(for: $0) })
+        revealPendingSelection()
         refreshVisibleCards(); visibleChanged()
     }
     private func updateLayout() {
@@ -146,9 +188,11 @@ fileprivate struct LibraryCardState: Equatable {
             copied: model.copiedIDs.contains(id), onSelect: { [weak self] flags in
                 guard let self else { return }
                 // A plain drag from an existing selection must keep its peers.
+                let selected: Bool
                 if !flags.intersection([.command, .shift]).isEmpty || !self.model.selectedIDs.contains(id) {
-                    _ = self.model.select(id, toggle: flags.contains(.command), extending: flags.contains(.shift))
-                } else { _ = self.model.select(id, preservingSelection: true) }
+                    selected = self.model.select(id, toggle: flags.contains(.command), extending: flags.contains(.shift))
+                } else { selected = self.model.select(id, preservingSelection: true) }
+                if selected { _ = self.focusContent() }
             }, onCopy: { [weak self] in guard let self else { return }; if self.model.selectedIDs.contains(id) || self.model.select(id) { self.model.copy() } },
             onPin: { [weak self] in guard let self else { return }; if self.model.selectedIDs.contains(id) || self.model.select(id) { self.model.favorite() } },
             onPreview: { [weak self] in guard let self else { return }; if !self.model.selectedIDs.contains(id) { _ = self.model.select(id) }; self.model.onPreview?(id) },
@@ -188,13 +232,13 @@ fileprivate struct LibraryCardState: Equatable {
         guard !refreshing, !applyingSnapshot else { return }
         let selected = Set(collection.selectionIndexPaths.compactMap { dataSource.itemIdentifier(for: $0) })
         let id = indexPaths.sorted().last.flatMap { dataSource.itemIdentifier(for: $0) }
-        if !model.acceptNativeSelection(selected, focused: id) { refresh() }
-        view.window?.makeFirstResponder(collection)
+        if model.acceptNativeSelection(selected, focused: id) { _ = focusContent() }
+        else { refresh() }
     }
     func collectionView(_ collectionView: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) {
         guard !refreshing, !applyingSnapshot else { return }
         let selected = Set(collection.selectionIndexPaths.compactMap { dataSource.itemIdentifier(for: $0) })
-        _ = model.acceptNativeSelection(selected, focused: model.focusedID)
+        if !model.acceptNativeSelection(selected, focused: model.focusedID) { refresh() }
     }
 }
 

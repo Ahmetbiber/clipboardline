@@ -490,3 +490,9 @@
 
 
 "A shortcut could not be restored after recording. Choose another combination in Settings." = "Kayıttan sonra bir kısayol yeniden etkinleştirilemedi. Ayarlar’dan başka bir tuş birleşimi seç.";
+
+"Focus next pane" = "Sonraki bölmeye odaklan";
+
+"Focus previous pane" = "Önceki bölmeye odaklan";
+
+"Undo Move to Trash" = "Çöp’e taşımayı geri al";

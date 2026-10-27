@@ -22,12 +22,22 @@ final class ActionPreviewPanel: NSPanel {
     var onBeforeMouseKeyFocus: (() -> Void)?
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+    private func nativeControlOwns(_ event: NSEvent) -> Bool {
+        guard firstResponder is NSControl, !(firstResponder is NSTextField),
+              event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
+        return [36, 76, 49, 48, 123, 124, 125, 126].contains(Int(event.keyCode))
+    }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if nativeControlOwns(event) { return super.performKeyEquivalent(with: event) }
         if onKey?(event) == true { return true }
         return super.performKeyEquivalent(with: event)
     }
     override func sendEvent(_ event: NSEvent) {
         Self.prepareForMouseKeyFocus(event, isKeyWindow: isKeyWindow, onEntry: onBeforeMouseKeyFocus)
+        if nativeControlOwns(event) {
+            if event.type == .keyDown, [36, 76].contains(Int(event.keyCode)), let button = firstResponder as? NSButton { button.performClick(nil); return }
+            super.sendEvent(event); return
+        }
         if event.type == .keyDown, onKey?(event) == true { return }
         if event.type == .keyUp, onKeyUp?(event) == true { return }
         super.sendEvent(event)

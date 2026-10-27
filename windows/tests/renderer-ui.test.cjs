@@ -26,14 +26,14 @@ function fixture({deferInitialState=false,initialVisible=true,queuedAnimationFra
   constructor(){super();this.naturalWidth=imageRaster.width;this.naturalHeight=imageRaster.height;this.complete=true;}
   set src(value){imageLoads.push({url:value,crossOrigin:this.crossOrigin});if(this.onload)queueMicrotask(()=>this.onload());}
  }
- const document={body:new Element('body'),activeElement:null,getElementById(id){if(!nodes.has(id))nodes.set(id,id==='markup-canvas'?new Canvas(id):new Element(id));return nodes.get(id);},createElement(tag){return tag==='canvas'?new Canvas():new Element();},querySelector(){return null;},addEventListener(name,listener){if(!listeners.has(name))listeners.set(name,[]);listeners.get(name).push(listener);}};
+ const document={body:new Element('body'),activeElement:null,querySelectorAll(){return[];},getElementById(id){if(!nodes.has(id))nodes.set(id,id==='markup-canvas'?new Canvas(id):new Element(id));return nodes.get(id);},createElement(tag){return tag==='canvas'?new Canvas():new Element();},querySelector(){return null;},addEventListener(name,listener){if(!listeners.has(name))listeners.set(name,[]);listeners.get(name).push(listener);}};
  const image='00000000-0000-4000-8000-000000000001',text1='00000000-0000-4000-8000-000000000002',text2='00000000-0000-4000-8000-000000000003',link='00000000-0000-4000-8000-000000000004';
  const base=(id,kind,createdAt,extra)=>({id,kind,createdAt,updatedAt:createdAt,name:'',title:'',text:'',url:'',pinned:false,folderIds:[],tags:[],trashedAt:null,hiddenFromShelf:false,...extra});
- const state={items:[base(image,'image',1000,{name:'Synthetic image',...(imageDocument?{annotations:[],crop:null}:{}),mediaUrl:'appmedia://media/'+image,originalMediaUrl:'appmedia://media/'+image+'/original'}),base(text1,'text',900,{text:'Text one'}),base(text2,'text',800,{text:'Text two'}),base(link,'link',700,{url:'https://example.com/reference',title:'Reference link'})],folders:[],settings:{visibleKinds:['image','text','link'],retentionDays:{image:30,text:30,link:30},shortcuts:{toggle:'Control+Alt+Space',search:'Control+Alt+S'},localShortcuts:{},language:'en',theme:'soft',cardSize:'medium'},view:'shelves',version:'1.7.0',windowVisible:initialVisible,canUndo:false,libraryRevision:0};
- let subscriber,removed=[],cleanupFailures=0,editFailures=0,delayedReply=null,releaseInitialState,deferredImageBroadcast=null,pendingImageBroadcast=null;
+ const state={items:[base(image,'image',1000,{name:'Synthetic image',...(imageDocument?{annotations:[],crop:null}:{}),mediaUrl:'appmedia://media/'+image,originalMediaUrl:'appmedia://media/'+image+'/original'}),base(text1,'text',900,{text:'Text one'}),base(text2,'text',800,{text:'Text two'}),base(link,'link',700,{url:'https://example.com/reference',title:'Reference link'})],folders:[],settings:{visibleKinds:['image','text','link'],retentionDays:{image:30,text:30,link:30},shortcuts:{toggle:'Control+Alt+Space',search:'Control+Alt+S'},localShortcuts:{},language:'en',theme:'soft',cardSize:'medium'},view:'shelves',version:'1.7.0',windowVisible:initialVisible,canUndo:false,canUndoTrash:false,libraryRevision:0};
+ let subscriber,removed=[],trashRemoved=[],cleanupFailures=0,editFailures=0,delayedReply=null,releaseInitialState,deferredImageBroadcast=null,pendingImageBroadcast=null;
  const clone=value=>structuredClone(value);
  const api={emit(patch){Object.assign(state,patch);subscriber?.(clone(state));},surface(patch){Object.assign(state,patch);subscriber?.({surfaceOnly:true,...clone(patch)});},state:async()=>{const initial=clone(state);if(deferInitialState)await new Promise(resolve=>{releaseInitialState=resolve;});return initial;},subscribe(fn){subscriber=fn;return()=>{};},async command(action,payload={}){commands.push({action,payload:clone(payload)});const selected=state.items.filter(item=>(payload.ids||[payload.id]).includes(item.id));
-  let cleanupError;if(action==='cleanup'){if(cleanupFailures){cleanupFailures--;cleanupError='Permanent deletion cleanup is still pending.';}else state.needsDeletionCleanup=false;}
+  let cleanupError,trashResult;if(action==='cleanup'){if(cleanupFailures){cleanupFailures--;cleanupError='Permanent deletion cleanup is still pending.';}else state.needsDeletionCleanup=false;}
   if(action==='editText'){if(editFailures){editFailures--;cleanupError='Synthetic draft write failure';}else selected.forEach(item=>item.text=payload.text);}
   if(action==='setSettings'){const patch=payload.patch||{},localShortcuts={...state.settings.localShortcuts,...patch.localShortcuts};for(const [action,value]of Object.entries(localShortcuts))if(value===null)delete localShortcuts[action];state.settings={...state.settings,...patch,localShortcuts};}
   if(action==='saveImage')selected.forEach(item=>{item.crop=clone(payload.crop);item.annotations=clone(payload.annotations);});
@@ -41,10 +41,12 @@ function fixture({deferInitialState=false,initialVisible=true,queuedAnimationFra
   if(action==='name')selected.forEach(item=>{item.name=payload.name;item.pinned=true;});
   if(action==='remove'){removed=selected.map(clone);selected.forEach(item=>{if(item.pinned)item.hiddenFromShelf=true;else item.trashedAt=Date.now();});state.canUndo=true;}
   if(action==='undo'){for(const before of removed)Object.assign(state.items.find(item=>item.id===before.id),before);state.canUndo=false;}
+  if(action==='trashUndoably'){trashRemoved=selected.filter(item=>!item.trashedAt).map(clone);trashResult={ids:trashRemoved.map(item=>item.id)};selected.forEach(item=>{item.trashedAt=Date.now();item.hiddenFromShelf=true;});state.canUndoTrash=trashRemoved.length>0;}
+  if(action==='undoTrash'){trashResult={ids:trashRemoved.map(item=>item.id)};for(const before of trashRemoved)Object.assign(state.items.find(item=>item.id===before.id),before);trashRemoved=[];state.canUndoTrash=false;}
   if(action==='copy'&&!payload.keepOpen||action==='paste'||action==='hide')state.windowVisible=false;
   if(action==='show'){state.view='shelves';state.windowVisible=true;state.viewEvent={serial:String(commands.length)};}
   if(action==='library'||action==='settings'){state.view=action;state.windowVisible=true;}
-  const output=clone(state);if(cleanupError)output.result={error:cleanupError};
+  const output=clone(state);if(trashResult)output.result=trashResult;if(cleanupError)output.result={error:cleanupError};
   if(action==='saveImage'&&deferredImageBroadcast){const pending=deferredImageBroadcast;deferredImageBroadcast=null;pendingImageBroadcast=output;if(pending.surface)subscriber?.({surfaceOnly:true,windowVisible:true});}
   else subscriber?.(output);
   if(delayedReply?.action===action){const pending=delayedReply;delayedReply=null;await pending.promise;}
@@ -58,7 +60,7 @@ function fixture({deferInitialState=false,initialVisible=true,queuedAnimationFra
  async function pointer(type,x,y){const target=document.getElementById('markup-canvas');for(const listener of listeners.get(type)||[])listener({target,clientX:x,clientY:y,pointerId:1,shiftKey:false,preventDefault(){}});await ready();}
  async function input(id,value){const target=document.getElementById(id);target.value=value;target.selectionStart=value.length;for(const listener of listeners.get('input')||[])await listener({target});await ready();}
  async function change(id,value){const target=document.getElementById(id);target.value=value;for(const listener of listeners.get('change')||[])await listener({target});await ready();}
- return{ready,key,input,change,click,pointer,async blur(){for(const listener of listeners.get('window:blur')||[])listener();await ready();},imageLoads,paintCalls,animationFrames,flushAnimationFrames(){for(const fn of animationFrames.splice(0))fn();},releaseInitialState(){releaseInitialState?.();},deferReply(action){let release;const promise=new Promise(resolve=>{release=resolve;});delayedReply={action,promise};return release;},deferImageBroadcast({surface=true}={}){deferredImageBroadcast={surface};},releaseImageBroadcast(){const next=pendingImageBroadcast;pendingImageBroadcast=null;if(next)subscriber?.(next);},failExportOnce(){exportFailures++;},failCleanupOnce(){cleanupFailures++;},failEditOnce(){editFailures++;},state,commands,nodes,image,text1,text2,link,api,get main(){return nodes.get('app').innerHTML;},get overlay(){return nodes.get('overlay-root').innerHTML;}};
+ return{grid(columns){document.querySelectorAll=selector=>selector==='.library-grid > .card'?[...document.getElementById('app').innerHTML.matchAll(/<article class="[^"]*"[^>]*data-item-id="([^"]+)"/g)].map((match,index)=>({offsetTop:Math.floor(index/columns)*200,dataset:{itemId:match[1]}})):[];},editor(id){const node=document.getElementById(id);node.tagName='INPUT';node.matches=selector=>selector.includes('input');return node;},ready,key,input,change,click,pointer,async blur(){for(const listener of listeners.get('window:blur')||[])listener();await ready();},imageLoads,paintCalls,animationFrames,flushAnimationFrames(){for(const fn of animationFrames.splice(0))fn();},releaseInitialState(){releaseInitialState?.();},deferReply(action){let release;const promise=new Promise(resolve=>{release=resolve;});delayedReply={action,promise};return release;},deferImageBroadcast({surface=true}={}){deferredImageBroadcast={surface};},releaseImageBroadcast(){const next=pendingImageBroadcast;pendingImageBroadcast=null;if(next)subscriber?.(next);},failExportOnce(){exportFailures++;},failCleanupOnce(){cleanupFailures++;},failEditOnce(){editFailures++;},state,commands,nodes,image,text1,text2,link,api,get main(){return nodes.get('app').innerHTML;},get overlay(){return nodes.get('overlay-root').innerHTML;}};
 }
 
 function selectedCards(f){return [...f.main.matchAll(/<article class="([^"]*)"[^>]*data-item-id="([^"]+)"/g)].filter(match=>match[1].split(' ').includes('selected')).map(match=>match[2]);}
@@ -433,15 +435,15 @@ test('disabling or remapping copy, aliases, quick slots and range extension does
  await f.key('ArrowLeft');await f.key('Digit2');assert.equal(focusedCard(f),f.text1,'Old number binding is disabled after remapping');
 });
 
-test('Library Backspace remains Trash when shelf undo has a custom binding',async()=>{
+test('Library Backspace restores Library Trash when shelf undo has a custom binding',async()=>{
  const f=fixture();await f.ready();await f.key('KeyP');await f.key('KeyL');
  f.api.emit({settings:{...f.state.settings,localShortcuts:{undo:'U'}}});await f.ready();
- await f.key('Backspace');assert.match(f.overlay,/Move to Trash/);assert.equal(f.commands.filter(value=>value.action==='undo').length,0);
+ await f.key('KeyS');assert.ok(f.state.items.find(value=>value.id===f.image).trashedAt);await f.key('Backspace');assert.equal(f.state.items.find(value=>value.id===f.image).trashedAt,null);assert.equal(f.commands.filter(value=>value.action==='undo').length,0);assert.equal(f.commands.filter(value=>value.action==='undoTrash').length,1);
 });
 
 test('shortcut recorder rejects overlapping conflicts but allows a key owned by markup in a different context',async()=>{
  const f=fixture();await f.ready();await f.api.command('settings');await f.ready();await f.click('record-local',{keyAction:'pin'});
- await f.key('KeyS');await f.click('confirm-modal');assert.match(f.overlay,/Record shortcut/);assert.match(f.nodes.get('toast').textContent,/already used for Take down/);
+ await f.key('KeyS');await f.click('confirm-modal');assert.match(f.overlay,/Record shortcut/);assert.match(f.nodes.get('toast').textContent,/already used for Move to Trash/);
  assert.equal(f.state.settings.localShortcuts.pin,undefined);
  await f.key('KeyO');await f.click('confirm-modal');assert.equal(f.overlay,'');assert.equal(f.state.settings.localShortcuts.pin,'O');
  await f.api.command('show');await f.ready();await f.key('KeyO');assert.equal(f.state.items.find(value=>value.id===f.image).pinned,true);
@@ -612,4 +614,67 @@ test('recording the same legacy lowercase global binding keeps its exact registr
  const f=fixture();await f.ready();f.api.emit({settings:{...f.state.settings,shortcuts:{...f.state.settings.shortcuts,search:'Control+Alt+s'}}});await f.ready();await f.api.command('settings');await f.ready();
  await f.click('record-global',{keyAction:'search'});await f.key('Unidentified',{key:'s',ctrl:true,alt:true});assert.ok(f.overlay.includes('>Ctrl+Alt+S</div>'));await f.click('confirm-modal');
  assert.equal(f.commands.filter(value=>value.action==='setSettings').at(-1).payload.patch.shortcuts.search,'Control+Alt+s','An equal OS combination does not undergo a conflicting case-only re-registration');
+});
+
+async function keyboardSaved(f){f.api.emit({items:f.state.items.map(value=>({...value,pinned:true}))});await f.ready();await f.key('KeyL');}
+test('Library first opening selects content and valid selection survives reentry and returning from shelves',async()=>{
+ const f=fixture();await f.ready();await keyboardSaved(f);assert.equal(focusedCard(f),f.image);await f.key('ArrowRight');assert.equal(focusedCard(f),f.text1);
+ await f.api.command('hide');await f.api.command('library');await f.ready();assert.equal(focusedCard(f),f.text1);await f.api.command('show');await f.api.command('library');await f.ready();assert.equal(focusedCard(f),f.text1);assert.equal(selectedCards(f).length,1);
+});
+test('Library S Delete and ControlBackspace use recoverable Trash; Backspace and ControlZ restore and keep the window',async()=>{
+ const f=fixture();await f.ready();await keyboardSaved(f);
+ for(const [remove,mods,undo,undoMods]of [['KeyS',{},'Backspace',{}],['Delete',{},'KeyZ',{ctrl:true}],['Backspace',{ctrl:true},'Backspace',{}]]){await f.key(remove,mods);assert.equal(f.overlay,'');assert.ok(f.state.items.find(value=>value.id===f.image).trashedAt);assert.equal(focusedCard(f),f.text1);await f.key(undo,undoMods);assert.equal(f.state.items.find(value=>value.id===f.image).trashedAt,null);assert.equal(focusedCard(f),f.image);}
+ assert.equal(f.commands.filter(value=>value.action==='delete').length,0);assert.equal(f.state.windowVisible,true);
+});
+test('Library Trash and pane navigation respect disabled bindings and remapped aliases',async()=>{
+ const f=fixture();await f.ready();await keyboardSaved(f);f.api.emit({settings:{...f.state.settings,localShortcuts:{remove:'Y',trash:'X',undoTrash:'U',focusNextPane:'',focusPreviousPane:''}}});await f.ready();const before=f.commands.length;
+ for(const [key,extra]of [['KeyS',{}],['Delete',{}],['Backspace',{}],['KeyZ',{ctrl:true}],['F6',{}],['Tab',{ctrl:true}],['F6',{shift:true}],['Tab',{ctrl:true,shift:true}]])assert.equal((await f.key(key,extra)).prevented,undefined,key+' must not trigger a disabled binding');
+ assert.equal(f.commands.length,before);await f.key('KeyX');assert.ok(f.state.items.find(value=>value.id===f.image).trashedAt);await f.key('KeyU');assert.equal(f.state.items.find(value=>value.id===f.image).trashedAt,null);
+});
+test('Library E M and C open the selected content editor without a pointer action',async()=>{
+ const f=fixture();await f.ready();await keyboardSaved(f);await f.key('ArrowRight');await f.key('KeyE');assert.match(f.overlay,/id="text-editor"/);await f.key('Escape');await f.key('Escape');await f.key('ArrowLeft');await f.key('KeyC');assert.match(f.overlay,/id="markup-canvas"/);assert.match(f.overlay,/Apply crop/);await f.key('Escape');await f.key('Escape');await f.key('KeyM');assert.match(f.overlay,/id="markup-canvas"/);assert.match(f.overlay,/Done/);
+});
+test('Library focused buttons retain native Enter Space activation instead of selected-item copy or preview',async()=>{
+ const f=fixture();await f.ready();await keyboardSaved(f);const button=f.nodes.get('app');button.closest=selector=>selector==='button'?button:null;button.tagName='BUTTON';const before=f.commands.length;
+ for(const key of ['Enter','Space'])assert.equal((await f.key(key,{target:button})).prevented,undefined,'The native button activation default is preserved');assert.equal(f.commands.length,before);assert.equal(f.overlay,'');
+});
+test('Library ControlF works inside an editor; caret arrows stay native and Escape keeps the query',async()=>{
+ const f=fixture();await f.ready();await keyboardSaved(f);await f.key('KeyF',{ctrl:true});const field=f.nodes.get('search-input');field.tagName='INPUT';field.matches=selector=>selector.includes('input');assert.equal((await f.key('KeyF',{ctrl:true,target:field})).prevented,true);await f.input('search-input','Text one');assert.equal((await f.key('ArrowLeft',{target:field})).prevented,undefined);assert.equal((await f.key('Escape',{target:field})).prevented,true);assert.match(f.main,/value="Text one"/);assert.equal(focusedCard(f),f.text1);
+});
+
+test('shared Library keyboard contract runs actual renderer handlers and durable Store transactions',async()=>{
+ const os=require('node:os'),{Store}=require('../lib/model.cjs');
+ const contractFile=path.resolve(__dirname,'../../contracts/library-keyboard.json'),raw=fs.readFileSync(contractFile),contract=JSON.parse(raw),observations=[],errors=[];
+ assert.equal(contract.contractId,'clipboardline.library.keyboard.v1');
+ for(const scenario of contract.scenarios){
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-library-contract-'));
+  try{
+   const store=new Store(directory),now=Date.now(),f=fixture(),aliases=new Map(),ids=new Map();await f.ready();f.grid(scenario.columns);
+   store.data.items=contract.records.map((entry,index)=>{const id='30000000-0000-4000-8000-'+String(index+1).padStart(12,'0');aliases.set(id,entry.id);ids.set(entry.id,id);const source=f.state.items.find(value=>value.kind===entry.kind);return{...structuredClone(source),id,createdAt:now-index*1000,updatedAt:now-index*1000,retainedAt:now,pinned:entry.pinned,hiddenFromShelf:!entry.onShelf,name:entry.title,title:entry.kind==='link'?entry.title:'',text:entry.kind==='text'?entry.text:'',url:entry.kind==='link'?'https://example.com/library-contract/'+entry.id:'',captureRevision:crypto.randomUUID(),...(entry.kind==='image'?{imageFile:'0'.repeat(64)+'.png'}:{})};});
+   store.persist();let surface={view:'shelves',windowVisible:false,version:'1.7.7'};
+   f.api.command=async(action,payload={})=>{f.commands.push({action,payload:structuredClone(payload)});let result;if(['library','show','settings'].includes(action))surface={...surface,view:action==='show'?'shelves':action,windowVisible:true};else if(action==='hide')surface.windowVisible=false;else if(action==='searchImages')result={ids:[],scores:[],available:false,indexing:false};else result=store.modify(action,payload);const next={...store.publicState(),...surface,result};f.api.emit(next);return structuredClone(next);};
+   f.api.emit({...store.publicState(),...surface});await f.ready();
+   for(let index=0;index<scenario.steps.length;index++){
+    const step=scenario.steps[index];
+    if(step.action==='open')await f.api.command('library');
+    else if(step.action==='close')await f.api.command('hide');
+    else if(step.action==='mode')await f.click('view-mode');
+    else if(step.action==='select'){await f.key('ArrowLeft',{ctrl:true});const target=contract.records.findIndex(value=>value.id===step.id);for(let n=0;n<target;n++)await f.key('ArrowRight');}
+    else if(step.action==='scope'){await f.click('scope',{scope:step.scope});await f.key('Enter',{target:f.editor('search-input')});}
+    else if(step.action==='searchHandoff'){const editor=f.editor('search-input');await f.input('search-input',step.value);await f.key('Enter',{target:editor});}
+    else if(step.action==='remap'){const value=step.key?.startsWith('Key')?step.key.slice(3):step.key;await f.api.command('setSettings',{patch:{localShortcuts:{[step.binding]:value}}});}
+    else if(step.action==='key')await f.key(step.code,{ctrl:step.modifiers.some(value=>['primary','control'].includes(value)),alt:step.modifiers.includes('alt'),shift:step.modifiers.includes('shift'),...(step.editing?{target:f.editor('detail-text')}:{})});
+    else throw new Error('Unknown Library contract action '+step.action);
+    await f.ready();const actual={focused:aliases.get(focusedCard(f))||null,selected:selectedCards(f).map(id=>aliases.get(id)),visible:[...f.main.matchAll(/<article class="[^"]*"[^>]*data-item-id="([^"]+)"/g)].map(value=>aliases.get(value[1])),scope:f.main.match(/data-action="scope" data-scope="([^"]+)" class="active"/)?.[1]||'saved',kind:f.main.match(/data-action="(allTypes|images|texts|links)" aria-pressed="true"/)?.[1]||'allTypes',search:f.nodes.get('search-input')?.value||'',list:/class="library-grid list"/.test(f.main),trashed:contract.records.filter(value=>store.item(ids.get(value.id)).trashedAt).map(value=>value.id),pinned:contract.records.filter(value=>store.item(ids.get(value.id)).pinned).map(value=>value.id),pinnedOnly:/data-action="pinnedOnly"[^>]*aria-pressed="true"/.test(f.main)};
+    actual.kind={allTypes:'all',images:'image',texts:'text',links:'link'}[actual.kind];
+    // The DOM fixture stores input values only after input/focus events; the
+    // rendered field remains the source of truth after a keyboard filter.
+    actual.search=(f.main.match(/id="search-input"[^>]*value="([^"]*)"/)?.[1]||'').replaceAll('&quot;','"').replaceAll('&amp;','&');
+    const expected={...step.expect,visible:contract.views[step.expect.visible]};observations.push({scenarioId:scenario.id,step:index,actual});try{assert.deepEqual(actual,expected);}catch(error){errors.push(scenario.id+' step '+index+': '+error.message);}
+   }
+  }finally{fs.rmSync(directory,{recursive:true,force:true});}
+ }
+ const libraryReportDestination=process.env.CLIPBOARDLINE_LIBRARY_KEYBOARD_REPORT || (process.env.CLIPBOARDLINE_PARITY_REPORT && path.join(path.dirname(process.env.CLIPBOARDLINE_PARITY_REPORT),'library-windows.json'));
+ if(libraryReportDestination){const revision=process.env.GITHUB_SHA||execFileSync('git',['rev-parse','HEAD'],{cwd:path.resolve(__dirname,'../..'),encoding:'utf8'}).trim(),report={schemaVersion:1,contractId:contract.contractId,contractSHA256:crypto.createHash('sha256').update(raw).digest('hex'),platform:'windows',hostPlatform:process.platform,mode:'renderer',sourceRevision:revision,observations,errors,passed:errors.length===0};fs.mkdirSync(path.dirname(path.resolve(libraryReportDestination)),{recursive:true});fs.writeFileSync(libraryReportDestination,JSON.stringify(report,null,2)+'\n');}
+ assert.deepEqual(errors,[]);
 });

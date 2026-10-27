@@ -15,14 +15,14 @@ import XCTest
         let bindings = KeyboardBindings(defaults: fixture.defaults)
         XCTAssertTrue(KeyboardAction.allCases.contains(.cropImage))
         XCTAssertEqual(KeyboardAction.cropImage.title, L("Crop image"))
-        XCTAssertEqual(KeyboardAction.cropImage.contexts, [.imagePreview, .imageMarkup])
+        XCTAssertEqual(KeyboardAction.cropImage.contexts, [.imagePreview, .imageMarkup, .library])
         XCTAssertEqual(KeyboardAction.cropImage.scopeTitle, L("Image preview"))
-        for context in [KeyboardContext.imagePreview, .imageMarkup] {
+        for context in [KeyboardContext.imagePreview, .imageMarkup, .library] {
             XCTAssertEqual(bindings.effectiveShortcuts(.cropImage, in: context).map(\.keyCode), [8])
             XCTAssertEqual(bindings.effectiveShortcuts(.cropImage, in: context).map(\.modifiers), [0])
             XCTAssertEqual(bindings.title(.cropImage, in: context), "C")
         }
-        for context in [KeyboardContext.line, .library, .textPreview, .linkPreview] {
+        for context in [KeyboardContext.line, .textPreview, .linkPreview] {
             XCTAssertTrue(bindings.effectiveShortcuts(.cropImage, in: context).isEmpty)
         }
         let replacement = KeyShortcut(keyCode: 8, modifiers: controlKey | optionKey, keyLabel: "C")
@@ -63,11 +63,11 @@ import XCTest
         let bindings = KeyboardBindings(defaults: fixture.defaults)
         var context = ActionBarCatalog.Context()
         context.selectedCount = 1; context.kind = .image; context.hasFile = true
-        for origin in [ActionBarCatalog.Origin.line, .library] {
+        for origin in [ActionBarCatalog.Origin.line] {
             context.origin = origin
             XCTAssertEqual(try crop(context: context, bindings: bindings).keyHint, "Space → C")
         }
-        for origin in [ActionBarCatalog.Origin.shelfPreview, .libraryPreview] {
+        for origin in [ActionBarCatalog.Origin.shelfPreview, .libraryPreview, .library] {
             context.origin = origin
             XCTAssertEqual(try crop(context: context, bindings: bindings).keyHint, "C")
             context.isMarkupEditing = true

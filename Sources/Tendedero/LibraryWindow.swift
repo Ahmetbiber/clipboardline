@@ -4,15 +4,27 @@ import SwiftUI
 final class LibraryNativeWindow: NSWindow {
     var onKey: ((NSEvent, Bool) -> Bool)?
     var onBeforeMouseKeyFocus: (() -> Void)?
+    var onCancelKeyboardFocus: (() -> Void)?
+    var onSidebarKey: ((NSEvent) -> Bool)?
+    private var editingOrControlFocused: Bool {
+        // Native controls own Space/Return/arrows, even with keyboard navigation
+        // enabled. A focused button must never copy a selected card behind it.
+        if firstResponder is NSOutlineView { return true }
+        if firstResponder is NSCollectionView || firstResponder is NSTableView { return false }
+        return firstResponder !== self
+    }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let editing = firstResponder is NSTextView || firstResponder is NSTextField || firstResponder is NSOutlineView
-        if onKey?(event, editing) == true { return true }
+        guard attachedSheet == nil else { return super.performKeyEquivalent(with: event) }
+        if onKey?(event, editingOrControlFocused) == true { return true }
         return super.performKeyEquivalent(with: event)
     }
     override func sendEvent(_ event: NSEvent) {
         Self.prepareForMouseKeyFocus(event, isKeyWindow: isKeyWindow, onEntry: onBeforeMouseKeyFocus)
-        let editing = firstResponder is NSTextView || firstResponder is NSTextField || firstResponder is NSOutlineView
-        if event.type == .keyDown, onKey?(event, editing) == true { return }
+        if event.type == .leftMouseDown { onCancelKeyboardFocus?() }
+        if event.type == .keyDown, attachedSheet == nil {
+            if onSidebarKey?(event) == true { return }
+            if onKey?(event, editingOrControlFocused) == true { return }
+        }
         super.sendEvent(event)
     }
     static func prepareForMouseKeyFocus(_ event: NSEvent, isKeyWindow: Bool, onEntry: (() -> Void)?) {
@@ -28,13 +40,14 @@ final class LibraryNativeWindow: NSWindow {
     private(set) var pinFolderPicker: PinFolderPicker?
     private(set) var tagPicker: TagPicker?
     private(set) var nameAndPinPicker: NameAndPinPicker?
-    var previewWindow: NSWindow? { previews.text?.window ?? previews.link?.window ?? previews.image?.window }
+    var previewWindow: NSWindow? { previews.window }
     var previewCurrentID: UUID? { previews.currentID }
     var previewImage: ImagePreview? { previews.image }
     var previewTextIsEditing: Bool { previews.text?.isEditing == true }
     var keyboardActionIDs: [UUID] { if previewWindow?.isKeyWindow == true, let id = previews.currentID { return [id] }; return model.actionIDs }
     var keyboardFocusedID: UUID? { previewWindow?.isKeyWindow == true ? previews.currentID : model.focusedID }
     private var closingFullscreen = false
+    private var focusGeneration = 0
     private(set) var splitController: LibrarySplitController!
     private(set) var toolbarController: LibraryToolbarController!
     var onSettings: (() -> Void)?
@@ -56,8 +69,18 @@ final class LibraryNativeWindow: NSWindow {
         splitController = LibrarySplitController(model: model, line: line, actions: self)
         window.contentViewController = splitController
         toolbarController = LibraryToolbarController(model: model, actions: self, split: splitController)
+        let focusSearch = model.onSearchFocus
+        model.onSearchFocus = { [weak self] in self?.cancelDeferredFocus(); focusSearch?() }
         window.toolbar = toolbarController.toolbar; toolbarController.ensureCommandsItem(); toolbarController.refresh()
         window.onKey = { [weak model] in model?.handleKey($0, editing: $1) ?? false }
+        window.onCancelKeyboardFocus = { [weak self] in self?.cancelDeferredFocus() }
+        window.onSidebarKey = { [weak self] in self?.splitController.sidebar.performKeyboardEntry($0) ?? false }
+        model.onFocusNextPane = { [weak self] in self?.cycleKeyboardPane(reverse: false) }
+        model.onFocusPreviousPane = { [weak self] in self?.cycleKeyboardPane(reverse: true) }
+        model.onInspectorFocusRequested = { [weak self] in self?.focusInspector() }
+        model.onFinishEditor = { [weak self] in self?.finishInspectorEditing() ?? false }
+        model.onNewFolderRequested = { [weak self] in self?.createFolder() }
+        model.onEditPreviewRequested = { [weak self] action, id in _ = self?.performPreviewAction(action, id: id) }
         if !window.setFrameUsingName("ClipboardLineLibrary") { window.center() }
         window.setFrameAutosaveName("ClipboardLineLibrary")
         model.onPreview = { [weak self] in self?.previews.show($0) }
@@ -81,16 +104,65 @@ final class LibraryNativeWindow: NSWindow {
         // remains an explicit macOS window action rather than a startup mode.
         model.store.defaults.set(false, forKey: "libraryFullscreen")
         if window?.styleMask.contains(.fullScreen) == true { window?.toggleFullScreen(nil) }
+        _ = model.focusContent()
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard model.flushEdits(), previews.flush() else { return false }
         closingFullscreen = sender.styleMask.contains(.fullScreen)
         model.store.defaults.set(closingFullscreen, forKey: "libraryFullscreen"); return true
     }
-    func windowWillClose(_ notification: Notification) { pinFolderPicker?.window.close(); tagPicker?.window.close(); nameAndPinPicker?.window.close(); previews.close(); model.suspendUpdates() }
+    func windowWillClose(_ notification: Notification) { cancelDeferredFocus(); window?.makeFirstResponder(nil); pinFolderPicker?.window.close(); tagPicker?.window.close(); nameAndPinPicker?.window.close(); previews.close(); model.suspendUpdates() }
     func windowDidEnterFullScreen(_ notification: Notification) { model.store.defaults.set(true, forKey: "libraryFullscreen") }
     func windowDidExitFullScreen(_ notification: Notification) { if !closingFullscreen { model.store.defaults.set(false, forKey: "libraryFullscreen") } }
     func toggleFullscreen() { window?.toggleFullScreen(nil) }
+    enum KeyboardPane: String, CaseIterable { case sidebar, content, inspector, search }
+    var keyboardPane: KeyboardPane {
+        if splitController.isSidebarFocused { return .sidebar }
+        if let responder = window?.firstResponder, splitController.inspectorFocusContains(responder) { return .inspector }
+        let search = toolbarController.searchField
+        if window?.firstResponder === search || (search.currentEditor() != nil && window?.firstResponder === search.currentEditor()) { return .search }
+        return .content
+    }
+    private func cancelDeferredFocus() { focusGeneration += 1; model.cancelContentFocus() }
+    func cycleKeyboardPane(reverse: Bool) {
+        guard model.flushEdits() else { return }
+        cancelDeferredFocus()
+        let panes = KeyboardPane.allCases.filter { pane in
+            if pane == .sidebar { return !splitController.splitViewItems[0].isCollapsed }
+            if pane == .inspector { return model.inspectorVisible && model.inspected != nil }
+            return true
+        }
+        guard !panes.isEmpty else { return }
+        let current = panes.firstIndex(of: keyboardPane) ?? (reverse ? 0 : panes.count - 1)
+        let next = (current + (reverse ? -1 : 1) + panes.count) % panes.count
+        focusKeyboardPane(panes[next])
+    }
+    func focusKeyboardPane(_ pane: KeyboardPane) {
+        guard model.flushEdits() else { return }
+        cancelDeferredFocus()
+        switch pane {
+        case .sidebar: _ = splitController.focusSidebar()
+        case .content: _ = model.focusContent()
+        case .inspector: focusInspector()
+        case .search: model.onSearchFocus?()
+        }
+    }
+    private func focusInspector() {
+        guard model.flushEdits() else { return }
+        cancelDeferredFocus(); model.inspectorVisible = true
+        if splitController.focusInspector() { return }
+        let generation = focusGeneration
+        DispatchQueue.main.async { [weak self] in
+            guard let self, generation == self.focusGeneration, self.window?.isKeyWindow == true else { return }
+            _ = self.splitController.focusInspector()
+        }
+    }
+    private func finishInspectorEditing() -> Bool {
+        guard let responder = window?.firstResponder, splitController.inspectorFocusContains(responder) else { return false }
+        if let editor = responder as? NSTextView, editor.hasMarkedText() { return false }
+        guard model.flushEdits() else { return true }
+        _ = model.focusContent(); return true
+    }
     func revealItemDetails(_ id: UUID) { model.revealItemDetails(id) }
     /// Preserve the chosen record when opening a command from a preview instead
     /// of reading the Library's possibly different multi-selection afterwards.
@@ -200,7 +272,9 @@ final class LibraryNativeWindow: NSWindow {
     private func prompt(_ title: String, initial: String, completion: @escaping (String) -> Void) {
         let alert = NSAlert(); alert.messageText = title
         let field = NSTextField(string: initial); field.frame = NSRect(x: 0, y: 0, width: 300, height: 26); alert.accessoryView = field
-        alert.addButton(withTitle: L("Save")); alert.addButton(withTitle: L("Cancel")); alert.window.initialFirstResponder = field
+        alert.addButton(withTitle: L("Save")).keyEquivalent = "\r"
+        alert.addButton(withTitle: L("Cancel")).keyEquivalent = "\u{1b}"
+        alert.window.initialFirstResponder = field
         presentAlert(alert) { response in if response == .alertFirstButtonReturn { completion(field.stringValue) } }
     }
     func confirmTrash(ids: [UUID]? = nil) {
@@ -209,7 +283,7 @@ final class LibraryNativeWindow: NSWindow {
         alert.informativeText = L("You can restore them from Library → Trash. Original files stay in place.")
         alert.addButton(withTitle: L("Move to Trash")); alert.addButton(withTitle: L("Cancel"))
         presentAlert(alert) { [weak self] response in
-            guard response == .alertFirstButtonReturn, let self, self.flush() else { return }; self.model.perform { try self.model.store.trash(snapshot) }
+            guard response == .alertFirstButtonReturn, let self, self.flush() else { return }; self.model.trashSelection(snapshot)
         }
     }
     func exportSelection(ids: [UUID]? = nil) {
@@ -335,9 +409,9 @@ final class LibraryNativeWindow: NSWindow {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack { Label(record.kind == .text ? L("Text") : record.kind == .image ? L("Image") : L("Link"), systemImage: record.kind == .image ? "photo" : record.kind == .text ? "text.alignleft" : "link").font(.caption.weight(.semibold)).foregroundStyle(.secondary); Spacer(); Button { model.onPreview?(record.id) } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }.help(L("Preview")) }
-                    TextField(record.displayTitle.isEmpty ? L("Title") : record.displayTitle, text: $model.draftTitle, axis: .vertical).font(.system(size: 16, weight: .semibold)).textFieldStyle(.plain)
+                    TextField(record.displayTitle.isEmpty ? L("Title") : record.displayTitle, text: $model.draftTitle, axis: .vertical).font(.system(size: 16, weight: .semibold)).textFieldStyle(.plain).accessibilityLabel(L("Title")).accessibilityIdentifier("library-detail-name")
                     if record.kind == .text {
-                        VStack(alignment: .leading, spacing: 7) { Text(L("Text")).font(.caption).foregroundStyle(.secondary); TextEditor(text: $model.draftText).font(.system(size: 13)).scrollContentBackground(.hidden).frame(minHeight: 150, maxHeight: 260).padding(8).background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8)) }
+                        VStack(alignment: .leading, spacing: 7) { Text(L("Text")).font(.caption).foregroundStyle(.secondary); TextEditor(text: $model.draftText).font(.system(size: 13)).scrollContentBackground(.hidden).frame(minHeight: 150, maxHeight: 260).padding(8).background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8)).accessibilityLabel(L("Text")).accessibilityIdentifier("library-detail-text") }
                     }
                     if let url = record.linkURL {
                         Text(url.absoluteString).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
@@ -359,7 +433,7 @@ final class LibraryNativeWindow: NSWindow {
                         ForEach(model.inspectedTags) { tag in HStack { Text("#" + tag.name).font(.caption); Spacer(); Button { model.removeTag(tag.id) } label: { Image(systemName: "xmark") }.buttonStyle(.plain).help(L("Remove tag") + ": " + tag.name).accessibilityLabel(L("Remove tag") + ": " + tag.name) } }
                         Button(L("Add tag…")) { actions?.promptTag() }.controlSize(.small)
                     }
-                    VStack(alignment: .leading, spacing: 7) { Text(L("Note")).font(.caption.weight(.semibold)).foregroundStyle(.secondary); TextEditor(text: $model.draftNote).font(.system(size: 12)).scrollContentBackground(.hidden).frame(height: 100).padding(8).background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8)) }
+                    VStack(alignment: .leading, spacing: 7) { Text(L("Note")).font(.caption.weight(.semibold)).foregroundStyle(.secondary); TextEditor(text: $model.draftNote).font(.system(size: 12)).scrollContentBackground(.hidden).frame(height: 100).padding(8).background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8)).accessibilityLabel(L("Note")).accessibilityIdentifier("library-detail-note") }
                     Text(record.createdAt, style: .date).font(.caption).foregroundStyle(.secondary)
                     if record.deletedAt != nil { Button(L("Restore")) { model.restore() } }
                     else {

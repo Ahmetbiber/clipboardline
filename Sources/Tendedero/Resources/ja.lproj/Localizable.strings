@@ -490,3 +490,9 @@
 
 
 "A shortcut could not be restored after recording. Choose another combination in Settings." = "記録後にショートカットを復元できませんでした。設定で別のキーの組み合わせを選択してください。";
+
+"Focus next pane" = "次のペインにフォーカス";
+
+"Focus previous pane" = "前のペインにフォーカス";
+
+"Undo Move to Trash" = "ゴミ箱への移動を取り消す";

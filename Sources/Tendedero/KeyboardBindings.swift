@@ -8,13 +8,14 @@ enum KeyboardAction: String, CaseIterable, Identifiable {
     case library, search, allTypes, images, texts, links, tag, open, editText, finishEditing
     case removeFromLine, undoRemoveFromLine, toggleLinks, toggleTexts, toggleImages, pinToFolder, searchShelf
     case copyImageText, commandPalette, nameAndPin
+    case focusNextPane, focusPreviousPane, undoTrash, newNote, newFolder
     case markup, cropImage, markupSelect, markupPen, markupMarker, markupRectangle, markupEllipse, markupArrow, markupLine, markupText
     case select1, select2, select3, select4, select5, select6, select7, select8, select9
     var id: Self { self }
     var settingsGroup: Int {
         switch self {
         case .previous, .next, .first, .last, .previousPage, .nextPage, .up, .down, .extendPrevious, .extendNext, .extendUp, .extendDown, .selectAll, .select1, .select2, .select3, .select4, .select5, .select6, .select7, .select8, .select9: 1
-        case .toggleShelves, .toggleLinks, .toggleTexts, .toggleImages, .export, .trash, .search, .allTypes, .images, .texts, .links, .tag,
+        case .toggleShelves, .toggleLinks, .toggleTexts, .toggleImages, .export, .trash, .search, .allTypes, .images, .texts, .links, .tag, .focusNextPane, .focusPreviousPane, .undoTrash, .newNote, .newFolder,
              .cropImage, .markupSelect, .markupPen, .markupMarker, .markupRectangle, .markupEllipse, .markupArrow, .markupLine, .markupText: 2
         default: 0
         }
@@ -44,6 +45,11 @@ enum KeyboardAction: String, CaseIterable, Identifiable {
         case .toggleLinks: L("Toggle link shelf"); case .toggleTexts: L("Toggle text shelf"); case .toggleImages: L("Toggle image shelf")
         case .pinToFolder: L("Pin to folder…")
         case .nameAndPin: L("Name and pin…")
+        case .focusNextPane: L("Focus next pane")
+        case .focusPreviousPane: L("Focus previous pane")
+        case .undoTrash: L("Undo Move to Trash")
+        case .newNote: L("New note")
+        case .newFolder: L("New folder")
         case .export: L("Export copies…"); case .trash: L("Move to Trash…"); case .library: L("Open library")
         case .search: L("Search this view"); case .allTypes: L("All types"); case .images: L("Images"); case .texts: L("Texts"); case .links: L("Links")
         case .tag: L("Add tag…"); case .open: L("Open in browser"); case .editText: L("Edit text"); case .finishEditing: L("Finish editing")
@@ -65,17 +71,20 @@ enum KeyboardAction: String, CaseIterable, Identifiable {
     }
     var contexts: Set<KeyboardContext> {
         switch self {
-        case .markup, .cropImage: [.imagePreview, .imageMarkup]
+        case .markup, .cropImage: [.library, .imagePreview, .imageMarkup]
         case .markupSelect, .markupPen, .markupMarker, .markupRectangle, .markupEllipse, .markupArrow, .markupLine, .markupText: [.imageMarkup]
         case .copy, .paste, .commandPalette: Set(KeyboardContext.allCases)
         case .library, .switchShelf, .toggleShelves, .toggleLinks, .toggleTexts, .toggleImages, .searchShelf: [.line]
         case .search, .allTypes, .images, .texts, .links: [.library]
+        case .focusNextPane, .focusPreviousPane, .undoTrash, .newNote, .newFolder: [.library]
         case .select1, .select2, .select3, .select4, .select5, .select6, .select7, .select8, .select9: [.line]
         case .copyImageText: [.line, .library, .imagePreview]
         case .extendPrevious, .extendNext, .extendUp, .extendDown, .selectAll, .export, .trash: [.line, .library]
         case .open: [.library, .linkPreview]
-        case .editText, .finishEditing: [.textPreview]
-        case .first, .last, .previousPage, .nextPage, .removeFromLine, .undoRemoveFromLine: [.line, .imagePreview, .textPreview, .linkPreview]
+        case .editText: [.library, .textPreview]
+        case .finishEditing: [.textPreview]
+        case .first, .last, .previousPage, .nextPage: [.line, .library, .imagePreview, .textPreview, .linkPreview]
+        case .removeFromLine, .undoRemoveFromLine: [.line, .imagePreview, .textPreview, .linkPreview]
         default: Set(KeyboardContext.allCases).subtracting([.imageMarkup])
         }
     }
@@ -94,7 +103,7 @@ enum KeyboardAction: String, CaseIterable, Identifiable {
         case .preview: [key(49,"Space")]; case .close: [key(53,"Esc")]
         case .switchShelf: [key(48,"Tab"),key(48,"Tab",shiftKey)]
         case .toggleShelves: [key(11,"B",cmdKey | shiftKey)]
-        case .export: [key(14,"E",cmdKey | shiftKey)]; case .trash: [key(117,"⌦"),key(51,"⌫")]
+        case .export: [key(14,"E",cmdKey | shiftKey)]; case .trash: [key(117,"⌦"),key(1,"S"),key(51,"⌫",cmdKey)]
         case .library: [key(37,"L")]; case .search: [key(3,"F",cmdKey)]
         case .removeFromLine: [key(1,"S")]
         case .searchShelf: [key(1,"S",shiftKey)]
@@ -102,6 +111,11 @@ enum KeyboardAction: String, CaseIterable, Identifiable {
         case .toggleLinks: [key(37,"L",shiftKey)]; case .toggleTexts: [key(17,"T",shiftKey)]; case .toggleImages: [key(34,"I",shiftKey)]
         case .pinToFolder: [key(35,"P",shiftKey)]
         case .nameAndPin: [key(35,"P",optionKey)]
+        case .focusNextPane: [key(97,"F6"),key(48,"Tab",controlKey)]
+        case .focusPreviousPane: [key(97,"F6",shiftKey),key(48,"Tab",controlKey | shiftKey)]
+        case .undoTrash: [key(51,"⌫"),key(6,"Z",cmdKey)]
+        case .newNote: [key(45,"N",cmdKey)]
+        case .newFolder: [key(45,"N",cmdKey | shiftKey)]
         case .allTypes: [key(29,"0",cmdKey)]; case .images: [key(18,"1",cmdKey)]; case .texts: [key(19,"2",cmdKey)]; case .links: [key(20,"3",cmdKey)]
         case .tag: [key(17,"T",cmdKey | shiftKey)]
         case .open: [key(31,"O",cmdKey)]
@@ -126,7 +140,14 @@ enum KeyboardAction: String, CaseIterable, Identifiable {
     func defaults(in context: KeyboardContext) -> [KeyShortcut] {
         // Backspace undoes a shelf removal, including from its preview. Library
         // retains its existing Trash binding; forward Delete is unchanged.
-        if self == .trash && context != .library { return defaults.filter { $0.keyCode != 51 } }
+        if self == .trash {
+            if context == .library {
+                return [KeyShortcut(keyCode: 1, modifiers: 0, keyLabel: "S"),
+                    KeyShortcut(keyCode: 117, modifiers: 0, keyLabel: "⌦"),
+                    KeyShortcut(keyCode: 51, modifiers: cmdKey, keyLabel: "⌫")]
+            }
+            return defaults.filter { $0.keyCode == 117 }
+        }
         if self == .paste && context == .textPreview { return defaults }
         return defaults
     }

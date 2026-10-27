@@ -17,7 +17,7 @@ import XCTest
         let bindings = KeyboardBindings(defaults: f.defaults)
         for context in KeyboardContext.allCases {
             XCTAssertEqual(bindings.action(for: key(46, "m"), in: context),
-                           [.imagePreview, .imageMarkup].contains(context) ? .markup : nil)
+                           [.imagePreview, .imageMarkup, .library].contains(context) ? .markup : nil)
         }
         let tools: [(UInt16, String, KeyboardAction)] = [(9,"v",.markupSelect), (11,"b",.markupPen),
             (4,"h",.markupMarker), (15,"r",.markupRectangle), (31,"o",.markupEllipse),

@@ -38,7 +38,7 @@ import XCTest
         try store.removeFromShelf([second.id]); try store.trash([second.id])
         XCTAssertTrue(try store.undoShelfRemoval().isEmpty); XCTAssertTrue(try store.item(second.id)?.deletedAt != nil)
         XCTAssertEqual(line.keyboardBindings.action(for: key(51), in: .line), .undoRemoveFromLine)
-        XCTAssertEqual(line.keyboardBindings.action(for: key(51), in: .library), .trash)
+        XCTAssertEqual(line.keyboardBindings.action(for: key(51), in: .library), .undoTrash)
         XCTAssertEqual(line.keyboardBindings.action(for: key(117), in: .line), .trash)
         let preview = TextPreview(text: "editing", keyboardBindings: line.keyboardBindings); defer { preview.window.close() }
         preview.beginEditing(); XCTAssertFalse(preview.routeKey(key(51)))
@@ -262,7 +262,7 @@ import XCTest
             XCTAssertEqual(line.keyboardBindings.action(for: key(1, [], "s"), in: context), .removeFromLine)
             XCTAssertEqual(line.keyboardBindings.action(for: key(51), in: context), .undoRemoveFromLine)
         }
-        XCTAssertNil(line.keyboardBindings.action(for: key(1, [], "s"), in: .library))
+        XCTAssertEqual(line.keyboardBindings.action(for: key(1, [], "s"), in: .library), .trash)
         try line.keyboardBindings.set([KeyShortcut(keyCode: 2, modifiers: 0, keyLabel: "D")], for: .removeFromLine)
         XCTAssertFalse(keyboard.handle(key(1, [], "s")))
         XCTAssertEqual(KeyboardBindings(defaults: f.defaults).action(for: key(2, [], "d"), in: .line), .removeFromLine)

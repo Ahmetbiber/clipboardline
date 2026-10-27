@@ -19,6 +19,9 @@ struct LibraryRecord: Codable, Equatable, Identifiable {
     var lastCapturedAt: Date?
     /// Optional for existing libraries; unrelated edits preserve this value.
     var captureRevision: UUID?
+    /// A recoverable-trash generation, independent of capture identity. Older
+    /// records need no migration; every new trash transition gets a fresh value.
+    var trashRevision: UUID?
     var retainedAt: Date?
     var favorite = false
     var onShelf = true
@@ -176,6 +179,12 @@ extension String {
         let removedAt: Date?
     }
     private var shelfRemovalUndo = [[ShelfRemoval]]()
+    private struct TrashRemoval {
+        let id: UUID
+        let onShelf: Bool
+        let fingerprint: Data
+    }
+    private var trashRemovalUndo = [[TrashRemoval]]()
     struct RecordingTrimContext: Equatable, Sendable {
         let token: UUID
         let id: UUID
@@ -187,6 +196,7 @@ extension String {
     private var recordingTrims = [UUID: RecordingTrimContext]()
     private var recordingTrimPending = Set<String>()
     var canUndoShelfRemoval: Bool { !shelfRemovalUndo.isEmpty }
+    var canUndoTrash: Bool { !trashRemovalUndo.isEmpty }
     private let readerQueue = DispatchQueue(label: "local.clipboardline.library.reader", qos: .userInitiated)
     var retentionDays: Int { let days = defaults.integer(forKey: "historyRetentionDays"); return ImageHistory.dayChoices.contains(days) ? days : 30 }
     func retentionDays(for kind: LibraryKind) -> Int { HistoryRetention.days(kind, defaults: defaults) }
@@ -469,7 +479,7 @@ extension String {
                 if current.note.isEmpty, !duplicate.note.isEmpty { current.note = duplicate.note }
                 try db.execute("INSERT OR IGNORE INTO item_collections(item,collection) SELECT ?,collection FROM item_collections WHERE item=?", [.text(current.id.uuidString), .text(id.uuidString)])
                 try db.execute("INSERT OR IGNORE INTO item_tags(item,tag) SELECT ?,tag FROM item_tags WHERE item=?", [.text(current.id.uuidString), .text(id.uuidString)])
-                duplicate.deletedAt = date; duplicate.onShelf = false; duplicate.updatedAt = date
+                duplicate.deletedAt = date; duplicate.onShelf = false; duplicate.updatedAt = date; duplicate.trashRevision = UUID()
                 try put(duplicate)
                 affected.append(id)
                 canonical = current
@@ -501,6 +511,7 @@ extension String {
         // writer must remain observable on the next capture, including on error.
         textIdentityDataVersion = observedVersion
         invalidateShelfUndo(affected)
+        invalidateTrashUndo(affected)
         changed(affected)
         return captured
     }
@@ -675,6 +686,8 @@ extension String {
         guard var value = try item(id) else { throw HistoryFiles.Failure.unsafeFile }
         let previous = value
         try transform(&value); value.updatedAt = now()
+        if previous.deletedAt == nil, value.deletedAt != nil { value.trashRevision = UUID() }
+        else if previous.deletedAt != nil, value.deletedAt == nil { value.trashRevision = nil }
         if value.retainedAt != nil { try ensureOwned(&value) }
         guard (value.text?.utf8.count ?? 0) <= TextClipboardWatcher.maximumDataBytes, value.note.utf8.count <= TextClipboardWatcher.maximumDataBytes else { throw HistoryFiles.Failure.unsafeFile }
         let textFileRollback = value.kind == .text ? try rewriteMaterializedText(previous, to: value.text ?? "") : nil
@@ -720,13 +733,14 @@ extension String {
     private func mutate(_ ids: [UUID], _ transform: (inout LibraryRecord) throws -> Void) throws {
         var values = try ids.map { id -> LibraryRecord in guard let value = try item(id) else { throw HistoryFiles.Failure.unsafeFile }; return value }
         for index in values.indices { try transform(&values[index]); values[index].updatedAt = now(); if values[index].retainedAt != nil { try ensureOwned(&values[index]) } }
-        try db.transaction { for value in values { try put(value) } }; changed(ids)
+        try db.transaction { for value in values { try put(value) } }
+        invalidateTrashUndo(ids); changed(ids)
     }
     func removeFromShelf(_ ids: [UUID]) throws {
         let values = try records(Array(Set(ids))).filter { $0.onShelf && $0.deletedAt == nil }
         guard !values.isEmpty else { return }
         let date = now()
-        try mutate(values.map(\.id)) { $0.onShelf = false; if $0.retainedAt == nil { $0.deletedAt = date } }
+        try mutate(values.map(\.id)) { $0.onShelf = false; if $0.retainedAt == nil { $0.deletedAt = date; $0.trashRevision = UUID() } }
         shelfRemovalUndo.append(values.map { ShelfRemoval(id: $0.id, removedAt: $0.retainedAt == nil ? date : nil) })
         if shelfRemovalUndo.count > 32 { shelfRemovalUndo.removeFirst() }
     }
@@ -740,7 +754,7 @@ extension String {
             }
             guard !values.isEmpty else { shelfRemovalUndo.removeLast(); continue }
             let ids = values.map(\.id)
-            try mutate(ids) { $0.onShelf = true; $0.deletedAt = nil }
+            try mutate(ids) { $0.onShelf = true; $0.deletedAt = nil; $0.trashRevision = nil }
             shelfRemovalUndo.removeLast(); return ids
         }
         return []
@@ -749,7 +763,90 @@ extension String {
         let affected = Set(ids)
         shelfRemovalUndo = shelfRemovalUndo.map { $0.filter { !affected.contains($0.id) } }.filter { !$0.isEmpty }
     }
-    func trash(_ ids: [UUID]) throws { try mutate(ids) { $0.deletedAt = self.now(); $0.onShelf = false }; invalidateShelfUndo(ids) }
+    func trash(_ ids: [UUID]) throws { try mutate(ids) { $0.deletedAt = self.now(); $0.onShelf = false; $0.trashRevision = UUID() }; invalidateShelfUndo(ids) }
+    /// Library user actions have a separate, bounded undo history. Keep only
+    /// visibility and a digest of the exact committed trash generation; never
+    /// retain a second megabyte-sized text or a copy of image bytes in RAM.
+    func trashUndoably(_ ids: [UUID]) throws {
+        var snapshot = [TrashRemoval]()
+        try db.transaction {
+            let date = now()
+            var seen = Set<UUID>(), previousVisibility = [(UUID, Bool)]()
+            for id in ids where seen.insert(id).inserted {
+                guard var value = try item(id), value.deletedAt == nil else { continue }
+                let onShelf = value.onShelf
+                value.deletedAt = date; value.onShelf = false; value.updatedAt = date; value.trashRevision = UUID()
+                try put(value)
+                previousVisibility.append((id, onShelf))
+            }
+            for (id, onShelf) in previousVisibility {
+                guard let fingerprint = try trashFingerprint(id) else { throw HistoryFiles.Failure.unsafeFile }
+                snapshot.append(TrashRemoval(id: id, onShelf: onShelf, fingerprint: fingerprint))
+            }
+        }
+        guard !snapshot.isEmpty else { return }
+        let affected = snapshot.map(\.id)
+        invalidateShelfUndo(affected); invalidateTrashUndo(affected)
+        trashRemovalUndo.append(snapshot)
+        if trashRemovalUndo.count > 80 { trashRemovalUndo.removeFirst(trashRemovalUndo.count - 80) }
+        changed(affected)
+    }
+    /// Restore flags only when the complete committed row and organization
+    /// still match. Later captures, edits, restores and re-trashes are never
+    /// overwritten, including writers using the same clock and another store.
+    @discardableResult func undoTrash() throws -> [UUID] {
+        guard !trashRemovalUndo.isEmpty else { return [] }
+        var consumed = 0, restored = [UUID]()
+        try db.transaction {
+            for snapshot in trashRemovalUndo.reversed() {
+                consumed += 1
+                let eligible = try snapshot.filter { entry in try trashFingerprint(entry.id) == entry.fingerprint }
+                guard !eligible.isEmpty else { continue }
+                let date = now()
+                for entry in eligible {
+                    guard var value = try item(entry.id), value.deletedAt != nil else { throw HistoryFiles.Failure.unsafeFile }
+                    value.deletedAt = nil; value.onShelf = entry.onShelf; value.updatedAt = date; value.trashRevision = nil
+                    try put(value); restored.append(entry.id)
+                }
+                break
+            }
+        }
+        // Transaction failures leave both the data and every pending batch
+        // intact. Even stale batches are retired only after a successful commit.
+        trashRemovalUndo.removeLast(consumed)
+        if !restored.isEmpty { invalidateShelfUndo(restored) }
+        if consumed > 0 { changed(restored) }
+        return restored
+    }
+    private func invalidateTrashUndo(_ ids: [UUID]) {
+        let affected = Set(ids)
+        trashRemovalUndo = trashRemovalUndo.map { $0.filter { !affected.contains($0.id) } }.filter { !$0.isEmpty }
+    }
+    private func trashFingerprint(_ id: UUID) throws -> Data? {
+        guard let row = try db.rows("SELECT * FROM items WHERE id=? AND deleted IS NOT NULL", [.text(id.uuidString)]).first else { return nil }
+        var digest = SHA256()
+        func field(_ value: Data) {
+            var size = UInt64(value.count).bigEndian
+            digest.update(data: withUnsafeBytes(of: &size) { Data($0) }); digest.update(data: value)
+        }
+        func value(_ value: SQLValue) {
+            switch value {
+            case let .text(text): field(Data("text".utf8)); field(Data(text.utf8))
+            case let .integer(number): field(Data("integer".utf8)); field(Data(String(number).utf8))
+            case let .real(number): field(Data("real".utf8)); field(Data(String(number.bitPattern, radix: 16).utf8))
+            case let .blob(data): field(Data("blob".utf8)); field(data)
+            case .null: field(Data("null".utf8))
+            }
+        }
+        for key in row.keys.sorted() { field(Data(key.utf8)); value(row[key]!) }
+        let folders = try db.rows("SELECT c.id,c.name,c.parent FROM collections c JOIN item_collections m ON m.collection=c.id WHERE m.item=? ORDER BY c.id", [.text(id.uuidString)])
+        let tags = try db.rows("SELECT t.id,t.name FROM tags t JOIN item_tags m ON m.tag=t.id WHERE m.item=? ORDER BY t.id", [.text(id.uuidString)])
+        for (kind, rows) in [("folders", folders), ("tags", tags)] {
+            field(Data(kind.utf8))
+            for row in rows { for key in row.keys.sorted() { field(Data(key.utf8)); value(row[key]!) } }
+        }
+        return Data(digest.finalize())
+    }
     private static let unsavedHistoryWhere = "i.deleted IS NULL AND i.retained IS NULL AND i.favorite=0 AND NOT EXISTS(SELECT 1 FROM item_collections c WHERE c.item=i.id) AND NOT EXISTS(SELECT 1 FROM item_tags t WHERE t.item=i.id)"
     func unsavedHistoryCount(kind: LibraryKind? = nil) throws -> Int {
         let clause = Self.unsavedHistoryWhere + (kind == nil ? "" : " AND i.kind=?")
@@ -779,15 +876,15 @@ extension String {
             for id in snapshot.ids where seen.insert(id).inserted {
                 guard let version = snapshot.captures[id], current.captures[id] == version,
                       var value = try item(id) else { continue }
-                value.deletedAt = date; value.onShelf = false; value.updatedAt = date
+                value.deletedAt = date; value.onShelf = false; value.updatedAt = date; value.trashRevision = UUID()
                 try put(value); eligible.append(id)
             }
         }
         guard !eligible.isEmpty else { return [] }
-        invalidateShelfUndo(eligible); changed(eligible)
+        invalidateShelfUndo(eligible); invalidateTrashUndo(eligible); changed(eligible)
         return eligible
     }
-    func restore(_ ids: [UUID]) throws { try mutate(ids) { $0.deletedAt = nil; $0.onShelf = true }; invalidateShelfUndo(ids) }
+    func restore(_ ids: [UUID]) throws { try mutate(ids) { $0.deletedAt = nil; $0.onShelf = true; $0.trashRevision = nil }; invalidateShelfUndo(ids) }
     func markCopied(_ ids: [UUID]) throws { try mutate(ids) { $0.lastCopiedAt = self.now(); $0.captureRevision = UUID() } }
     func prune() throws {
         var expired = [LibraryRecord]()
