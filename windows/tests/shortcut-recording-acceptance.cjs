@@ -1,5 +1,10 @@
 'use strict';
 const assert=require('node:assert/strict');
+async function rejectRecordedSettings(api=window.clipboardLine){
+ const {shortcutRecordingToken}=await api.state();
+ if(typeof shortcutRecordingToken!=='string'||!shortcutRecordingToken)throw new Error('An active shortcut recorder token is required for the exception test.');
+ return api.command('setSettings',{recordingToken:shortcutRecordingToken,patch:{watchFolders:[]}});
+}
 module.exports=async function shortcutRecordingAcceptance({page,application,check,until,fixtureCommand}){
  const original=(await page.evaluate(()=>window.clipboardLine.state())).settings.shortcuts;
  const blocked='Control+Alt+Shift+F11';
@@ -31,7 +36,7 @@ module.exports=async function shortcutRecordingAcceptance({page,application,chec
   assert.equal((await page.evaluate(()=>window.clipboardLine.state())).settings.shortcuts.search,original.search);
   await until(()=>page.locator('#toast').textContent(),value=>value.includes('unavailable'));
   await open('pin',false);await page.evaluate(()=>window.clipboardLine.command('windowClose'));await ended();
-  await open('pin',false);await page.evaluate(()=>window.clipboardLine.command('setSettings',{recordingToken:window.clipboardLine.state().shortcutRecordingToken,patch:{watchFolders:[]}}));await ended();
+  await open('pin',false);const rejected=await page.evaluate(rejectRecordedSettings);assert.equal(rejected.result?.error,'Choose watched folders with the folder picker.');await ended();
   await open('pin',false);await fixtureCommand({action:'focus',target:'plain'});await ended();
   await fixtureCommand({action:'keys',keys:'^%s'});await page.locator('#search-input').waitFor({state:'visible'});
   check('native shortcut recorders capture existing combinations, preserve unrelated bindings and restore on save, cancel, conflict, close, exception and focus loss');
@@ -41,3 +46,4 @@ module.exports=async function shortcutRecordingAcceptance({page,application,chec
   await page.evaluate(shortcuts=>window.clipboardLine.command('setSettings',{patch:{shortcuts}}),original);
  }
 };
+module.exports.rejectRecordedSettings=rejectRecordedSettings;
