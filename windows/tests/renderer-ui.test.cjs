@@ -552,3 +552,47 @@ test('Escape while recorder startup is pending releases its token even after a l
  await f.click('record-global',{keyAction:'search'});assert.match(f.overlay,/data-recording-ready="false"/);const token=f.commands.filter(value=>value.action==='beginShortcutRecording').at(-1).payload.token;
  await f.key('Escape');assert.equal(f.overlay,'');assert.ok(f.commands.some(value=>value.action==='endShortcutRecording'&&value.payload.token===token));release();await f.ready();assert.equal(f.overlay,'');
 });
+
+for(const row of [
+ {code:'',key:'s',expected:'Ctrl+Alt+S',saved:'Control+Alt+S'},
+ {code:'Unidentified',key:'s',expected:'Ctrl+Alt+S',saved:'Control+Alt+S'},
+ {code:'',key:'s',shift:true,expected:'Ctrl+Alt+Shift+S',saved:'Control+Alt+Shift+S'},
+ {code:'Unidentified',key:'S',shift:true,expected:'Ctrl+Alt+Shift+S',saved:'Control+Alt+Shift+S'},
+ {code:'KeyS',key:'s',expected:'Ctrl+Alt+S',saved:'Control+Alt+S'},
+ {code:'KeyQ',key:'x',expected:'Ctrl+Alt+Q',saved:'Control+Alt+Q'},
+ {code:'Unidentified',key:'ı',expected:'Ctrl+Alt+ı',saved:'Control+Alt+ı'}
+])test('recorder canonicalizes ASCII fallback without changing modifiers or hardware keys: '+JSON.stringify(row),async()=>{
+ const f=fixture();await f.ready();await f.api.command('settings');await f.ready();await f.click('record-global',{keyAction:'search'});
+ await f.key(row.code,{key:row.key,ctrl:true,alt:true,shift:!!row.shift});
+ assert.ok(f.overlay.includes('>'+row.expected+'</div>'),f.overlay);
+ await f.click('confirm-modal');assert.equal(f.overlay,'');assert.equal(f.commands.filter(value=>value.action==='setSettings').at(-1).payload.patch.shortcuts.search,row.saved);
+});
+
+test('unknown-code key events execute default shortcuts with the same letter and Shift meanings',async()=>{
+ const f=fixture();await f.ready();await f.key('',{key:'p'});assert.equal(f.state.items.find(value=>value.id===f.image).pinned,true);
+ await f.key('Unidentified',{key:'p'});assert.equal(f.state.items.find(value=>value.id===f.image).pinned,false);
+ await f.key('Unidentified',{key:'p',shift:true});assert.match(f.overlay,/Pin to folder/);await f.key('Escape');
+ await f.key('',{key:'l'});assert.equal(f.state.view,'library');
+});
+
+test('legacy lowercase remaps compare canonically without reviving disabled defaults or aliases',async()=>{
+ const f=fixture();await f.ready();f.api.emit({settings:{...f.state.settings,localShortcuts:{pin:'Ctrl+Alt+j',library:'l',copy:'',remove:''}}});await f.ready();
+ await f.key('KeyJ',{ctrl:true,alt:true});assert.equal(f.state.items.find(value=>value.id===f.image).pinned,true);
+ await f.key('Unidentified',{key:'j',ctrl:true,alt:true});assert.equal(f.state.items.find(value=>value.id===f.image).pinned,false);
+ const before=f.commands.length;await f.key('',{key:'p'});await f.key('KeyP',{ctrl:true});await f.key('Unidentified',{key:'s'});await f.key('Enter');await f.key('',{key:'c',ctrl:true});
+ assert.equal(f.commands.length,before);assert.equal(f.state.windowVisible,true);
+ await f.key('KeyL');assert.equal(f.state.view,'library');assert.equal(f.state.settings.localShortcuts.pin,'Ctrl+Alt+j','Reading a binding does not rewrite saved preferences');
+});
+
+test('recording a fallback letter detects a conflicting legacy lowercase remap',async()=>{
+ const f=fixture();await f.ready();f.api.emit({settings:{...f.state.settings,localShortcuts:{remove:'j'}}});await f.ready();await f.api.command('settings');await f.ready();
+ await f.click('record-local',{keyAction:'pin'});await f.key('Unidentified',{key:'j'});await f.click('confirm-modal');
+ assert.match(f.overlay,/Record shortcut/);assert.match(f.nodes.get('toast').textContent,/already used for Take down/);assert.equal(f.state.settings.localShortcuts.pin,undefined);
+ await f.key('Escape');
+});
+
+test('recording the same legacy lowercase global binding keeps its exact registration value',async()=>{
+ const f=fixture();await f.ready();f.api.emit({settings:{...f.state.settings,shortcuts:{...f.state.settings.shortcuts,search:'Control+Alt+s'}}});await f.ready();await f.api.command('settings');await f.ready();
+ await f.click('record-global',{keyAction:'search'});await f.key('Unidentified',{key:'s',ctrl:true,alt:true});assert.ok(f.overlay.includes('>Ctrl+Alt+S</div>'));await f.click('confirm-modal');
+ assert.equal(f.commands.filter(value=>value.action==='setSettings').at(-1).payload.patch.shortcuts.search,'Control+Alt+s','An equal OS combination does not undergo a conflicting case-only re-registration');
+});
