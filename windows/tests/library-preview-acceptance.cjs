@@ -1,5 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
+const fs=require('node:fs');
 const path=require('node:path');
 const {sampleImagePreviewGeometry,assertImagePreviewFit}=require('./preview-geometry.cjs');
 const {waitForImageEditorRaster}=require('./image-editor-ready.cjs');
@@ -53,6 +54,31 @@ module.exports=async function libraryPreview({page,application,check,until,outpu
   const preservedTags=(await snapshot()).items.filter(value=>fixture.ids.includes(value.id)).map(({tags,...value})=>value);
   await page.evaluate(()=>window.clipboardLine.command('library'));await page.locator('[data-action="tag-scope"][data-tag="ui-parity-client"]').click();await page.locator('[data-action="tag-menu"][data-tag="ui-parity-client"]').click();await page.keyboard.press('Enter');await page.locator('#simple-input').fill('ui-parity-renamed-client');await page.keyboard.press('Enter');await until(snapshot,next=>next.items.filter(value=>[fixture.image,fixture.second].includes(value.id)).every(value=>value.tags.includes('ui-parity-renamed-client')));await page.locator('[data-action="tag-scope"][data-tag="ui-parity-renamed-client"].active').waitFor({state:'visible'});assert.deepEqual(await resultIds(),[fixture.image,fixture.second].sort());
   await page.locator('[data-action="tag-menu"][data-tag="ui-parity-renamed-client"]').click();await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');await page.locator('[role="dialog"][aria-label="Remove this tag?"]').waitFor({state:'visible'});assert.ok((await snapshot()).items.find(value=>value.id===fixture.image).tags.includes('ui-parity-renamed-client'));await page.keyboard.press('Escape');await page.locator('[data-action="tag-menu"][data-tag="ui-parity-renamed-client"]').click();await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter');await page.locator('[data-action="confirm-modal"]').click();await until(snapshot,next=>next.items.every(value=>!value.tags.includes('ui-parity-renamed-client')));await page.locator('[data-action="scope"][data-scope="saved"].active').waitFor({state:'visible'});assert.deepEqual((await snapshot()).items.filter(value=>fixture.ids.includes(value.id)).map(({tags,...value})=>value),preservedTags);assert.equal(await page.locator('[data-action="tag-scope"][data-tag="ui-parity-renamed-client"]').count(),0);check('global tag menu supports keyboard rename, follows its active scope and confirms removal while preserving every item and Saved membership');
+ }catch(error){
+  // Read the failing surface before finally restores the fixture. Keep this
+  // bounded and fixture-only: no clipboard values, other records or user paths.
+  const bounded=async read=>{let timer;try{return await Promise.race([read(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Diagnostic read timed out')),2000);})]);}finally{clearTimeout(timer);}};
+  const observations=await Promise.allSettled([
+   bounded(()=>page.evaluate(async id=>{
+    const state=await window.clipboardLine.state(),value=state.items.find(value=>value.id===id),active=document.activeElement;
+    const box=node=>{if(!node)return null;const r=node.getBoundingClientRect(),s=getComputedStyle(node);return{x:r.x,y:r.y,width:r.width,height:r.height,connected:node.isConnected,display:s.display,visibility:s.visibility};};
+    const media=node=>{if(!node)return null;const source=node.currentSrc||node.getAttribute('src')||'',base='appmedia://media/'+id,owned=source===base||source===base+'/original'||source.startsWith(base+'?');let version=null;if(owned){try{const candidate=new URL(source).searchParams.get('v');if(/^[a-f0-9]{64}$/.test(candidate||''))version=candidate;}catch{}}
+     return{...box(node),naturalWidth:node.naturalWidth,naturalHeight:node.naturalHeight,complete:node.complete,source:owned?source.slice(0,256):'[not the fixture media]',version};};
+    const canvas=document.getElementById('markup-canvas');return{
+     version:state.version,build:state.build,libraryRevision:state.libraryRevision,view:state.view,windowVisible:state.windowVisible,viewEvent:state.viewEvent??null,
+     documentFocused:document.hasFocus(),activeElement:active?{tag:active.tagName,id:active.id,type:active.getAttribute('type'),action:active.dataset.action||null}:null,
+     viewport:{width:innerWidth,height:innerHeight},preview:box(document.getElementById('preview-dialog')),
+     editor:canvas?{...box(canvas),width:canvas.width,height:canvas.height,overlayReady:canvas.dataset.overlayReady==='true'}:null,
+     displayedMedia:media(document.getElementById('preview-media')),editorBase:media(document.getElementById('markup-base')),
+     fixtureImage:value?{id:value.id,crop:value.crop??null,annotations:Array.isArray(value.annotations)?value.annotations.length:0,mediaRevision:value.mediaRevision??null}:null
+    };
+   },fixture.image)),
+   bounded(()=>application.evaluate(({BrowserWindow},id)=>{const harness=global.__clipboardLineTest,window=harness.getWindow(),focused=BrowserWindow.getFocusedWindow(),state=harness.state(),value=state.items.find(value=>value.id===id);return{exists:!!window,visible:window?.isVisible(),focused:window?.isFocused(),focusedWindowIsApp:focused===window,bounds:window?.getBounds(),state:{view:state.view,windowVisible:state.windowVisible,viewEvent:state.viewEvent??null,libraryRevision:state.libraryRevision,fixtureImage:value?{id:value.id,crop:value.crop??null,annotations:Array.isArray(value.annotations)?value.annotations.length:0,mediaRevision:value.mediaRevision??null}:null}};},fixture.image))
+  ]);
+  const result=value=>value.status==='fulfilled'?value.value:{diagnosticError:String(value.reason?.message||value.reason).slice(0,240)};
+  const report={scope:'Synthetic Library preview fixture only; captured before fixture cleanup',errorName:error?.name||'Error',errorSummary:String(error?.message||error).split(': {')[0].slice(0,240),stackFrames:String(error?.stack||'').split('\n').filter(line=>/^\s+at /.test(line)).slice(0,8),renderer:result(observations[0]),nativeWindow:result(observations[1])};
+  try{fs.writeFileSync(path.join(output,'library-preview-failure.json'),JSON.stringify(report,null,2)+'\n',{flag:'wx'});}catch{}
+  throw error;
  }finally{
   await page.evaluate(async fixture=>{const api=window.clipboardLine;await api.command('trash',{ids:fixture.ids});await api.command('delete',{ids:fixture.ids});await api.command('removeFolder',{id:fixture.folder});const {watchFolders,...restorable}=fixture.settings;const restored=await api.command('setSettings',{patch:restorable});if(restored.result?.error)throw new Error(restored.result.error);await api.command('show');},fixture);
  }

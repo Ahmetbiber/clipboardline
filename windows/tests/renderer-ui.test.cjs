@@ -9,7 +9,7 @@ const vm=require('node:vm');
 const crypto=require('node:crypto');
 const {execFileSync}=require('node:child_process');
 
-function fixture({deferInitialState=false,initialVisible=true,queuedAnimationFrames=false,imageRaster={width:900,height:220}}={}){
+function fixture({deferInitialState=false,initialVisible=true,queuedAnimationFrames=false,imageRaster={width:900,height:220},imageDocument=false}={}){
  const listeners=new Map(),nodes=new Map(),commands=[],imageLoads=[],animationFrames=[],paintCalls=[];let exportFailures=0;
  class Element{
   constructor(id=''){this.id=id;this.innerHTML='';this.textContent='';this.dataset={};this.style={};this.className='';this.value='';this.selectionStart=0;this.selectionEnd=0;this.classList={add(){},remove(){},contains(){return false;}};}
@@ -29,8 +29,8 @@ function fixture({deferInitialState=false,initialVisible=true,queuedAnimationFra
  const document={body:new Element('body'),activeElement:null,getElementById(id){if(!nodes.has(id))nodes.set(id,id==='markup-canvas'?new Canvas(id):new Element(id));return nodes.get(id);},createElement(tag){return tag==='canvas'?new Canvas():new Element();},querySelector(){return null;},addEventListener(name,listener){if(!listeners.has(name))listeners.set(name,[]);listeners.get(name).push(listener);}};
  const image='00000000-0000-4000-8000-000000000001',text1='00000000-0000-4000-8000-000000000002',text2='00000000-0000-4000-8000-000000000003',link='00000000-0000-4000-8000-000000000004';
  const base=(id,kind,createdAt,extra)=>({id,kind,createdAt,updatedAt:createdAt,name:'',title:'',text:'',url:'',pinned:false,folderIds:[],tags:[],trashedAt:null,hiddenFromShelf:false,...extra});
- const state={items:[base(image,'image',1000,{name:'Synthetic image',mediaUrl:'appmedia://media/'+image,originalMediaUrl:'appmedia://media/'+image+'/original'}),base(text1,'text',900,{text:'Text one'}),base(text2,'text',800,{text:'Text two'}),base(link,'link',700,{url:'https://example.com/reference',title:'Reference link'})],folders:[],settings:{visibleKinds:['image','text','link'],retentionDays:{image:30,text:30,link:30},shortcuts:{toggle:'Control+Alt+Space',search:'Control+Alt+S'},localShortcuts:{},language:'en',theme:'soft',cardSize:'medium'},view:'shelves',version:'1.7.0',windowVisible:initialVisible,canUndo:false,libraryRevision:0};
- let subscriber,removed=[],cleanupFailures=0,editFailures=0,delayedReply=null,releaseInitialState;
+ const state={items:[base(image,'image',1000,{name:'Synthetic image',...(imageDocument?{annotations:[],crop:null}:{}),mediaUrl:'appmedia://media/'+image,originalMediaUrl:'appmedia://media/'+image+'/original'}),base(text1,'text',900,{text:'Text one'}),base(text2,'text',800,{text:'Text two'}),base(link,'link',700,{url:'https://example.com/reference',title:'Reference link'})],folders:[],settings:{visibleKinds:['image','text','link'],retentionDays:{image:30,text:30,link:30},shortcuts:{toggle:'Control+Alt+Space',search:'Control+Alt+S'},localShortcuts:{},language:'en',theme:'soft',cardSize:'medium'},view:'shelves',version:'1.7.0',windowVisible:initialVisible,canUndo:false,libraryRevision:0};
+ let subscriber,removed=[],cleanupFailures=0,editFailures=0,delayedReply=null,releaseInitialState,deferredImageBroadcast=null,pendingImageBroadcast=null;
  const clone=value=>structuredClone(value);
  const api={emit(patch){Object.assign(state,patch);subscriber?.(clone(state));},surface(patch){Object.assign(state,patch);subscriber?.({surfaceOnly:true,...clone(patch)});},state:async()=>{const initial=clone(state);if(deferInitialState)await new Promise(resolve=>{releaseInitialState=resolve;});return initial;},subscribe(fn){subscriber=fn;return()=>{};},async command(action,payload={}){commands.push({action,payload:clone(payload)});const selected=state.items.filter(item=>(payload.ids||[payload.id]).includes(item.id));
   let cleanupError;if(action==='cleanup'){if(cleanupFailures){cleanupFailures--;cleanupError='Permanent deletion cleanup is still pending.';}else state.needsDeletionCleanup=false;}
@@ -44,7 +44,9 @@ function fixture({deferInitialState=false,initialVisible=true,queuedAnimationFra
   if(action==='copy'&&!payload.keepOpen||action==='paste'||action==='hide')state.windowVisible=false;
   if(action==='show'){state.view='shelves';state.windowVisible=true;state.viewEvent={serial:String(commands.length)};}
   if(action==='library'||action==='settings'){state.view=action;state.windowVisible=true;}
-  const output=clone(state);if(cleanupError)output.result={error:cleanupError};subscriber?.(output);
+  const output=clone(state);if(cleanupError)output.result={error:cleanupError};
+  if(action==='saveImage'&&deferredImageBroadcast){const pending=deferredImageBroadcast;deferredImageBroadcast=null;pendingImageBroadcast=output;if(pending.surface)subscriber?.({surfaceOnly:true,windowVisible:true});}
+  else subscriber?.(output);
   if(delayedReply?.action===action){const pending=delayedReply;delayedReply=null;await pending.promise;}
   return output;
  }};
@@ -56,7 +58,7 @@ function fixture({deferInitialState=false,initialVisible=true,queuedAnimationFra
  async function pointer(type,x,y){const target=document.getElementById('markup-canvas');for(const listener of listeners.get(type)||[])listener({target,clientX:x,clientY:y,pointerId:1,shiftKey:false,preventDefault(){}});await ready();}
  async function input(id,value){const target=document.getElementById(id);target.value=value;target.selectionStart=value.length;for(const listener of listeners.get('input')||[])await listener({target});await ready();}
  async function change(id,value){const target=document.getElementById(id);target.value=value;for(const listener of listeners.get('change')||[])await listener({target});await ready();}
- return{ready,key,input,change,click,pointer,async blur(){for(const listener of listeners.get('window:blur')||[])listener();await ready();},imageLoads,paintCalls,animationFrames,flushAnimationFrames(){for(const fn of animationFrames.splice(0))fn();},releaseInitialState(){releaseInitialState?.();},deferReply(action){let release;const promise=new Promise(resolve=>{release=resolve;});delayedReply={action,promise};return release;},failExportOnce(){exportFailures++;},failCleanupOnce(){cleanupFailures++;},failEditOnce(){editFailures++;},state,commands,nodes,image,text1,text2,link,api,get main(){return nodes.get('app').innerHTML;},get overlay(){return nodes.get('overlay-root').innerHTML;}};
+ return{ready,key,input,change,click,pointer,async blur(){for(const listener of listeners.get('window:blur')||[])listener();await ready();},imageLoads,paintCalls,animationFrames,flushAnimationFrames(){for(const fn of animationFrames.splice(0))fn();},releaseInitialState(){releaseInitialState?.();},deferReply(action){let release;const promise=new Promise(resolve=>{release=resolve;});delayedReply={action,promise};return release;},deferImageBroadcast({surface=true}={}){deferredImageBroadcast={surface};},releaseImageBroadcast(){const next=pendingImageBroadcast;pendingImageBroadcast=null;if(next)subscriber?.(next);},failExportOnce(){exportFailures++;},failCleanupOnce(){cleanupFailures++;},failEditOnce(){editFailures++;},state,commands,nodes,image,text1,text2,link,api,get main(){return nodes.get('app').innerHTML;},get overlay(){return nodes.get('overlay-root').innerHTML;}};
 }
 
 function selectedCards(f){return [...f.main.matchAll(/<article class="([^"]*)"[^>]*data-item-id="([^"]+)"/g)].filter(match=>match[1].split(' ').includes('selected')).map(match=>match[2]);}
@@ -136,6 +138,21 @@ test('native hide clears clean preview and does not leave it on the next opening
 test('editor requests anonymous CORS before loading managed original',async()=>{const f=fixture();await f.ready();await f.key('Space');await f.key('KeyC');assert.equal(f.imageLoads.length,1);assert.equal(f.imageLoads[0].crossOrigin,'anonymous');assert.match(f.imageLoads[0].url,/\/original$/);});
 
 test('canvas export rejection retains dirty crop and explicit Enter retry saves it',async()=>{const f=fixture();await f.ready();await f.key('Space');await f.key('KeyC');await f.pointer('pointerdown',60,30);await f.pointer('pointermove',500,150);await f.pointer('pointerup',500,150);f.failExportOnce();await f.key('Enter');assert.match(f.overlay,/id="markup-canvas"/);assert.equal(f.commands.filter(command=>command.action==='saveImage').length,0);assert.match(f.nodes.get('toast').textContent,/Image changes could not be saved/);await f.key('Enter');assert.doesNotMatch(f.overlay,/id="markup-canvas"/);assert.deepEqual(f.state.items.find(item=>item.id===f.image).crop,{x:60,y:30,width:440,height:120});});
+
+for(const ordering of ['broadcast before reply','reply before broadcast','unrelated surface before reply'])test('preview crop undo and redo survive '+ordering,async()=>{
+ const f=fixture({imageDocument:true});await f.ready();await f.key('Space');await f.key('KeyC');await f.pointer('pointerdown',60,30);await f.pointer('pointermove',500,150);await f.pointer('pointerup',500,150);
+ if(ordering!=='broadcast before reply')f.deferImageBroadcast({surface:ordering==='unrelated surface before reply'});
+ await f.key('Enter');assert.doesNotMatch(f.overlay,/id="markup-canvas"/);f.releaseImageBroadcast();await f.ready();
+ const crop={x:60,y:30,width:440,height:120};assert.deepEqual(f.state.items.find(item=>item.id===f.image).crop,crop);
+ await f.key('KeyZ',{ctrl:true});assert.equal(f.commands.filter(command=>command.action==='saveImage').length,2);assert.equal(f.state.items.find(item=>item.id===f.image).crop,null);assert.doesNotMatch(f.overlay,/id="markup-canvas"/);
+ await f.key('KeyZ',{ctrl:true,shift:true});assert.equal(f.commands.filter(command=>command.action==='saveImage').length,3);assert.deepEqual(f.state.items.find(item=>item.id===f.image).crop,crop);
+});
+
+test('an external same-ID image edit invalidates acknowledged preview undo history',async()=>{
+ const f=fixture({imageDocument:true});await f.ready();await f.key('Space');await f.key('KeyC');await f.pointer('pointerdown',60,30);await f.pointer('pointermove',500,150);await f.pointer('pointerup',500,150);f.deferImageBroadcast();await f.key('Enter');f.releaseImageBroadcast();await f.ready();
+ const external={x:10,y:20,width:80,height:90};f.api.emit({items:f.state.items.map(value=>value.id===f.image?{...value,crop:external,mediaUrl:value.mediaUrl+'?v=external'}:value)});await f.ready();
+ await f.key('KeyZ',{ctrl:true});assert.equal(f.commands.filter(command=>command.action==='saveImage').length,1);assert.deepEqual(f.state.items.find(item=>item.id===f.image).crop,external);
+});
 
 test('canvas export failure blocks native Settings until explicit Save succeeds',async()=>{const f=fixture();await f.ready();await f.key('Space');await f.key('KeyC');await f.pointer('pointerdown',60,30);await f.pointer('pointermove',500,150);await f.pointer('pointerup',500,150);f.failExportOnce();await f.api.command('settings');await f.ready();assert.match(f.overlay,/id="markup-canvas"/);assert.doesNotMatch(f.main,/class="settings-main"/);await f.click('save-image');assert.equal(f.overlay,'');assert.match(f.main,/class="settings-main"/);assert.deepEqual(f.state.items.find(item=>item.id===f.image).crop,{x:60,y:30,width:440,height:120});});
 

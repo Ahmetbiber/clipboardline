@@ -81,6 +81,15 @@ same-clock recopies, more than 10,000 confirmed IDs, late recorder replies and
 queued image paints after editor dismissal. Existing shelf selection, retained
 three-row motion, preview, copy/paste and upgrade checks remain required.
 
+The Windows native gate also exposed two existing edge cases. Native/remote key
+input without a physical code now normalizes ASCII shortcut letters while
+preserving legacy bindings. A controlled real-renderer test reproduced a crop
+undo race when an unrelated surface packet arrived before the save reply and
+its full content broadcast arrived later. Undo history now binds to the
+acknowledged saved image generation; a later external edit still invalidates it.
+Mac's equivalent markup save returns its native record synchronously and keeps
+undo documents on the canvas, so it has no corresponding IPC fingerprint path.
+
 The isolated Mac Cua fixture confirmed per-type counts, cancellation, moving nine
 unsaved texts to Library Trash, keeping 15 saved records, and restoring the batch.
 It also exercised marker drawing, zoom/pan, crop, undo/redo and navigation back
