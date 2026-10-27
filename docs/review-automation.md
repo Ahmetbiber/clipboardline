@@ -155,6 +155,31 @@ solution and closing an issue remain human decisions. Neither product is promise
 to autonomously resolve bugs. Configure additional issue automation separately
 after observing useful results and approving its exact permissions and behavior.
 
+## Required service-side verification before activation
+
+CodeRabbit reads the configuration on the PR branch. An external contributor can
+propose a different `.coderabbit.yaml`; this file alone cannot authoritatively lock
+off approvals, repair agents, issue planning or other write-capable features.
+Before activation, the repository owner must inspect the service's **resolved**
+configuration, configuration precedence, command eligibility and effective locks
+against a harmless PR that changes those fields. Verify that branch-controlled
+settings cannot enable code writing, automatic approvals or additional integrations.
+Dashboard defaults that are overridden by PR YAML are not such a lock.
+
+CodeRabbit documents higher-priority organization/workspace global overrides, but
+availability is plan-dependent. Do not assume those controls are included in the
+free public-repository service, start a trial or buy a plan to obtain them. If no
+authoritative service-side control is available under the approved free setup,
+leave the integration inactive and report that limitation to Orkun. A passing local
+schema or the tests in this PR does not establish service-side enforcement.
+
+The owner must separately verify that Mergify reads the reviewed default-branch
+policy, its dashboard has no inherited auto-merge/queue settings, and its command
+restrictions resolve to denial. Preserve GitHub's independent human-review and
+current-SHA CI protections; do not add either App as a bypass actor. Features and
+mixed changes still need Orkun's approval. These checks require approved App access
+and GitHub authentication; they are not completed by opening this draft.
+
 ## Official references checked 2026-10-27
 
 - [CodeRabbit schema](https://coderabbit.ai/integrations/schema.v2.json)
