@@ -6,6 +6,12 @@ by default. A feature request applies to both platforms unless an explicit,
 reviewed OS-native exception documents its user impact and reason. Native API
 and modifier-name differences do not justify silently omitting a feature.
 
+The user authorizes direct delivery for this project's current and future work.
+After completing requested changes and required checks, commit and push directly
+to `main`. Integrate any implementation branch into `main` before pushing. Do
+not open a pull request unless the user explicitly requests one. Keep all native
+release gates and source/security audits; never import private development history.
+
 Read `docs/cross-platform-parity.md`. Extend `contracts/shelf-behavior.json` and
 both actual application adapters for user-visible changes. Run the Mac XCTest
 and Windows renderer/runtime acceptance suites, the parity checker tests,
