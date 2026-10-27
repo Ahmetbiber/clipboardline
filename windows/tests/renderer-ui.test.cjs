@@ -705,3 +705,7 @@ test('IME composing Enter Escape and arrows stay native in Library search, text 
   assert.match(modal.overlay,/aria-label="Pin to folder"/);assert.equal(modal.nodes.get('modal-query').value,'Synthetic composing folder');assert.equal(modal.commands.length,modalCommands);
  }
 });
+
+test('an old shortcut save completion cannot close a newer recorder or release its owned global-shortcut lease',async()=>{
+ const f=fixture();await f.ready();await f.api.command('settings');await f.ready();await f.click('record-local',{keyAction:'pin'});await f.ready();await f.key('KeyO');const release=f.deferReply('setSettings');await f.click('confirm-modal');await f.key('Escape');await f.click('record-local',{keyAction:'copy'});await f.ready();const begin=f.commands.filter(value=>value.action==='beginShortcutRecording').at(-1);assert.ok(begin);release();await f.ready();assert.match(f.overlay,/Record shortcut/);assert.equal(f.commands.some(value=>value.action==='endShortcutRecording'&&value.payload.token===begin.payload.token),false);await f.key('Escape');assert.equal(f.commands.some(value=>value.action==='endShortcutRecording'&&value.payload.token===begin.payload.token),true);
+});
