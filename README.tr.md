@@ -4,11 +4,11 @@
 
 Görseller, metinler ve linkler elinin altında. Son kopyalarını üç askıda tut, önemli olanları yerel kütüphaneye kaydet ve tümünde klavyeyle hızla gezin.
 
-[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/latest) · [Windows x64 için indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/latest) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline-desktop) · [Ekran görüntüleri ve demolar](https://orkunisitmak.github.io/clipboardline-desktop/tr/#demo)
+[English README](README.md) · [Mac için indir](https://github.com/orkunisitmak/clipboardline/releases/latest) · [Windows x64 için indir](https://github.com/orkunisitmak/clipboardline/releases/latest) · [Kaynak kodu incele](https://github.com/orkunisitmak/clipboardline) · [Ekran görüntüleri ve demolar](https://orkunisitmak.github.io/clipboardline/tr/#demo)
 
 > macOS sürümü Swift, AppKit, SwiftUI, Vision ve Core ML kullanır; Apple silicon ve Intel’de macOS 14 veya üstünü destekler. Ayrı Electron sürümü Windows x64 için kullanılabilir; farklar ve gerçek Windows doğrulama kanıtı aşağıdaki platform tablosundadır.
 
-**Özellik rehberi — 1.7.3:** bu sayfa kaynak ağacındaki uygulamayı anlatır. İndirilebilir paketler [son sürümde](https://github.com/orkunisitmak/clipboardline-desktop/releases/latest) listelenir; her yeni yayım iki yerel platform testini gerektirir. [Kapsam ve doğrulama şartları](docs/parity-1.7.3.md).
+**Özellik rehberi — 1.7.3:** bu sayfa kaynak ağacındaki uygulamayı anlatır. İndirilebilir paketler [son sürümde](https://github.com/orkunisitmak/clipboardline/releases/latest) listelenir; her yeni yayım iki yerel platform testini gerektirir. [Kapsam ve doğrulama şartları](docs/parity-1.7.3.md).
 
 ## İlk beş dakikan
 
@@ -265,8 +265,8 @@ Açıkken güncelleme kontrolü açılışta zamanı geldiyse ve uygulama çalı
 Mac ve Windows sürümlerini bu herkese açık kaynaktan derleyebilirsin. Birleştirilmiş sürüm düzeninde kaynak kodu, indirmeler ve platform güncelleme akışları aynı depoda tutulur. Aşağıdaki komutlar için macOS SDK’sı bulunan Xcode ve Python 3 gerekir. İsteğe bağlı model hazırlama, sabitlenmiş MobileCLIP-S2 dosyalarını indirip yerelde derler; uygulamadaki arama çevrimdışı çalışır. Paketleme için deponun geliştirme rehberini izle. Resmî imzalama anahtarları, kimlik bilgileri ve kullanıcı geçmişi kaynak kopyasında bulunmaz.
 
 ```sh
-git clone https://github.com/orkunisitmak/clipboardline-desktop.git
-cd clipboardline-desktop
+git clone https://github.com/orkunisitmak/clipboardline.git
+cd clipboardline
 swift package resolve
 swift test
 bash scripts/build-community.sh
@@ -296,13 +296,13 @@ Güncellemeleri Sparkle sağlar. Cihazda arama Apple Vision ve özgün MobileCLI
 
 **Tek herkese açık depo.** Kaynak kodu ile Mac/Windows sürümleri artık `orkunisitmak/clipboardline-desktop` adresinde. Her platform kendi imzalı akışını korur; Latest seçilen her sürüm hem güncel `appcast.xml` hem de `windows-update.json` dosyasını taşır. Eski Mac `clipboardline-app` güncelleme adresleri doğrulanmış uyumluluk yönlendirmeleriyle çalışır; mevcut Mac kurulumları yeniden kurulmadan güncellenmeye devam eder. İki imzalı akış ve önceki üç Mac ZIP’i eski adreslerden oturum açılmadan doğrulandı; dosya içerikleri ve arşiv özetleri birebir aynı.
 
-Geçmiş sürüm: Windows [1.7.2 build 64](https://github.com/orkunisitmak/clipboardline-desktop/releases/tag/windows-1.7.2-build64) yayımlandı: [x64 kurulumunu indir](https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe).
+Geçmiş sürüm: Windows [1.7.2 build 64](https://github.com/orkunisitmak/clipboardline/releases/tag/windows-1.7.2-build64) yayımlandı: [x64 kurulumunu indir](https://github.com/orkunisitmak/clipboardline/releases/download/windows-1.7.2-build64/ClipBoardLine-Setup-1.7.2-x64.exe).
 
-**Geçmiş 1.7.2 doğrulaması:** [`e734c7e`](https://github.com/orkunisitmak/clipboardline-desktop/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd) kaynak revizyonunun [39296605977 numaralı Windows CI çalışmasında](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39296605977) **65 Node testi, 146 gerçek Windows kabul kontrolü** (48 kaynak, 49 paketlenmiş, 49 kurulmuş) ve **7 izole yükseltme kontrolü** geçti.
+**Geçmiş 1.7.2 doğrulaması:** [`e734c7e`](https://github.com/orkunisitmak/clipboardline/commit/e734c7e97c0f8b22ff27a4ead3f82382407854cd) kaynak revizyonunun [39296605977 numaralı Windows CI çalışmasında](https://github.com/orkunisitmak/clipboardline/actions/runs/39296605977) **65 Node testi, 146 gerçek Windows kabul kontrolü** (48 kaynak, 49 paketlenmiş, 49 kurulmuş) ve **7 izole yükseltme kontrolü** geçti.
 
 **Güncel indirmeler:** yukarıdaki bağlantılar iki platformun birlikte yayımlanan son sürümüne gider. macOS ve Windows aynı ürün sürümünü kullanır; teknik build sayaçları bağımsızdır. Paketler ve doğrulama kanıtları sürüm notlarında belirtilir.
 
-**Geçmiş birleşme kontrolleri (1.7.1–1.7.2):** macOS 1.7.0 → 1.7.1 ve Windows 1.7.1 → 1.7.2 uygulamadan kurulup otomatik açıldı; geçmiş ve ayarlar korundu. [Gerçek Windows güncelleme koşusu](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39309767453), değiştirilmemiş yayımlanmış uygulamaları, akışı ve anahtarı kullandı. Güncel güncellemeler GitHub tokenı istemez. Build64 için [aynı kaynaktan yerel kontroller](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39307655801) de geçti: 48 kaynak, 49 paket, 49 kurulu uygulama ve yedi aday yükseltme kontrolü; uygulama kodu build63 ile aynı.
+**Geçmiş birleşme kontrolleri (1.7.1–1.7.2):** macOS 1.7.0 → 1.7.1 ve Windows 1.7.1 → 1.7.2 uygulamadan kurulup otomatik açıldı; geçmiş ve ayarlar korundu. [Gerçek Windows güncelleme koşusu](https://github.com/orkunisitmak/clipboardline/actions/runs/39309767453), değiştirilmemiş yayımlanmış uygulamaları, akışı ve anahtarı kullandı. Güncel güncellemeler GitHub tokenı istemez. Build64 için [aynı kaynaktan yerel kontroller](https://github.com/orkunisitmak/clipboardline/actions/runs/39307655801) de geçti: 48 kaynak, 49 paket, 49 kurulu uygulama ve yedi aday yükseltme kontrolü; uygulama kodu build63 ile aynı.
 
 **Build 62 → 63 için tek seferlik yükseltme notu:** kurulum biter ama ClipBoardLine yeniden açılmazsa bir kez kendin aç. Özgün 1.7.0 build 62 istemcisinde yeniden açma düzeltmesi yoktur. Değiştirilmemiş gerçek build62 istemcisi indirme ve kurulumu verileri koruyarak tamamladı; güncel build63 → 64 geçişinde otomatik yeniden açılma da geçti.
 

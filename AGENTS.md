@@ -15,6 +15,13 @@ CI evidence; a Windows renderer test executed on macOS is not native Windows
 acceptance. No source-text or implementation-mirroring checks as behavioral proof.
 
 Use the single existing repository for source and both platforms' releases.
+Its canonical name is `orkunisitmak/clipboardline`, repository ID 1425566096.
+The old `clipboardline-desktop` and `clipboardline-app` names are reserved
+compatibility redirects. Existing Mac feed URLs and Windows signed repository/URL
+wire identities deliberately keep `clipboardline-desktop`; changing them would
+break shipped Windows clients. The rename does not change internal package names,
+bundle/storage identity or existing release assets. See
+`docs/repository-rename-2026-10-27.md`.
 Keep the shared product version aligned and platform build counters independent.
 Preserve the Mac bundle/storage identity and compatibility paths. Both signed
 update feeds and packages must remain available in every Latest release; do not

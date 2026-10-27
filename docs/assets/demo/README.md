@@ -12,7 +12,7 @@ English and Turkish WebVTT tracks describe the actual keyboard actions.
 No external-paste behavior is demonstrated by the isolated fixture.
 
 `windows-library.png` is a genuine installed Windows1.7.2 capture from
-[native CI39307655801](https://github.com/orkunisitmak/clipboardline-desktop/actions/runs/39307655801),
+[native CI39307655801](https://github.com/orkunisitmak/clipboardline/actions/runs/39307655801),
 using synthetic fixtures and example.com links.
 
 All captures were visually reviewed for private content before publication.

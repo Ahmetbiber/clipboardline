@@ -1,7 +1,7 @@
 # ClipBoardLine 1.7.3 platform parity
 
 This document describes the 1.7.3 implementation. Package availability is shown
-by the [latest release](https://github.com/orkunisitmak/clipboardline-desktop/releases/latest).
+by the [latest release](https://github.com/orkunisitmak/clipboardline/releases/latest).
 The table describes source behavior; the native acceptance gates below must
 pass for the exact source revision before a package can be published.
 
