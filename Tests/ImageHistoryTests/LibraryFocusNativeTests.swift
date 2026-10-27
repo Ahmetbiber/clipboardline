@@ -221,4 +221,49 @@ import XCTest
         }
     }
 
+    func testExplicitSearchOrSidebarEntrySupersedesPendingNewNoteInspectorFocus() throws {
+        _ = NSApplication.shared
+        for destination in ["search", "sidebar"] {
+            let fixture = try SyntheticFixture(); defer { fixture.cleanup() }
+            let store = try library(fixture, count: 1)
+            let controller = LibraryWindowController(store: store,
+                line: Line(defaults: fixture.defaults, inbox: fixture.inbox, breeze: false, library: store))
+            let model = controller.model
+            let window = try XCTUnwrap(controller.window), search = controller.toolbarController.searchField
+            defer {
+                window.endEditing(for: nil); window.makeFirstResponder(nil)
+                controller.close(); window.contentViewController = nil
+            }
+            controller.present()
+            wait {
+                window.contentView?.layoutSubtreeIfNeeded()
+                return window.isVisible && !model.loading && model.ids.count == 1 && window.firstResponder is NSCollectionView
+            }
+            let original = try XCTUnwrap(model.focusedID)
+            XCTAssertTrue(window.performKeyEquivalent(with: key(45, "n", [.command])))
+            XCTAssertTrue(model.loading)
+            let note = try XCTUnwrap(model.focusedID)
+            XCTAssertNotEqual(note, original)
+            if destination == "search" {
+                XCTAssertTrue(window.performKeyEquivalent(with: key(3, "f", [.command])))
+                XCTAssertTrue(isEditing(search, in: window))
+            } else {
+                controller.focusKeyboardPane(.sidebar)
+                XCTAssertTrue(controller.splitController.isSidebarFocused)
+            }
+            wait {
+                window.contentView?.layoutSubtreeIfNeeded()
+                return !model.loading && model.ids.count == 2
+            }
+            if destination == "search" {
+                XCTAssertTrue(isEditing(search, in: window), "Command-F supersedes the new note's deferred inspector entry")
+            } else {
+                XCTAssertTrue(controller.splitController.isSidebarFocused, "Explicit sidebar entry supersedes the new note's deferred inspector entry")
+            }
+            let saved = try XCTUnwrap(store.item(note))
+            XCTAssertEqual(saved.kind, .text); XCTAssertEqual(saved.text, "")
+            XCTAssertNotNil(saved.retainedAt); XCTAssertNil(saved.deletedAt)
+        }
+    }
+
 }

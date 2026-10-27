@@ -255,6 +255,8 @@ async function main(){
   await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'plain',seed:'Original plain fixture value',selectAll:true});
   await application.evaluate(()=>global.__clipboardLineTest.command('library'));
   await page.locator('[data-action="scope"][data-scope="saved"]').click();
+  const originalLibraryText=(await page.evaluate(()=>window.clipboardLine.state())).items.find(value=>value.id===textItem.id);assert.ok(originalLibraryText&&!originalLibraryText.trashedAt&&(originalLibraryText.retainedAt||originalLibraryText.pinned||originalLibraryText.folderIds.length||originalLibraryText.tags.length),'the original captured text must remain live and retained before the Library paste test');
+  const clearLibraryPasteFilters=page.locator('.library-controls [data-action="clear-filters"]');if(await clearLibraryPasteFilters.count())await clearLibraryPasteFilters.click();await page.locator('[data-action="allTypes"]').click();await until(()=>page.locator('[data-action="allTypes"]').getAttribute('aria-pressed'),value=>value==='true');if(await page.locator('#search-mode-filter').count())await until(()=>page.locator('#search-mode-filter').inputValue(),value=>value==='all');
   await page.locator(`[data-item-id="${textItem.id}"]`).click();await page.keyboard.press('Control+Enter');
   await until(fixtureState,value=>value.plainText===textItem.text);assert.equal((await page.evaluate(()=>window.clipboardLine.state())).windowVisible,false);
   check('Library CtrlEnter replaces selected text in a second native plain editor');

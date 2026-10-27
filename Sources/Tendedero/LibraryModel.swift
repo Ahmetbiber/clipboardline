@@ -114,6 +114,7 @@ import Combine
     /// In particular, background packets and sidebar browsing never steal focus.
     @discardableResult func focusContent() -> Bool {
         guard flushEdits() else { return false }
+        pendingDetailsSelection = nil
         pendingQuery?.cancel(); pendingQuery = nil
         let searchChanged = applyPendingSearch()
         contentFocusPending = true
@@ -122,7 +123,7 @@ import Combine
         else { finishContentFocus() }
         return true
     }
-    func cancelContentFocus() { contentFocusPending = false }
+    func cancelContentFocus() { contentFocusPending = false; pendingDetailsSelection = nil }
     func finishContentFocus() {
         guard contentFocusPending, !updatesSuspended, !loading else { return }
         if focusedID.flatMap({ indices[$0] }) == nil, let first = ids.first { _ = select(first) }

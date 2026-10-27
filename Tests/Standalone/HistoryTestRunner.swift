@@ -209,6 +209,7 @@ enum HistoryTestRunner {
             ("testInvalidInspectorDraftBlocksEscapePaneCycleAndNewNoteUntilCorrected", libraryKeyboardWorkflowTests.testInvalidInspectorDraftBlocksEscapePaneCycleAndNewNoteUntilCorrected),
             ("testInvalidPreviewDraftCannotEscapeOrNavigateAwayAndKeepsItsText", libraryKeyboardWorkflowTests.testInvalidPreviewDraftCannotEscapeOrNavigateAwayAndKeepsItsText),
             ("testImageCommandZKeepsMarkupUndoPriorityAndBackspaceUndoesLibraryTrash", libraryKeyboardWorkflowTests.testImageCommandZKeepsMarkupUndoPriorityAndBackspaceUndoesLibraryTrash),
+            ("testExplicitSearchOrSidebarEntrySupersedesPendingNewNoteInspectorFocus", libraryFocusNativeTests.testExplicitSearchOrSidebarEntrySupersedesPendingNewNoteInspectorFocus),
             ("testReducedMotionIsImmediateAndPresentationDoesNotClaimKeyboardOwnership", shelfPresentation.testReducedMotionIsImmediateAndPresentationDoesNotClaimKeyboardOwnership),
             ("testSharedTextIdentitiesAgainstLibraryAndLegacyHistory", textIdentityParity.testSharedTextIdentitiesAgainstLibraryAndLegacyHistory),
             ("testRepeatedThreeShelfOpenCloseLeavesInactiveRowsQuietAndRestoresSingleSelection", shelfPerformance.testRepeatedThreeShelfOpenCloseLeavesInactiveRowsQuietAndRestoresSingleSelection),
