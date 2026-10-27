@@ -191,9 +191,19 @@ import XCTest
                 line: Line(defaults: fixture.defaults, inbox: fixture.inbox, breeze: false, library: store))
             let model = controller.model
             let window = try XCTUnwrap(controller.window), search = controller.toolbarController.searchField
-            defer { _ = model.suspendUpdates(); window.makeFirstResponder(nil); window.contentViewController = nil }
-            wait { !model.loading && model.ids.count == 1 }
-            window.contentView?.layoutSubtreeIfNeeded()
+            defer {
+                window.endEditing(for: nil); window.makeFirstResponder(nil)
+                controller.close(); window.contentViewController = nil
+            }
+            // Exercise toolbar search through normal window presentation;
+            // a hidden window has a different field-editor lifecycle.
+            // The later query completion must preserve the new editor focus.
+            controller.present()
+            wait {
+                window.contentView?.layoutSubtreeIfNeeded()
+                return window.isVisible && !model.loading &&
+                    !model.contentFocusPending && model.ids.count == 1 && window.firstResponder is NSCollectionView
+            }
             model.onSearchFocus?(); XCTAssertTrue(isEditing(search, in: window))
             model.search = "Keyboard fixture"
             XCTAssertTrue(model.focusContent()); XCTAssertTrue(model.loading); XCTAssertTrue(model.contentFocusPending)

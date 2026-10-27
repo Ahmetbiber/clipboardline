@@ -38,7 +38,7 @@ sonuçlara geçer. Kapalı klasörde ilk → alt klasörleri açar. Tab/Shift+Ta
 buton, seçim kutusu ve alanlar arasında normal şekilde dolaşılabilir.
 Ayrıntılarda Esc taslağı kaydedip sonuçlara döner; kaydetme başarısızsa taslak
 ve odak korunur. Actions içinden kapsam/tür, görünüm, sıralama, arama modu,
-klasör/etiket oluşturma, yeniden adlandırma, taşıma, kaldırma ve Çöp’ten geri
+klasör/etiket oluşturma, yeniden adlandırma, kaldırma ve Çöp’ten geri
 yükleme işlemlerine ulaşılır.
 
 Library önizlemesinde oklar, ilk/son ve sayfa kısayolları aynı sonuçlar içinde
@@ -49,8 +49,8 @@ normal metin düzenleme ve geri alma tuşları korunur.
 
 Enter ile Library’den kopyalamak Library’yi açık tutar. Askıda/askı
 önizlemesinde Enter’ın kopyalayıp kapatma ve önceki uygulamaya odak döndürme
-akışı korunur. Kısayolla Çöp’e taşıma kalıcı silme değildir; kalıcı silme
-Actions üzerinden onay gerektirir.
+akışı korunur. Kısayolla Çöp’e taşıma kalıcı silme değildir. Windows’un mevcut kalıcı silme seçeneği ayrıca onay ister;
+Mac’te bu seçenek bulunmaz.
 
 ## English
 
@@ -81,8 +81,8 @@ deletions, an empty result and undo. Library copy keeps Library open; shelf copy
 retains its existing dismissal and returned-focus behavior.
 
 Command/Control+K opens Actions: search, arrows and Enter reach scope/type,
-view/sort/search modes, folder/tag management, membership removal, Trash restore
-and confirmed permanent deletion. This is also the fallback when a function key
+view/sort/search modes, folder/tag management, membership removal and Trash recovery. Windows additionally retains its confirmed permanent-delete
+action; macOS currently offers recoverable Trash. This is also the fallback when a function key
 is intercepted by the OS or the keyboard requires Fn.
 
 ## Persistence and OS integration

@@ -7,7 +7,7 @@ const path=require('node:path');
 // additional focus regression feedback without claiming native OS acceptance.
 async function journey({page,fixture,check,until,output,editorSelectAll='Control+a'}){
  const snapshot=()=>page.evaluate(()=>window.clipboardLine.state());
- const focus=()=>page.evaluate(()=>{const node=document.activeElement;return{id:node?.id||'',item:node?.dataset.itemId||null,action:node?.dataset.action||'',scope:node?.dataset.scope||'',pane:node?.id==='search-input'?'search':node?.closest('.sidebar')?'sidebar':node?.closest('.inspector')?'inspector':node?.closest('.library-grid')?'content':'other'};});
+ const focus=()=>page.evaluate(()=>{const node=document.activeElement;return{id:node?.id||'',item:node?.dataset.itemId||null,action:node?.dataset.action||'',footer:!!node?.closest('footer'),scope:node?.dataset.scope||'',pane:node?.id==='search-input'?'search':node?.closest('.sidebar')?'sidebar':node?.closest('.inspector')?'inspector':node?.closest('.library-grid')?'content':'other'};});
  const expectFocus=async(predicate)=>until(focus,predicate);
  const selected=()=>page.locator('.library-grid > .card.selected').evaluateAll(nodes=>nodes.map(node=>node.dataset.itemId));
  const cards=()=>page.locator('.library-grid > .card').evaluateAll(nodes=>nodes.map(node=>node.dataset.itemId));
@@ -49,6 +49,15 @@ async function journey({page,fixture,check,until,output,editorSelectAll='Control
  await palette('Edit item details');await expectFocus(value=>value.id==='detail-name');await press('Escape');await expectFocus(value=>value.pane==='content');
  await press('Control+Shift+n');await page.locator('#simple-input').waitFor({state:'visible'});await page.keyboard.type(fixture.prefix+' new folder');await press('Enter');await page.locator('#simple-input').waitFor({state:'hidden'});await expectFocus(value=>value.pane==='content');
  await press('Control+n');await page.locator('#simple-input').waitFor({state:'visible'});await page.keyboard.type(fixture.prefix+' new note');await press('Escape');await page.locator('#simple-input').waitFor({state:'hidden'});await expectFocus(value=>value.pane==='content');
+ const canceled=(await focus()).item;
+ await palette('Move to Trash');await page.locator('[data-action="confirm-modal"]').waitFor({state:'visible'});
+ for(let step=0;step<40&&!((await focus()).action==='close-modal'&&(await focus()).footer);step++)await press('Tab');
+ await expectFocus(value=>value.action==='close-modal'&&value.footer);await press('Enter');await page.locator('[data-action="confirm-modal"]').waitFor({state:'hidden'});assert.equal((await snapshot()).items.find(value=>value.id===canceled).trashedAt,null,'Enter on the focused Cancel button must never confirm Trash');await expectFocus(value=>value.pane==='content');
+ await palette('Move to Trash');await page.locator('[data-action="confirm-modal"]').waitFor({state:'visible'});
+ for(let step=0;step<40&&(await focus()).action!=='confirm-modal';step++)await press('Tab');
+ await expectFocus(value=>value.action==='confirm-modal');await press('Enter');await until(snapshot,state=>!!state.items.find(value=>value.id===canceled).trashedAt);await press('Backspace');await until(snapshot,state=>!state.items.find(value=>value.id===canceled).trashedAt);await expectFocus(value=>value.pane==='content');
+ await press('Control+Shift+n');await page.locator('#simple-input').waitFor({state:'visible'});await page.keyboard.type(fixture.prefix+' button save');await press('Tab');await expectFocus(value=>value.action==='close-modal');await press('Tab');await expectFocus(value=>value.action==='confirm-modal');await press('Enter');await page.locator('#simple-input').waitFor({state:'hidden'});await until(snapshot,state=>state.folders.some(value=>value.name===fixture.prefix+' button save'));await expectFocus(value=>value.pane==='content');
+ const folderCount=(await snapshot()).folders.length;await press('Control+Shift+n');await page.locator('#simple-input').waitFor({state:'visible'});await page.keyboard.type(fixture.prefix+' canceled folder');await press('Tab');await expectFocus(value=>value.action==='close-modal');await press('Space');await page.locator('#simple-input').waitFor({state:'hidden'});assert.equal((await snapshot()).folders.length,folderCount);await expectFocus(value=>value.pane==='content');
  const kept=(await focus()).item;await page.evaluate(()=>window.clipboardLine.command('hide'));await page.evaluate(()=>window.clipboardLine.command('library'));await expectFocus(value=>value.item===kept);assert.deepEqual(await selected(),[kept]);
  if(output)await page.screenshot({path:path.join(output,'library-keyboard-workspace.png')});
  check('Library detail editing, new note/folder shortcuts, dialog cancellation and hide/reopen preserve native keyboard focus');
