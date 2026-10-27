@@ -125,3 +125,24 @@ Windows upgrade baseline is 1.7.5/build68: 545769250 bytes, SHA256
 source `0d71154257aef8042a53ee6ff169079eddbb42bd`.
 Stage `clipboardline-1.7.6-build75`, then publish `windows-1.7.6-build69`
 with that exact counterpart; both feeds must say 1.7.6 before Latest promotion.
+
+
+## 1.7.7: BAMA-inspired quality improvements
+
+Mac build76 and Windows build70 retain the 1.7.6 shelf compositor and add retained
+image-editor bases, recoverable per-type unsaved-history cleanup, capture-admission
+protection and owned-global shortcut recorder suspension. The additive shared
+contracts are `clipboard-admission.json`, `history-cleanup.json` and
+`shortcut-recording.json` under `contracts/`. Their actual platform tests cover
+literal private markers, unchanged nonblank bytes, identity/version-bound cleanup,
+later copies and saves, cancellation, owned-registration lifecycle and conflicts.
+The screenshot global action remains a Windows-specific native integration;
+Command/Control follow platform conventions. Neither implementation may steal a
+shortcut another process acquires while the recorder has released it.
+
+Native Windows source/package/installed acceptance additionally exercises real
+clipboard generation queries/replacement, 4K/8K editing with persisted pixel-exact
+output, localized History UI, saved/media preservation and OS shortcut capture.
+The signed candidate-updater gate uses the genuine published 1.7.6/build69 baseline.
+Both exact-source native workflows and the original shelf/upgrade/signature gates
+remain required. See [the research and measured scope](bama-adaptation-2026-10-27.md).

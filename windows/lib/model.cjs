@@ -116,6 +116,7 @@ class Store {
   }
   pruneRecentFolders(){const known=new Set(this.data.folders.map(folder=>folder.id));this.data.settings.recentPinFolderIds=(this.data.settings.recentPinFolderIds||[]).filter(id=>known.has(id));}
   validateStored(item) {
+    if(item.captureRevision!=null)ids([item.captureRevision]);
     ids([item.id]); if (!KINDS.includes(item.kind) || !Array.isArray(item.folderIds) || !Array.isArray(item.tags)) fail('Invalid library record');
     if (item.text != null) text(item.text, 1024 * 1024, true);
     if(item.note!=null)text(item.note,1024*1024,true);
@@ -168,6 +169,11 @@ class Store {
   }
   selected(value) { const selected = ids(value); const result = selected.map(id => this.data.items.find(i => i.id === id)); if (result.some(i => !i)) fail('An item no longer exists'); return result; }
   item(id) { return this.selected([id])[0]; }
+  unsavedHistorySnapshot(kind='all') {
+    if(kind!=='all'&&!KINDS.includes(kind))fail('Invalid history type');
+    const items=this.data.items.filter(item=>!item.trashedAt&&!saved(item)&&(kind==='all'||item.kind===kind));
+    return {kind,ids:items.map(item=>item.id).sort(),captures:Object.fromEntries(items.map(item=>[item.id,{revision:item.captureRevision??null,createdAt:item.createdAt,updatedAt:item.updatedAt,lastCopiedAt:item.lastCopiedAt??null}]))};
+  }
   markCopied(value){this.modify('markCopied',{ids:value});}
   putPNG(buffer) {
     if (!Buffer.isBuffer(buffer) || buffer.length < 24 || buffer.length > 64 * 1024 * 1024 || buffer.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') fail('Invalid PNG image');
@@ -218,7 +224,7 @@ class Store {
     if(!prior&&this.data.items.length>=20000)fail('Library item limit reached');const before=clone(this.data),now=this.clock();
     try{
       const item=prior||{id:crypto.randomUUID(),kind:'image',recording:true,text:'',url:'',title:'',name:'',pinned:false,folderIds:[],tags:[],note:'',retainedAt:null,lastCopiedAt:null,createdAt:now,updatedAt:now,trashedAt:null,hiddenFromShelf:false,annotations:[],crop:null,ocrText:'',imageFile:assets.posterFile,renderedFile:'',videoFile:assets.videoFile,renderedVideoFile:'',...assets.details};
-      item.createdAt=now;item.updatedAt=now;item.hiddenFromShelf=false;
+      item.createdAt=now;item.updatedAt=now;item.hiddenFromShelf=false;item.captureRevision=crypto.randomUUID();
       this.data.items=[item,...this.data.items.filter(entry=>entry.id!==item.id)];this.expire(false);this.persist();return item;
     }catch(error){this.data=before;throw error;}
   }
@@ -242,7 +248,7 @@ class Store {
     const now = this.clock();
     const item = prior || {id: crypto.randomUUID(), kind, text: textValue, url, title: '', name: '', pinned: false, folderIds: [], tags: [],
       imageFile, renderedFile: '', ocrText: '', annotations: [], crop: null, note:'', retainedAt:null, lastCopiedAt:null, createdAt: now, updatedAt: now, trashedAt: null, hiddenFromShelf: false};
-    item.createdAt = now; item.updatedAt = now; item.hiddenFromShelf = false;
+    item.createdAt = now; item.updatedAt = now; item.hiddenFromShelf = false;item.captureRevision=crypto.randomUUID();
     if(kind==='text')item.text=textValue;
     if (extra.title) item.title = text(extra.title, 500, true);
     if (matching.length > 1) {
@@ -275,6 +281,22 @@ class Store {
   }
   modifyTransaction(action, payload = {}) {
     const now = this.clock();
+    if(action==='clearUnsavedHistory') {
+      // A confirmation is a bounded identity snapshot, never a command to
+      // include newly copied records or items saved while the dialog is open.
+      if(!Array.isArray(payload.ids)||payload.ids.length>20000)fail('Invalid history snapshot');
+      const captured=new Set();
+      for(let offset=0;offset<payload.ids.length;offset+=10000)for(const id of ids(payload.ids.slice(offset,offset+10000)))captured.add(id);
+      if(!payload.captures||typeof payload.captures!=='object'||Array.isArray(payload.captures))fail('Invalid history capture versions');
+      const current=this.unsavedHistorySnapshot(payload.kind);
+      const eligible=new Set(current.ids);
+      const affected=this.data.items.filter(item=>{const a=payload.captures[item.id],b=current.captures[item.id];return captured.has(item.id)&&eligible.has(item.id)&&a&&b&&a.revision===b.revision&&a.createdAt===b.createdAt&&a.updatedAt===b.updatedAt&&a.lastCopiedAt===b.lastCopiedAt;});
+      if(!affected.length)return {ids:[]};
+      for(const item of affected){item.trashedAt=now;item.hiddenFromShelf=true;item.updatedAt=now;}
+      const removed=new Set(affected.map(item=>item.id));
+      this.undoStack=this.undoStack.map(batch=>batch.filter(item=>!removed.has(item.id))).filter(batch=>batch.length);
+      this.persist();return {ids:[...removed]};
+    }
     if(action==='cleanup'){this.finishPermanentDeletion();return;}
     if (action === 'setSettings') { this.data.settings = settings(payload.patch, this.data.settings);this.pruneRecentFolders();this.expire(false); this.persist(); return; }
     if (action === 'createFolder') {
@@ -323,7 +345,7 @@ class Store {
         if(payload.note!==undefined)item.note=text(payload.note,1024*1024,true);
         if(payload.text!==undefined){if(item.kind!=='text')fail('Only text can be edited');item.text=text(payload.text,1024*1024,true);}
       }
-      else if(action==='markCopied')item.lastCopiedAt=now;
+      else if(action==='markCopied'){item.lastCopiedAt=now;item.captureRevision=crypto.randomUUID();}
       else if (action === 'name') { item.name = text(payload.name, 200, true).trim(); item.pinned = true; item.retainedAt??=now; }
       else if (action === 'folder') {
         if (!this.data.folders.some(f => f.id === payload.folderId)) fail('Folder unavailable');

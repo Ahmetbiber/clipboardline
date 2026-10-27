@@ -1,4 +1,4 @@
-param([ValidateSet('Capture','CaptureDiagnostics','FocusPolicySelfTest','Restore','PreparePaste','ValidatePaste','Paste','Monitor','CopyImages')][string]$Mode)
+param([ValidateSet('Capture','CaptureDiagnostics','FocusPolicySelfTest','Restore','PreparePaste','ValidatePaste','Paste','Monitor','CopyImages','ClipboardSequence')][string]$Mode)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -270,6 +270,18 @@ public static class ClipBoardLineNative {
   }
   public static void EmitCurrentFocus() { try { EmitFocus(FocusSnapshot()); } catch(Exception) {} }
   public static void EmitSequence(uint sequence) { lock(outputLock) { Console.Out.WriteLine("{\"sequence\":"+sequence+"}");Console.Out.Flush(); } }
+  public static void ObserveSequenceQueries() {
+    var reader=new System.Threading.Thread(delegate() {
+      try {
+        string line;while((line=Console.In.ReadLine())!=null) {
+          const string prefix="clipboard-sequence:";long id;
+          if(!line.StartsWith(prefix,StringComparison.Ordinal)||!long.TryParse(line.Substring(prefix.Length),out id)||id<=0||id>9007199254740991L)continue;
+          uint sequence=GetClipboardSequenceNumber();
+          lock(outputLock) {Console.Out.WriteLine("{\"clipboardQuery\":"+id+",\"sequence\":"+sequence+"}");Console.Out.Flush();}
+        }
+      } catch(System.IO.IOException) {} catch(ObjectDisposedException) {}
+    });reader.IsBackground=true;reader.Start();
+  }
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
@@ -301,7 +313,7 @@ function FocusInfo([bool]$WaitForLoading=$false) {
 }
 function HeldShortcutKeys { @(0x11,0x12,0x10,0x0D,0x5B,0x5C) | Where-Object { [ClipBoardLineNative]::GetAsyncKeyState($_) -lt 0 } }
 try {
-  if ($Mode -ne 'CopyImages') {
+  if ($Mode -ne 'CopyImages' -and $Mode -ne 'ClipboardSequence') {
     # PowerShell's dynamic caller can prevent UIA's one-time default proxy load.
     # Register Microsoft's strongly named Win32 providers before reading UIA.
     # https://learn.microsoft.com/en-us/dotnet/framework/ui-automation/register-a-client-side-provider-assembly
@@ -330,7 +342,10 @@ try {
       [System.Windows.Forms.Clipboard]::SetDataObject($data,$true,5,100)
     } finally { $bitmap.Dispose();$pngStream.Dispose();if($markerStream){$markerStream.Dispose()} }
     @{ok=$true} | ConvertTo-Json -Compress
+  } elseif ($Mode -eq 'ClipboardSequence') {
+    @{ok=$true;sequence=[ClipBoardLineNative]::GetClipboardSequenceNumber()} | ConvertTo-Json -Compress
   } elseif ($Mode -eq 'Monitor') {
+    [ClipBoardLineNative]::ObserveSequenceQueries()
     [ClipBoardLineNative]::ObserveFocus()
     $last = [uint32]0
     while ($true) {

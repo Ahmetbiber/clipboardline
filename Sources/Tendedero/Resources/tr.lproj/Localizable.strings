@@ -26,8 +26,6 @@
 "Check upstream releases…" = "Orijinal sürüm notlarına bak…";
 "Choose a valid destination or a unique name (1–64 characters)" = "Geçerli bir konum veya benzersiz bir ad seçin (1–64 karakter)";
 "Clear filters" = "Filtreleri temizle";
-"Clear unpinned image history?" = "Favori olmayan görsel geçmişi temizlensin mi?";
-"Clear unpinned image history…" = "Favori olmayan görsel geçmişini temizle…";
 "Clipboard" = "Pano";
 "Close" = "Kapat";
 "Close preview" = "Önizlemeyi kapat";
@@ -37,7 +35,6 @@
 "Copied" = "Kopyalandı";
 "Copied web addresses appear here when link capture is enabled" = "Link yakalama açıkken kopyalanan web adresleri burada görünür";
 "Copies are saved locally. Text and link capture is silent. A single web address goes to Links; paragraphs stay as text." = "Kopyalar bu Mac’te saklanır. Metin ve link yakalama askıyı açmaz. Tek web adresi Linkler’e gider; paragraflar metin olarak kalır.";
-"Copies will move to Trash. Favorites and original files are kept." = "Kopyalar Çöp’e taşınır. Sabitlenenler ve orijinal dosyalar korunur.";
 "Copy" = "Kopyala";
 "Copy latest image" = "Son görseli kopyala";
 "Copy-latest shortcut" = "Son görseli kopyalama kısayolu";
@@ -480,3 +477,16 @@
 "Checks at launch and every hour. You choose when to download and install." = "Açılışta ve her saat kontrol eder. Ne zaman indirip yükleneceğini sen seçersin.";
 
 "Signed updates · No account or token needed" = "İmzalı güncellemeler · Hesap veya token gerekmez";
+
+"Copies to clear" = "Temizlenecek kopyalar";
+
+"%d unsaved copies" = "%d kaydedilmemiş kopya";
+
+"Clear unsaved copies…" = "Kaydedilmemiş kopyaları temizle…";
+
+"Clear unsaved copies?" = "Kaydedilmemiş kopyalar temizlensin mi?";
+
+"%d unsaved copies will move to recoverable Library Trash. Pinned items, saved items, folders, tags and original files are kept." = "%d kaydedilmemiş kopya, Kütüphane’deki geri alınabilir Çöp Kutusu’na taşınacak. Sabitlenen ve kaydedilen öğeler, klasörler, etiketler ve orijinal dosyalar korunur.";
+
+
+"A shortcut could not be restored after recording. Choose another combination in Settings." = "Kayıttan sonra bir kısayol yeniden etkinleştirilemedi. Ayarlar’dan başka bir tuş birleşimi seç.";

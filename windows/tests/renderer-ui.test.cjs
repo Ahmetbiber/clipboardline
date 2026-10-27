@@ -9,8 +9,8 @@ const vm=require('node:vm');
 const crypto=require('node:crypto');
 const {execFileSync}=require('node:child_process');
 
-function fixture({deferInitialState=false,initialVisible=true}={}){
- const listeners=new Map(),nodes=new Map(),commands=[],imageLoads=[];let exportFailures=0;
+function fixture({deferInitialState=false,initialVisible=true,queuedAnimationFrames=false,imageRaster={width:900,height:220}}={}){
+ const listeners=new Map(),nodes=new Map(),commands=[],imageLoads=[],animationFrames=[],paintCalls=[];let exportFailures=0;
  class Element{
   constructor(id=''){this.id=id;this.innerHTML='';this.textContent='';this.dataset={};this.style={};this.className='';this.value='';this.selectionStart=0;this.selectionEnd=0;this.classList={add(){},remove(){},contains(){return false;}};}
   setAttribute(){}querySelector(){return null;}querySelectorAll(){return [];}focus(){}blur(){}select(){}setSelectionRange(){}scrollIntoView(){}matches(){return false;}closest(){return null;}
@@ -19,11 +19,11 @@ function fixture({deferInitialState=false,initialVisible=true}={}){
  class Canvas extends Element{
   constructor(id=''){super(id);this.width=900;this.height=220;}
   getBoundingClientRect(){return{left:0,top:0,width:900,height:220};}
-  getContext(){return new Proxy({}, {get(object,key){return object[key]??(()=>{});},set(object,key,value){object[key]=value;return true;}});}
+  getContext(){const canvas=this;return new Proxy({}, {get(object,key){if(key==='drawImage'||key==='clearRect')return(...args)=>paintCalls.push({canvas:canvas.id,operation:key,source:args[0] instanceof FixtureImage?'original':'other'});return object[key]??(()=>{});},set(object,key,value){object[key]=value;return true;}});}
   toDataURL(){if(exportFailures){exportFailures--;throw Object.assign(new Error('Synthetic canvas export rejection'),{name:'SecurityError'});}return 'data:image/png;base64,iVBORw0KGgo=';}
  }
  class FixtureImage extends Element{
-  constructor(){super();this.naturalWidth=900;this.naturalHeight=220;this.complete=true;}
+  constructor(){super();this.naturalWidth=imageRaster.width;this.naturalHeight=imageRaster.height;this.complete=true;}
   set src(value){imageLoads.push({url:value,crossOrigin:this.crossOrigin});if(this.onload)queueMicrotask(()=>this.onload());}
  }
  const document={body:new Element('body'),activeElement:null,getElementById(id){if(!nodes.has(id))nodes.set(id,id==='markup-canvas'?new Canvas(id):new Element(id));return nodes.get(id);},createElement(tag){return tag==='canvas'?new Canvas():new Element();},querySelector(){return null;},addEventListener(name,listener){if(!listeners.has(name))listeners.set(name,[]);listeners.get(name).push(listener);}};
@@ -48,14 +48,15 @@ function fixture({deferInitialState=false,initialVisible=true}={}){
   if(delayedReply?.action===action){const pending=delayedReply;delayedReply=null;await pending.promise;}
   return output;
  }};
- const context={window:{clipboardLine:api,addEventListener(){}},document,HTMLElement:Element,HTMLTextAreaElement:TextArea,Image:FixtureImage,console,structuredClone,URL,Set,Date,JSON,Math,Number,String,requestAnimationFrame:fn=>fn(),setTimeout:fn=>{queueMicrotask(fn);return 1;},clearTimeout(){}};
- vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../renderer.js'),'utf8'),context,{filename:'renderer.js'});
+ const context={window:{clipboardLine:api,addEventListener(name,listener){if(!listeners.has('window:'+name))listeners.set('window:'+name,[]);listeners.get('window:'+name).push(listener);}},document,HTMLElement:Element,HTMLTextAreaElement:TextArea,Image:FixtureImage,console,structuredClone,URL,Set,Date,JSON,Math,Number,String,requestAnimationFrame:fn=>queuedAnimationFrames?animationFrames.push(fn):fn(),setTimeout:fn=>{queueMicrotask(fn);return 1;},clearTimeout(){}};
+ vm.createContext(context);vm.runInContext(fs.readFileSync(path.join(__dirname,'../locales.js'),'utf8'),context,{filename:'locales.js'});vm.runInContext(fs.readFileSync(path.join(__dirname,'../renderer.js'),'utf8'),context,{filename:'renderer.js'});
  async function ready(){await new Promise(setImmediate);}
  async function key(code,{ctrl=false,alt=false,shift=false,key,target}={}){const event={code,key:key||(/^Key/.test(code)?code.slice(3).toLowerCase():code==='Space'?' ':code),ctrlKey:ctrl,metaKey:false,altKey:alt,shiftKey:shift,repeat:false,target:target||new Element(),preventDefault(){this.prevented=true;}};for(const listener of listeners.get('keydown')||[])await listener(event);await ready();return event;}
  async function click(action,extra={}){const target=new Element();target.dataset.action=action;Object.assign(target.dataset,extra);target.closest=selector=>selector==='[data-action]'?target:null;for(const listener of listeners.get('click')||[])listener({target,stopPropagation(){}});await ready();}
  async function pointer(type,x,y){const target=document.getElementById('markup-canvas');for(const listener of listeners.get(type)||[])listener({target,clientX:x,clientY:y,pointerId:1,shiftKey:false,preventDefault(){}});await ready();}
  async function input(id,value){const target=document.getElementById(id);target.value=value;target.selectionStart=value.length;for(const listener of listeners.get('input')||[])await listener({target});await ready();}
- return{ready,key,input,click,pointer,imageLoads,releaseInitialState(){releaseInitialState?.();},deferReply(action){let release;const promise=new Promise(resolve=>{release=resolve;});delayedReply={action,promise};return release;},failExportOnce(){exportFailures++;},failCleanupOnce(){cleanupFailures++;},failEditOnce(){editFailures++;},state,commands,nodes,image,text1,text2,link,api,get main(){return nodes.get('app').innerHTML;},get overlay(){return nodes.get('overlay-root').innerHTML;}};
+ async function change(id,value){const target=document.getElementById(id);target.value=value;for(const listener of listeners.get('change')||[])await listener({target});await ready();}
+ return{ready,key,input,change,click,pointer,async blur(){for(const listener of listeners.get('window:blur')||[])listener();await ready();},imageLoads,paintCalls,animationFrames,flushAnimationFrames(){for(const fn of animationFrames.splice(0))fn();},releaseInitialState(){releaseInitialState?.();},deferReply(action){let release;const promise=new Promise(resolve=>{release=resolve;});delayedReply={action,promise};return release;},failExportOnce(){exportFailures++;},failCleanupOnce(){cleanupFailures++;},failEditOnce(){editFailures++;},state,commands,nodes,image,text1,text2,link,api,get main(){return nodes.get('app').innerHTML;},get overlay(){return nodes.get('overlay-root').innerHTML;}};
 }
 
 function selectedCards(f){return [...f.main.matchAll(/<article class="([^"]*)"[^>]*data-item-id="([^"]+)"/g)].filter(match=>match[1].split(' ').includes('selected')).map(match=>match[2]);}
@@ -491,7 +492,63 @@ test('Settings records and directly disables optional global Library and copy-la
  const f=fixture();await f.ready();await f.api.command('settings');await f.ready();await f.click('settings-tab',{tab:'shortcuts'});
  assert.match(f.main,/data-action="record-global" data-key-action="library"/);assert.match(f.main,/data-action="record-global" data-key-action="copyLatest"/);
  await f.click('record-global',{keyAction:'library'});await f.key('KeyL');await f.click('confirm-modal');assert.match(f.overlay,/Record shortcut/);assert.match(f.nodes.get('toast').textContent,/Use Control or Alt/);
- await f.key('KeyL',{ctrl:true,alt:true});await f.click('confirm-modal');assert.equal(f.commands.at(-1).payload.patch.shortcuts.library,'Control+Alt+L');
- await f.click('record-global',{keyAction:'copyLatest'});await f.key('KeyC',{ctrl:true,alt:true});await f.click('confirm-modal');assert.equal(f.commands.at(-1).payload.patch.shortcuts.copyLatest,'Control+Alt+C');
- await f.click('disable-global',{keyAction:'copyLatest'});assert.equal(f.commands.at(-1).payload.patch.shortcuts.copyLatest,'');
+ await f.key('KeyL',{ctrl:true,alt:true});await f.click('confirm-modal');assert.equal(f.commands.filter(value=>value.action==='setSettings').at(-1).payload.patch.shortcuts.library,'Control+Alt+L');
+ await f.click('record-global',{keyAction:'copyLatest'});await f.key('KeyC',{ctrl:true,alt:true});await f.click('confirm-modal');assert.equal(f.commands.filter(value=>value.action==='setSettings').at(-1).payload.patch.shortcuts.copyLatest,'Control+Alt+C');
+ await f.click('disable-global',{keyAction:'copyLatest'});assert.equal(f.commands.filter(value=>value.action==='setSettings').at(-1).payload.patch.shortcuts.copyLatest,'');
+});
+
+for(const [width,height]of[[3840,2160],[7680,4320]])test('retained '+width+'×'+height+' markup coalesces pointer painting without dropping samples or copying the original',async()=>{
+ const f=fixture({queuedAnimationFrames:true,imageRaster:{width,height}});await f.ready();await f.key('Space');f.flushAnimationFrames();await f.key('KeyM');f.flushAnimationFrames();await f.click('image-tool',{tool:'pen'});f.flushAnimationFrames();f.paintCalls.length=0;
+ await f.pointer('pointerdown',90,44);for(let index=1;index<=96;index++)await f.pointer('pointermove',90+index*6,44+index);await f.pointer('pointerup',666,140);
+ assert.equal(f.animationFrames.length,1);assert.equal(f.paintCalls.filter(value=>value.canvas==='markup-canvas').length,0,'No synchronous per-event raster work');f.flushAnimationFrames();
+ assert.equal(f.paintCalls.filter(value=>value.canvas==='markup-canvas'&&value.operation==='clearRect').length,1);assert.equal(f.paintCalls.filter(value=>value.canvas==='markup-canvas'&&value.operation==='drawImage').length,0);assert.equal(f.imageLoads.length,1);
+ await f.key('KeyS',{ctrl:true});const saved=f.commands.find(value=>value.action==='saveImage');assert.ok(saved);assert.equal(saved.payload.annotations[0].points.length,97);assert.deepEqual(saved.payload.annotations[0].points[0],{x:width*.1,y:height*.2});assert.ok(Math.abs(saved.payload.annotations[0].points.at(-1).x-width*666/900)<1e-7);
+});
+test('Turkish Settings toggles use the same localized visible and accessible label',async()=>{const f=fixture();await f.ready();await f.api.command('settings');await f.api.emit({settings:{...f.state.settings,language:'tr'}});await f.ready();assert.match(f.main,/aria-label="Sesler"/);assert.doesNotMatch(f.main,/aria-label="Sounds"/);});
+
+test('closing an editor before its scheduled frame prevents stale overlay painting',async()=>{const f=fixture({queuedAnimationFrames:true});await f.ready();await f.key('Space');f.flushAnimationFrames();await f.key('KeyM');assert.equal(f.animationFrames.length,1);await f.key('Escape');assert.doesNotMatch(f.overlay,/id="markup-canvas"/);f.paintCalls.length=0;f.flushAnimationFrames();assert.equal(f.paintCalls.filter(value=>value.canvas==='markup-canvas').length,0);assert.match(f.overlay,/id="preview-dialog"/);});
+
+async function historyCleanupFixture(language='en'){
+ const f=fixture();await f.ready();const basedOn=(kind,id,extra)=>({...structuredClone(f.state.items.find(value=>value.kind===kind)),id,retainedAt:null,pinned:false,folderIds:[],tags:[],trashedAt:null,...extra});
+ f.api.emit({settings:{...f.state.settings,language},items:[...f.state.items.map(value=>value.id===f.text2?{...value,retainedAt:1000}:value),
+  basedOn('image','00000000-0000-4000-8000-000000000005',{pinned:true}),basedOn('link','00000000-0000-4000-8000-000000000006',{folderIds:['retained-folder']}),
+  basedOn('text','00000000-0000-4000-8000-000000000007',{tags:['retained-tag']}),basedOn('link','00000000-0000-4000-8000-000000000008',{trashedAt:1000})]});
+ await f.api.command('settings');await f.click('settings-tab',{tab:'history'});return f;
+}
+test('History cleanup selector counts each actual unsaved type and excludes saved organization and old Trash',async()=>{
+ const f=await historyCleanupFixture();assert.match(f.main,/id="history-cleanup-kind" aria-label="Copies to clear"/);assert.match(f.main,/data-history-cleanup-count role="status">3 unsaved copies/);
+ for(const kind of['image','text','link']){await f.change('history-cleanup-kind',kind);assert.match(f.main,new RegExp('value="'+kind+'" selected'));assert.match(f.main,/data-history-cleanup-count role="status">1 unsaved copies/);}
+ f.api.emit({items:f.state.items.map(value=>value.id===f.link?{...value,retainedAt:2000}:value)});await f.ready();assert.match(f.main,/data-history-cleanup-count role="status">0 unsaved copies/);assert.match(f.main,/data-action="clear-history"[^>]*disabled/);
+});
+for(const cancel of['Escape','button'])test('History cleanup '+cancel+' cancel sends no backend operation and changes no records',async()=>{
+ const f=await historyCleanupFixture(),before=structuredClone(f.state),calls=f.commands.length;await f.click('clear-history');assert.match(f.overlay,/aria-label="Clear unsaved copies\?"/);assert.match(f.overlay,/3 unsaved copies will move/);
+ if(cancel==='Escape')await f.key('Escape');else await f.click('close-modal');assert.equal(f.overlay,'');assert.equal(f.commands.length,calls);assert.deepEqual(f.state,before);
+});
+test('History cleanup confirmation keeps the chosen kind and captured IDs when later copies arrive or an item is newly saved',async()=>{
+ const f=await historyCleanupFixture();await f.change('history-cleanup-kind','text');await f.click('clear-history');assert.match(f.overlay,/1 unsaved copies will move/);const later='00000000-0000-4000-8000-000000000009';
+ f.api.emit({items:[...f.state.items.map(value=>value.id===f.text1?{...value,retainedAt:3000}:value),{...structuredClone(f.state.items.find(value=>value.id===f.text1)),id:later,retainedAt:null,text:'Copied after confirmation opened'}]});await f.ready();await f.key('Enter');
+ const commands=f.commands.filter(value=>value.action==='clearUnsavedHistory');assert.equal(commands.length,1);assert.deepEqual(commands[0].payload,{kind:'text',ids:[f.text1],captures:{[f.text1]:{revision:null,createdAt:900,updatedAt:900,lastCopiedAt:null}}});assert.equal(commands[0].payload.ids.includes(later),false);assert.equal(f.overlay,'');
+});
+test('Turkish History cleanup uses the same localized visible selector label, accessible label, count, action and confirmation',async()=>{
+ const f=await historyCleanupFixture('tr');assert.match(f.main,/<strong>Temizlenecek kopyalar<\/strong>/);assert.match(f.main,/id="history-cleanup-kind" aria-label="Temizlenecek kopyalar"/);assert.match(f.main,/3 kaydedilmemiş kopya/);assert.match(f.main,/Kaydedilmemiş kopyaları temizle…/);
+ await f.change('history-cleanup-kind','text');await f.click('clear-history');assert.match(f.overlay,/aria-label="Kaydedilmemiş kopyalar temizlensin mi\?"/);assert.match(f.overlay,/1 kaydedilmemiş kopya, Kütüphane/);assert.match(f.overlay,/>Çöp Kutusu(?:’|'|&#39;)na taşı</);assert.match(f.overlay,/>İptal</);
+});
+
+test('all recorder exits end their suspension and replacement recorder tokens remain distinct',async()=>{
+ const f=fixture();await f.ready();await f.api.command('settings');await f.ready();
+ await f.click('record-global',{keyAction:'search'});const first=f.commands.find(value=>value.action==='beginShortcutRecording').payload.token;assert.match(f.overlay,/data-recording-ready="true"/);
+ await f.key('KeyS',{ctrl:true,alt:true});assert.match(f.overlay,/Ctrl\+Alt\+S/);assert.equal(f.state.view,'settings');await f.key('Escape');assert.equal(f.overlay,'');assert.ok(f.commands.some(value=>value.action==='endShortcutRecording'&&value.payload.token===first));
+ await f.click('record-local',{keyAction:'pin'});const second=f.commands.filter(value=>value.action==='beginShortcutRecording').at(-1).payload.token;assert.notEqual(first,second);await f.blur();assert.equal(f.overlay,'');assert.ok(f.commands.some(value=>value.action==='endShortcutRecording'&&value.payload.token===second));
+ await f.click('record-global',{keyAction:'library'});await f.click('record-local',{keyAction:'name'});const starts=f.commands.filter(value=>value.action==='beginShortcutRecording');assert.equal(starts.length,4);assert.ok(f.commands.some(value=>value.action==='endShortcutRecording'&&value.payload.token===starts[2].payload.token));assert.ok(f.commands.findIndex(value=>value.action==='beginShortcutRecording'&&value.payload.token===starts[3].payload.token)<f.commands.findIndex(value=>value.action==='endShortcutRecording'&&value.payload.token===starts[2].payload.token));await f.click('close-modal');assert.equal(f.overlay,'');assert.ok(f.commands.some(value=>value.action==='endShortcutRecording'&&value.payload.token===starts[3].payload.token));
+});
+
+test('History confirmation preserves the original capture stamp when the same item ID is recopied or edited while it is open',async()=>{
+ const f=await historyCleanupFixture(),before='11111111-1111-4111-8111-111111111111',after='22222222-2222-4222-8222-222222222222';f.api.emit({items:f.state.items.map(value=>value.id===f.text1?{...value,captureRevision:before}:value)});await f.ready();await f.change('history-cleanup-kind','text');await f.click('clear-history');
+ f.api.emit({items:f.state.items.map(value=>value.id===f.text1?{...value,captureRevision:after,createdAt:4000,updatedAt:5000}:value)});await f.ready();await f.key('Enter');const request=f.commands.find(value=>value.action==='clearUnsavedHistory');assert.ok(request);assert.deepEqual(request.payload,{kind:'text',ids:[f.text1],captures:{[f.text1]:{revision:before,createdAt:900,updatedAt:900,lastCopiedAt:null}}});
+});
+
+test('Escape while recorder startup is pending releases its token even after a late reply',async()=>{
+ const f=fixture();await f.ready();await f.api.command('settings');await f.ready();const release=f.deferReply('beginShortcutRecording');
+ await f.click('record-global',{keyAction:'search'});assert.match(f.overlay,/data-recording-ready="false"/);const token=f.commands.filter(value=>value.action==='beginShortcutRecording').at(-1).payload.token;
+ await f.key('Escape');assert.equal(f.overlay,'');assert.ok(f.commands.some(value=>value.action==='endShortcutRecording'&&value.payload.token===token));release();await f.ready();assert.equal(f.overlay,'');
 });

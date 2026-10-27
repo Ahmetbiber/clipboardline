@@ -1,12 +1,13 @@
 'use strict';
 
-// These acceptance fixtures have an opaque original. A visible editor canvas
-// initially exists before its asynchronous original PNG has decoded or drawn.
-// Dimensions alone can also match a still-empty canvas, so check a real pixel.
+// The editor's original is a retained native image layer. Its transparent
+// overlay intentionally has no base pixels; dimensions alone still cannot
+// certify that the asynchronous original and first overlay frame are ready.
 function imageEditorRasterReady({width,height}){
- const canvas=document.getElementById('markup-canvas');
- if(!canvas||!canvas.isConnected||canvas.width!==width||canvas.height!==height)return false;
- try{return canvas.getContext('2d').getImageData(0,0,1,1).data[3]===255;}
+ const canvas=document.getElementById('markup-canvas'),base=document.getElementById('markup-base');
+ if(!canvas?.isConnected||canvas.width!==width||canvas.height!==height||canvas.dataset.overlayReady!=='true'
+   ||!base?.isConnected||!base.complete||base.naturalWidth!==width||base.naturalHeight!==height)return false;
+ try{const probe=document.createElement('canvas');probe.width=probe.height=1;const context=probe.getContext('2d');context.drawImage(base,0,0,1,1,0,0,1,1);return context.getImageData(0,0,1,1).data[3]===255;}
  catch{return false;}
 }
 

@@ -12,6 +12,8 @@ const expectedVersion=require('../package.json').version;
 const keyboardLibrary=require('./keyboard-library-acceptance.cjs');
 const shortcutParity=require('./shortcut-parity-acceptance.cjs');
 const libraryPreview=require('./library-preview-acceptance.cjs');
+const imageEditorNativeAcceptance=require('./image-editor-native-acceptance.cjs');
+const historyCleanupNativeAcceptance=require('./history-cleanup-native-acceptance.cjs');
 const textPreview=require('./text-preview-acceptance.cjs');
 const scrollStateAcceptance=require('./scroll-state-acceptance.cjs');
 const libraryFolderDrag=require('./library-folder-drag-acceptance.cjs');
@@ -81,6 +83,7 @@ async function main(){
   const count=textCopy.items.length;await application.evaluate(()=>global.__clipboardLineTest.readClipboard());assert.equal((await page.evaluate(()=>window.clipboardLine.state())).items.length,count);check('real text copy and own-copy loop suppression');
   await application.evaluate(async({clipboard,ClipboardItem})=>{await clipboard.write([new ClipboardItem({'text/plain':new Blob(['SYNTHETIC_PRIVATE_TEST']), 'electron application/osclipboard;format="ExcludeClipboardContentFromMonitorProcessing"':new Blob([Buffer.from([1])])})]);await global.__clipboardLineTest.readClipboard();});
   assert.ok(!(await page.evaluate(()=>window.clipboardLine.state())).items.some(i=>i.text==='SYNTHETIC_PRIVATE_TEST'));check('private clipboard marker is excluded');
+  await require('./clipboard-admission-acceptance.cjs')({application,check});
   await page.evaluate(()=>window.clipboardLine.command('hide'));await page.evaluate(()=>window.clipboardLine.command('show'));
   await until(()=>page.locator('[data-shelf="text"] .card.focused').getAttribute('data-item-id'),id=>id===textItem.id);await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});assert.equal(await page.locator('#preview-dialog').getAttribute('aria-label'),'Named synthetic key');await page.keyboard.press('Escape');
   check('fresh opening focuses the first nonempty shelf and Space previews text when Images is empty');
@@ -122,6 +125,7 @@ async function main(){
   const raster=await application.evaluate(async({net,nativeImage},{current,original})=>{const read=async url=>nativeImage.createFromBuffer(Buffer.from(await(await net.fetch(url)).arrayBuffer())).getSize();return{current:await read(current),original:await read(original)};},{current:cropped.mediaUrl,original:cropped.originalMediaUrl});
   assert.deepEqual(raster.current,{width:cropped.crop.width,height:cropped.crop.height});assert.deepEqual(raster.original,{width:900,height:220});
   await page.keyboard.press('Escape');await page.locator('#preview-dialog').waitFor({state:'hidden'});check('real crop canvas drag saves original-coordinate bounds and cropped raster');
+  await imageEditorNativeAcceptance({page,application,until,check,output});
   await page.locator(`[data-shelf="image"] [data-item-id="${imageItem.id}"]`).click();await page.keyboard.press('Space');await page.locator('#preview-dialog').waitFor({state:'visible'});await page.keyboard.press('c');await canvas.waitFor({state:'visible'});await waitForImageEditorRaster(page,{width:900,height:220});
   const tabCropBox=await waitForCropBox(page,previewBounds);assert.ok(tabCropBox.width>100&&tabCropBox.height>30,JSON.stringify(tabCropBox));
   await page.mouse.move(tabCropBox.x+tabCropBox.width*.15,tabCropBox.y+tabCropBox.height*.25);await page.mouse.down();await page.mouse.move(tabCropBox.x+tabCropBox.width*.45,tabCropBox.y+tabCropBox.height*.75,{steps:6});await page.mouse.up();
@@ -318,6 +322,7 @@ async function main(){
   await page.evaluate(()=>window.clipboardLine.command('setSettings',{patch:{shortcuts:{library:'',copyLatest:''}}}));await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'plain'});await application.evaluate(async({clipboard})=>clipboard.writeText('Disabled global copy sentinel'));
   await fixtureCommand({action:'keys',keys:'^%l'});await fixtureCommand({action:'keys',keys:'^%c'});await new Promise(resolve=>setTimeout(resolve,350));assert.equal((await page.evaluate(()=>window.clipboardLine.state())).windowVisible,false);assert.equal(await application.evaluate(async({clipboard})=>clipboard.readText()),'Disabled global copy sentinel');
   check('actual optional global Library and copy-latest-image shortcuts work from another app, preserve copy focus, and stop when switched Off');
+  await require('./shortcut-recording-acceptance.cjs')({page,application,check,until,fixtureCommand});
   await page.evaluate(()=>window.clipboardLine.command('hide'));await fixtureCommand({action:'focus',target:'plain'});await application.evaluate(()=>global.__clipboardLineTest.command('show'));
   const protectedTarget=await application.evaluate(()=>global.__clipboardLineTest.getTarget()),otherOutput=path.join(data,'unrelated-target.json');
   otherFixture=spawn(ps,['-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',path.resolve('tests/native-fixture.ps1'),'-Output',otherOutput],{windowsHide:false,stdio:'ignore',env:windowsEnvironment()});
@@ -350,6 +355,7 @@ async function main(){
   // retained in the test library: published evidence contains only our own UI.
   await page.evaluate(id=>window.clipboardLine.command('trash',{ids:[id]}),screenCapture.result.id);const removedCapture=await page.evaluate(id=>window.clipboardLine.command('delete',{ids:[id]}),screenCapture.result.id);assert.ok(!removedCapture.result?.error,removedCapture.result?.error);assert.ok(!removedCapture.items.some(value=>value.id===screenCapture.result.id));
   await page.screenshot({path:path.join(output,'settings.png')});check('native Settings transition dismisses capture crop/preview and exposes usable controls');
+  await historyCleanupNativeAcceptance({page,application,until,check,output});
   const persisted=JSON.parse(fs.readFileSync(path.join(data,'library.json'),'utf8'));assert.ok(persisted.items.some(i=>i.id===textItem.id&&i.pinned&&i.tags.includes('work')));check('real persisted library retains named pinned organization');
   if(fixture){fixture.kill();fixture=null;}
   await application.close();application=null;

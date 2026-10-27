@@ -20,6 +20,7 @@ final class SettingsModel: ObservableObject {
     let updates: AppUpdateController
     @Published var updatesRequest = 0
     @Published var section: SettingsSection = .general
+    @Published var shortcutWarning: String?
     var onCommands: () -> Void = {}
     var setSize: (Layout.Size) -> Void = { _ in }
     var setImages: (Bool) -> Void = { _ in }
@@ -41,7 +42,7 @@ final class SettingsModel: ObservableObject {
     var setCopyShortcut: (KeyShortcut?) -> Void = { _ in }
     var recordCopyShortcut: () -> Void = {}
     var changeLogin: () -> Void = {}
-    var clearHistory: () -> Void = {}
+    var clearHistory: (LibraryKind?) -> Void = { _ in }
     var reopenForLanguage: () -> Void = {}
     let languageDefaults: UserDefaults
     private let launchLanguage: String
@@ -146,6 +147,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 private struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var line: Line
+    @State private var historyCleanupKind: LibraryKind?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -274,13 +276,24 @@ private struct SettingsView: View {
     }
 
     private var history: some View {
-        Section {
+        let cleanupCount = try? line.library?.unsavedHistoryCount(kind: historyCleanupKind)
+        return Section {
             ForEach(LibraryKind.allCases, id: \.self) { kind in
                 Picker(kind == .image ? L("Images") : kind == .text ? L("Texts") : L("Links"), selection: model.binding(get: { line.retentionDays(for: kind) }, set: { line.setRetentionDays($0, for: kind) })) {
                     ForEach(ImageHistory.dayChoices, id: \.self) { Text(String(format: L("Keep for %d days"), $0)).tag($0) }
                 }
             }
-            Button(L("Clear unpinned image history…"), action: model.clearHistory).disabled(!line.items.contains { !$0.pinned })
+            Picker(L("Copies to clear"), selection: $historyCleanupKind) {
+                Text(L("All types")).tag(nil as LibraryKind?)
+                Text(L("Images")).tag(LibraryKind.image as LibraryKind?)
+                Text(L("Texts")).tag(LibraryKind.text as LibraryKind?)
+                Text(L("Links")).tag(LibraryKind.link as LibraryKind?)
+            }
+            if let count = cleanupCount {
+                Text(String(format: L("%d unsaved copies"), count)).font(.caption).foregroundStyle(.secondary)
+            }
+            Button(L("Clear unsaved copies…")) { model.clearHistory(historyCleanupKind) }
+                .disabled(line.library == nil || cleanupCount == 0)
         } header: { Text(L("History")) } footer: {
             Text(L("Unsaved copies expire to recoverable Trash. Saved items and original files are kept."))
         }
@@ -288,6 +301,12 @@ private struct SettingsView: View {
 
     private var shortcuts: some View {
         Group {
+            if let warning = model.shortcutWarning {
+                Section {
+                    Label { Text(warning) } icon: { Image(systemName: "exclamationmark.triangle") }
+                        .foregroundStyle(.orange).accessibilityIdentifier("shortcut-recording-warning")
+                }
+            }
             Section(L("Search shelves from other apps")) {
                 LabeledContent(L("Shortcut")) { Text(line.globalSearchShortcut?.title ?? L("Off")).monospaced() }
                 HStack {

@@ -109,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return TextClipboardWatcher(onText: callback, onLink: link, capturesText: { TextClipboardWatcher.isEnabled }, capturesLinks: { LinkHistory.isEnabled })
     }()
     private var shortcutRecorder: ShortcutRecorder?
+    private var shortcutRestoreWarning: String?
     private(set) var settingsController: SettingsWindowController?
     private lazy var appUpdates: AppUpdateController = {
         let controller = AppUpdateController(enabled: watchesFiles)
@@ -819,19 +820,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    private func reportShortcutRestoreFailure() {
+        let warning = L("A shortcut could not be restored after recording. Choose another combination in Settings.")
+        shortcutRestoreWarning = warning; line.notice = warning
+        settingsController?.model.shortcutWarning = warning
+    }
+    private func clearResolvedShortcutWarning() {
+        guard shortcutRestoreWarning != nil,
+              Shortcut.current == nil || hotKey?.isRegistered == true,
+              line.globalSearchShortcut == nil || searchHotKey?.isRegistered == true,
+              line.libraryShortcut == nil || libraryHotKey?.isRegistered == true,
+              line.copyLatestShortcut == nil || copyHotKey?.isRegistered == true else { return }
+        if line.notice == shortcutRestoreWarning { line.notice = nil }
+        shortcutRestoreWarning = nil; settingsController?.model.shortcutWarning = nil
+    }
+
     // MARK: Shortcut
 
     private func registerShortcut() {
+        defer { clearResolvedShortcutWarning() }
         hotKey = nil
         guard let shortcut = Shortcut.current else { return }
         hotKey = HotKey(shortcut) { [weak self] in self?.toggle() }
     }
 
     private func changeShortcut() {
-        // Off while recording, so pressing the current one records it
-        // instead of showing the line.
-        hotKey = nil
-        ToggleShortcutRecorder.shared.record { [weak self] result in
+        // The recorder suspends every owned global shortcut, including its
+        // current combination, and restores them before this completion runs.
+        ToggleShortcutRecorder.shared.record(onRestoreFailure: { [weak self] in self?.reportShortcutRestoreFailure() }) { [weak self] result in
             guard let self else { return }
             if let result {
                 let previous = Shortcut.current
@@ -986,6 +1002,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         capturePasteTarget()
         if settingsController == nil {
             let model = SettingsModel(line: line, allowsSystemChanges: watchesFiles, updates: appUpdates)
+            model.shortcutWarning = shortcutRestoreWarning
             model.onCommands = { [weak self] in self?.showCommands(origin: .application) }
             model.setSize = { [weak self] in self?.setSize($0) }
             model.setImages = { [weak self] in self?.setClipboard($0) }
@@ -1014,7 +1031,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             model.setCopyShortcut = { [weak self] in self?.registerCopyShortcut($0) }
             model.recordCopyShortcut = { [weak self] in self?.recordShortcut() }
             model.changeLogin = { Self.toggleLaunchAtLogin() }
-            model.clearHistory = { [weak self] in self?.confirmClearHistory() }
+            model.clearHistory = { [weak self] kind in self?.confirmClearHistory(kind: kind) }
             model.reopenForLanguage = { [weak self] in
                 guard let self, self.flushPreviewEdits(), self.libraryController?.flush() ?? true else { return }
                 do { try LanguagePreferences.reopen() } catch { self.line.notice = L("The app could not reopen. Quit and open it to apply the language.") }
@@ -1057,6 +1074,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func recordContextShortcut(_ action: KeyboardAction) {
         shortcutRecorder?.window.close()
         let recorder = ShortcutRecorder(allowPlain: true); shortcutRecorder = recorder
+        recorder.onRestoreFailure = { [weak self] in self?.reportShortcutRestoreFailure() }
         recorder.window.title = action.title
         recorder.onFinish = { [weak self] value in
             guard let self else { return }; self.shortcutRecorder = nil
@@ -1069,13 +1087,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         recorder.show()
     }
 
-    private func confirmClearHistory() {
+    private func confirmClearHistory(kind: LibraryKind? = nil) {
+        guard flushPreviewEdits(), libraryController?.flush() ?? true, let store = line.library else { return }
+        let snapshot: UnsavedHistorySnapshot
+        do { snapshot = try store.unsavedHistorySnapshot(kind: kind) }
+        catch { NSAlert(error: error).runModal(); return }
         let alert = NSAlert()
-        alert.messageText = L("Clear unpinned image history?")
-        alert.informativeText = L("Copies will move to Trash. Favorites and original files are kept.")
+        alert.messageText = L("Clear unsaved copies?")
+        alert.informativeText = String(format: L("%d unsaved copies will move to recoverable Library Trash. Pinned items, saved items, folders, tags and original files are kept."), snapshot.ids.count)
         alert.addButton(withTitle: L("Move to Trash"))
         alert.addButton(withTitle: L("Cancel"))
-        if alert.runModal() == .alertFirstButtonReturn { line.clear() }
+        alert.buttons.first?.isEnabled = !snapshot.ids.isEmpty
+        if alert.runModal() == .alertFirstButtonReturn {
+            do {
+                try store.clearUnsavedHistory(snapshot)
+                if let session = previewSession { updatePreview(session) }
+                settingsController?.model.refresh()
+            } catch { NSAlert(error: error).runModal() }
+        }
     }
 
     static var updatesURL: URL {
@@ -1391,6 +1420,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
     private func registerSearchShortcut(_ value: KeyShortcut?, persist: Bool = true) {
+        defer { clearResolvedShortcutWarning() }
         guard let value else {
             searchHotKey?.invalidate(); searchHotKey = nil
             if persist { line.saveGlobalSearchShortcut(nil) }; return
@@ -1405,6 +1435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     private func recordSearchShortcut() {
         shortcutRecorder?.window.close(); let recorder = ShortcutRecorder(); shortcutRecorder = recorder
+        recorder.onRestoreFailure = { [weak self] in self?.reportShortcutRestoreFailure() }
         recorder.window.title = L("Search shelves from other apps")
         recorder.onFinish = { [weak self] value in
             self?.shortcutRecorder = nil
@@ -1777,6 +1808,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         switch action {
         case .settings: showSettings()
+        case .clearUnsavedHistory: confirmClearHistory()
         case .settingsGeneral, .settingsHistory, .settingsSources, .settingsShortcuts, .settingsAbout:
             showSettings()
             settingsController?.model.section = action == .settingsGeneral ? .general : action == .settingsHistory ? .history : action == .settingsSources ? .sources : action == .settingsShortcuts ? .shortcuts : .about
@@ -1878,6 +1910,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     private func copyLatest() { if let id = line.newestID { line.copy(id) } }
     private func registerLibraryShortcut(_ value: KeyShortcut?, persist: Bool = true) {
+        defer { clearResolvedShortcutWarning() }
         guard value != nil else { libraryHotKey?.invalidate(); libraryHotKey = nil; if persist { line.saveLibraryShortcut(nil) }; return }
         guard let value, value.isValid else { return }
         if libraryHotKey?.isRegistered == true && value == line.libraryShortcut { return }
@@ -1890,6 +1923,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     private func recordLibraryShortcut() {
         shortcutRecorder?.window.close(); let recorder = ShortcutRecorder(); shortcutRecorder = recorder
+        recorder.onRestoreFailure = { [weak self] in self?.reportShortcutRestoreFailure() }
         recorder.onFinish = { [weak self] value in self?.shortcutRecorder = nil; if let value { self?.registerLibraryShortcut(value) }; self?.settingsController?.model.refresh() }
         recorder.show()
     }
@@ -1897,6 +1931,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Register the replacement before dropping the old key or changing preferences.
     /// A shortcut occupied by another app cannot silently disable the saved one.
     private func registerCopyShortcut(_ value: KeyShortcut?, persist: Bool = true) {
+        defer { clearResolvedShortcutWarning() }
         if value == nil {
             copyHotKey?.invalidate(); copyHotKey = nil
             if persist { line.saveCopyLatestShortcut(nil) }
@@ -1920,6 +1955,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func recordShortcut() {
         shortcutRecorder?.window.close()
         let recorder = ShortcutRecorder(); shortcutRecorder = recorder
+        recorder.onRestoreFailure = { [weak self] in self?.reportShortcutRestoreFailure() }
         recorder.onFinish = { [weak self] value in
             self?.shortcutRecorder = nil
             if let value { self?.registerCopyShortcut(value) }

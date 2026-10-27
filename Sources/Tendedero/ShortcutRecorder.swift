@@ -20,8 +20,10 @@ final class ShortcutRecorder: NSObject, NSWindowDelegate {
     private let saveButton = NSButton(title: L("Save shortcut"), target: nil, action: nil)
     private var candidate: KeyShortcut?
     private var finished = false
+    private var suspension: HotKey.Suspension?
     private let allowsPlain: Bool
     var onFinish: ((KeyShortcut?) -> Void)?
+    var onRestoreFailure: (() -> Void)?
 
     init(allowPlain: Bool = false) {
         allowsPlain = allowPlain
@@ -47,12 +49,18 @@ final class ShortcutRecorder: NSObject, NSWindowDelegate {
         window.contentView = root
         window.center()
     }
+    func beginRecording() {
+        guard !finished else { return }
+        if suspension == nil { suspension = HotKey.suspendAll(onRestoreFailure: onRestoreFailure) }
+    }
     func show() {
+        guard !finished else { return }
+        beginRecording()
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(window.contentView)
     }
     private func receive(_ event: NSEvent) {
-        if event.keyCode == 53 && !allowsPlain { finish(nil); return }
+        if event.keyCode == 53 { finish(nil); return }
         if !allowsPlain && event.keyCode == 36 && event.modifierFlags.intersection([.control, .option, .command, .shift]).isEmpty {
             if let candidate { finish(candidate) }; return
         }
@@ -64,7 +72,8 @@ final class ShortcutRecorder: NSObject, NSWindowDelegate {
     @objc private func save() { if let candidate { finish(candidate) } }
     private func finish(_ value: KeyShortcut?) {
         guard !finished else { return }; finished = true
-        window.close(); onFinish?(value)
+        window.close(); suspension?.resume(); suspension = nil; onFinish?(value)
     }
+    func windowDidResignKey(_ notification: Notification) { finish(nil) }
     func windowWillClose(_ notification: Notification) { finish(nil) }
 }

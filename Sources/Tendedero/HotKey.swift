@@ -4,17 +4,84 @@ import Carbon
 /// Independent global shortcuts through the Carbon hot key API. Unlike a global
 /// key monitor, it needs no Accessibility permission.
 final class HotKey {
+    struct Registration {
+        var register: (Int, Int, UInt32) -> OSStatus
+        var unregister: () -> Void
+    }
+    private final class Weak { weak var value: HotKey?; init(_ value: HotKey) { self.value = value } }
+    final class Suspension {
+        private var id: UUID?
+        private let onRestoreFailure: (() -> Void)?
+        fileprivate init(_ id: UUID, onRestoreFailure: (() -> Void)?) { self.id = id; self.onRestoreFailure = onRestoreFailure }
+        func resume() {
+            guard let id else { return }; self.id = nil
+            if !HotKey.resume(id) { onRestoreFailure?() }
+        }
+        deinit { resume() }
+    }
+    private var eventID: UInt32?
     private var ref: EventHotKeyRef?
+    private var registered = false
+    private var invalidated = false
+    private let keyCode: Int
+    private let modifiers: Int
+    private let registration: Registration?
+    private let action: () -> Void
     let identifier: UInt32
     private static var nextID: UInt32 = 1
-    private static var actions: [UInt32: () -> Void] = [:]
+    private static var nextEventID: UInt32 = 1
+    private static var events: [UInt32: Weak] = [:]
+    private static var owned: [UInt32: Weak] = [:]
+    private static var suspensions = Set<UUID>()
+    private static var suspendedIDs = Set<UInt32>()
     private static var handler: EventHandlerRef?
     private(set) var registrationStatus: OSStatus = noErr
-    var isRegistered: Bool { ref != nil && registrationStatus == noErr }
+    var isRegistered: Bool { registered && registrationStatus == noErr }
 
-    init(keyCode: Int, modifiers: Int, action: @escaping () -> Void) {
-        identifier = Self.nextID
-        Self.nextID += 1
+    /// Releases only this process's owned hotkeys. Nested recorders keep them
+    /// released until the final lease ends; stale OS callbacks cannot fire.
+    static func suspendAll(onRestoreFailure: (() -> Void)? = nil) -> Suspension {
+        let id = UUID(); suspensions.insert(id)
+        if suspensions.count == 1 {
+            for value in owned.values {
+                guard let value = value.value, value.isRegistered else { continue }
+                suspendedIDs.insert(value.identifier); value.pause()
+            }
+        }
+        return Suspension(id, onRestoreFailure: onRestoreFailure)
+    }
+    private static func resume(_ id: UUID) -> Bool {
+        guard suspensions.remove(id) != nil, suspensions.isEmpty else { return true }
+        let values = suspendedIDs.compactMap { owned[$0]?.value }
+        suspendedIDs.removeAll()
+        for value in values { value.registerIfAllowed() }
+        return values.allSatisfy { $0.isRegistered }
+    }
+    static func dispatch(_ identifier: UInt32) {
+        guard suspensions.isEmpty, let value = owned[identifier]?.value, value.isRegistered else { return }
+        value.action()
+    }
+    static func dispatchEvent(_ eventID: UInt32) {
+        guard let value = events[eventID]?.value, value.eventID == eventID else { return }
+        dispatch(value.identifier)
+    }
+    init(keyCode: Int, modifiers: Int, registration: Registration? = nil, action: @escaping () -> Void) {
+        self.keyCode = keyCode; self.modifiers = modifiers; self.registration = registration; self.action = action
+        identifier = Self.nextID; Self.nextID += 1
+        Self.owned[identifier] = Weak(self)
+        if !Self.suspensions.isEmpty { Self.suspendedIDs.insert(identifier) }
+        registerIfAllowed()
+    }
+    private func registerIfAllowed() {
+        guard !invalidated, !registered, Self.suspensions.isEmpty else { return }
+        let newEventID = Self.nextEventID; Self.nextEventID += 1
+        if let registration {
+            registrationStatus = registration.register(keyCode, modifiers, newEventID)
+            registered = registrationStatus == noErr
+            if registered { eventID = newEventID; Self.events[newEventID] = Weak(self) }
+            return
+        }
+        registrationStatus = noErr
         if Self.handler == nil {
             var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
             registrationStatus = InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
@@ -24,27 +91,31 @@ final class HotKey {
                         MemoryLayout<EventHotKeyID>.size, nil, &key) == noErr,
                       key.signature == 0x5445_4E44 else { return noErr }
                 let id = key.id
-                DispatchQueue.main.async { HotKey.actions[id]?() }
+                DispatchQueue.main.async { HotKey.dispatchEvent(id) }
                 return noErr
             }, 1, &spec, nil, &Self.handler)
         }
         guard registrationStatus == noErr else { return }
-        let id = EventHotKeyID(signature: OSType(0x5445_4E44), id: identifier)
+        let id = EventHotKeyID(signature: OSType(0x5445_4E44), id: newEventID)
         registrationStatus = RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), id,
             GetApplicationEventTarget(), 0, &ref)
-        if isRegistered { Self.actions[identifier] = action }
+        registered = ref != nil && registrationStatus == noErr
+        if registered { eventID = newEventID; Self.events[newEventID] = Weak(self) }
     }
-
+    private func pause() {
+        guard registered else { return }
+        if let registration { registration.unregister() }
+        else if let ref { UnregisterEventHotKey(ref) }
+        if let eventID { Self.events[eventID] = nil }; eventID = nil
+        ref = nil; registered = false
+    }
     convenience init?(_ shortcut: Shortcut, action: @escaping () -> Void) {
         guard shortcut.isUsable else { return nil }
         self.init(keyCode: shortcut.keyCode, modifiers: shortcut.carbonModifiers, action: action)
         guard isRegistered else { return nil }
     }
-
     func invalidate() {
-        if let ref { UnregisterEventHotKey(ref) }
-        ref = nil
-        Self.actions[identifier] = nil
+        invalidated = true; pause(); Self.owned[identifier] = nil; Self.suspendedIDs.remove(identifier)
     }
     deinit { invalidate() }
 }
@@ -129,12 +200,14 @@ final class ToggleShortcutRecorder: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var monitor: Any?
     private var done: ((Shortcut??) -> Void)?
+    private var suspension: HotKey.Suspension?
 
     /// Calls back with the new shortcut, `.some(nil)` for none, or nil if
     /// cancelled.
-    func record(_ done: @escaping (Shortcut??) -> Void) {
+    func record(onRestoreFailure: (() -> Void)? = nil, _ done: @escaping (Shortcut??) -> Void) {
         finish(nil)
         self.done = done
+        suspension = HotKey.suspendAll(onRestoreFailure: onRestoreFailure)
 
         let title = NSTextField(labelWithString: L("Press the new shortcut"))
         title.font = .systemFont(ofSize: 15, weight: .semibold)
@@ -172,6 +245,11 @@ final class ToggleShortcutRecorder: NSObject, NSWindowDelegate {
         }
     }
 
+    func windowDidResignKey(_ notification: Notification) {
+        guard (notification.object as? NSWindow) === window else { return }
+        finish(nil)
+    }
+
     func windowWillClose(_ notification: Notification) {
         guard (notification.object as? NSWindow) === window else { return }
         window = nil
@@ -185,6 +263,7 @@ final class ToggleShortcutRecorder: NSObject, NSWindowDelegate {
         self.done = nil
         window?.close()
         window = nil
+        suspension?.resume(); suspension = nil
         done?(result)
     }
 }

@@ -1,15 +1,92 @@
 import AppKit
+import QuartzCore
+
+/// Pointer input belongs to the document, including through a transparent overlay.
+@MainActor private final class ImageMarkupOverlay: NSView {
+    var render: ((NSRect) -> Void)?
+    override var isOpaque: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) { render?(dirtyRect) }
+}
 
 /// The image and its marks share one document view, so zooming/panning cannot
 /// separate the overlay from the pixels. Persisted geometry is always unit based.
 @MainActor final class ImageMarkupCanvas: NSImageView, NSTextViewDelegate {
+    private let baseImageLayer = CALayer()
+    private let overlay = ImageMarkupOverlay()
+    private var retainedBaseImage: CGImage?
+#if DEBUG || STANDALONE_TESTS
+    private(set) var baseImagePreparationCount = 0
+    private(set) var baseImageGeometryCount = 0
+    private(set) var overlayDrawCount = 0
+    var retainedBaseImageForTesting: CGImage? { retainedBaseImage }
+    var retainedBaseLayerForTesting: CALayer { baseImageLayer }
+#endif
+    override var isOpaque: Bool { false }
+    override var image: NSImage? {
+        didSet { prepareBaseImage(); invalidateOverlay() }
+    }
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect); configureCompositing()
+    }
+    required init?(coder: NSCoder) {
+        super.init(coder: coder); configureCompositing()
+    }
+    private func configureCompositing() {
+        wantsLayer = true
+        layer?.masksToBounds = true
+        baseImageLayer.contentsGravity = .resize
+        baseImageLayer.minificationFilter = .trilinear
+        baseImageLayer.magnificationFilter = .linear
+        baseImageLayer.actions = ["position": NSNull(), "bounds": NSNull(), "contents": NSNull(), "contentsScale": NSNull()]
+        layer?.addSublayer(baseImageLayer)
+        overlay.wantsLayer = true
+        overlay.render = { [weak self] rect in self?.drawOverlay(rect) }
+        addSubview(overlay)
+        prepareBaseImage(); invalidateOverlay()
+    }
+    private func prepareBaseImage() {
+        // ImagePreview supplies an orientation-correct, decoded thumbnail. Keep
+        // those exact pixels on the compositor instead of rasterizing them with
+        // every pointer event. A tight crop changes the layer frame, never the
+        // image allocation or the persisted original.
+        let pixels = image?.cgImage(forProposedRect: nil, context: nil, hints: [.interpolation: NSImageInterpolation.high])
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        retainedBaseImage = pixels
+        baseImageLayer.contents = pixels
+        CATransaction.commit()
+#if DEBUG || STANDALONE_TESTS
+        if pixels != nil { baseImagePreparationCount += 1 }
+#endif
+    }
+    private func synchronizeCompositingGeometry() {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        if baseImageLayer.frame != imageFrame {
+            baseImageLayer.frame = imageFrame
+#if DEBUG || STANDALONE_TESTS
+            baseImageGeometryCount += 1
+#endif
+        }
+        let scale = window?.backingScaleFactor ?? 1
+        if baseImageLayer.contentsScale != scale { baseImageLayer.contentsScale = scale }
+        if overlay.frame != bounds { overlay.frame = bounds }
+        if overlay.bounds != bounds { overlay.bounds = bounds }
+        CATransaction.commit()
+    }
+    private func invalidateOverlay() {
+        synchronizeCompositingGeometry()
+        overlay.needsDisplay = true
+    }
+    override func layout() { super.layout(); synchronizeCompositingGeometry() }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); invalidateOverlay() }
+    override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); invalidateOverlay() }
     weak var zoomScroll: ZoomScrollView?
     var onChange: () -> Void = {}
     var onSelection: () -> Void = {}
     private(set) var document = ImageMarkupDocument()
     private(set) var selectedID: UUID?
     private(set) var textEditor: NSTextView?
-    var isMarkupEditing = false { didSet { needsDisplay = true; window?.invalidateCursorRects(for: self) } }
+    var isMarkupEditing = false { didSet { invalidateOverlay(); window?.invalidateCursorRects(for: self) } }
     var tool: ImageMarkupTool = .pen
     var color: MarkupColor = .red
     var lineWidth: Double = 0.008
@@ -58,7 +135,7 @@ import AppKit
         if tool == .select, let original = dragDocument { document = original }
         if cropDrag != nil { cropSelection = cropDragSelection; cropDrag = nil; cropDragSelection = nil; onSelection() }
         zoomScroll?.endPan(); panning = false; spaceHeld = false
-        draft = nil; dragStart = nil; dragDocument = nil; resizing = false; needsDisplay = true
+        draft = nil; dragStart = nil; dragDocument = nil; resizing = false; invalidateOverlay()
     }
     override var acceptsFirstResponder: Bool { true }
     override var mouseDownCanMoveWindow: Bool { !isCropping && !isMarkupEditing && zoomScroll?.canPan != true }
@@ -69,13 +146,17 @@ import AppKit
         textEditor?.removeFromSuperview(); textEditor = nil; textID = nil
         document = value; selectedID = nil; draft = nil
         isCropping = false; cropSelection = nil
-        undoDocuments.removeAll(); redoDocuments.removeAll(); needsDisplay = true
+        undoDocuments.removeAll(); redoDocuments.removeAll(); invalidateOverlay()
     }
-    override func draw(_ dirtyRect: NSRect) {
+    // The backing layer's own contents stay transparent. Its retained image
+    // sublayer sits below the separate vector overlay and native text editor.
+    override func draw(_ dirtyRect: NSRect) {}
+    private func drawOverlay(_ dirtyRect: NSRect) {
+#if DEBUG || STANDALONE_TESTS
+        overlayDrawCount += 1
+#endif
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: bounds).addClip()
-        image?.draw(in: imageFrame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true,
-                    hints: [.interpolation: NSImageInterpolation.high])
         ImageMarkupRenderer.draw(elements: document.elements, in: imageFrame)
         if let draft { ImageMarkupRenderer.draw(elements: [draft], in: imageFrame) }
         if isCropping { drawCropOverlay() }
@@ -123,7 +204,7 @@ import AppKit
         if !edges.isEmpty { cropDrag = .resize(box, edges) }
         else if cropSelection?.isFullImage != true, box.contains(start) { cropDrag = .move(box) }
         else { cropDrag = .create(start) }
-        needsDisplay = true; onSelection()
+        invalidateOverlay(); onSelection()
     }
     private func updateCropDrag(at value: NSPoint) {
         guard let cropDrag, let start = dragStart, bounds.width > 0, bounds.height > 0 else { return }
@@ -151,7 +232,7 @@ import AppKit
         let x = Double((box.minX - bounds.minX) / bounds.width), y = Double((box.minY - bounds.minY) / bounds.height)
         cropSelection = MarkupCrop(x: x, y: y, width: min(1 - x, Double(box.width / bounds.width)),
                                    height: min(1 - y, Double(box.height / bounds.height)))
-        needsDisplay = true; onSelection()
+        invalidateOverlay(); onSelection()
     }
     private func drawCropOverlay() {
         let box = (cropSelection ?? .full).rect(in: bounds)
@@ -181,17 +262,17 @@ import AppKit
         }
     }
     private func changed(_ previous: ImageMarkupDocument) {
-        guard previous != document else { needsDisplay = true; return }
+        guard previous != document else { invalidateOverlay(); return }
         undoDocuments.append(previous)
         if undoDocuments.count > 60 { undoDocuments.removeFirst() }
-        redoDocuments.removeAll(); needsDisplay = true; onChange(); onSelection()
+        redoDocuments.removeAll(); invalidateOverlay(); onChange(); onSelection()
     }
     func setTool(_ value: ImageMarkupTool) {
         cancelCrop()
         finishTextEditing(); tool = value; selectedID = nil
         if value == .marker && lineWidth < 0.02 { lineWidth = 0.04; color = .yellow }
         else if value != .marker && lineWidth >= 0.03 { lineWidth = 0.008 }
-        needsDisplay = true; onSelection(); window?.invalidateCursorRects(for: self)
+        invalidateOverlay(); onSelection(); window?.invalidateCursorRects(for: self)
     }
     func applyStyle(color: MarkupColor? = nil, width: Double? = nil, fill: Bool? = nil, fontSize: Double? = nil) {
         finishTextEditing()
@@ -208,7 +289,7 @@ import AppKit
     func beginCrop() {
         finishTextEditing(); cancelGesture(); selectedID = nil
         cropSelection = document.crop ?? .full; isCropping = true
-        needsDisplay = true; onSelection(); window?.invalidateCursorRects(for: self)
+        invalidateOverlay(); onSelection(); window?.invalidateCursorRects(for: self)
         window?.makeFirstResponder(self)
     }
     @discardableResult func applyCrop() -> Bool {
@@ -219,25 +300,25 @@ import AppKit
         let previous = document
         document.crop = selection.isFullImage ? nil : selection
         isCropping = false; cropSelection = nil; selectedID = nil
-        changed(previous); needsDisplay = true; onSelection(); window?.invalidateCursorRects(for: self)
+        changed(previous); invalidateOverlay(); onSelection(); window?.invalidateCursorRects(for: self)
         return true
     }
     func cancelCrop() {
         guard isCropping else { return }
         cancelGesture(); isCropping = false; cropSelection = nil
-        needsDisplay = true; onSelection(); window?.invalidateCursorRects(for: self)
+        invalidateOverlay(); onSelection(); window?.invalidateCursorRects(for: self)
     }
     func resetCropSelection() {
         guard isCropping else { return }
-        cancelGesture(); cropSelection = .full; needsDisplay = true; onSelection()
+        cancelGesture(); cropSelection = .full; invalidateOverlay(); onSelection()
     }
     func undoMarkup() {
         finishTextEditing(); cancelCrop(); guard let previous = undoDocuments.popLast() else { return }
-        redoDocuments.append(document); document = previous; selectedID = nil; needsDisplay = true; onChange(); onSelection()
+        redoDocuments.append(document); document = previous; selectedID = nil; invalidateOverlay(); onChange(); onSelection()
     }
     func redoMarkup() {
         finishTextEditing(); cancelCrop(); guard let next = redoDocuments.popLast() else { return }
-        undoDocuments.append(document); document = next; selectedID = nil; needsDisplay = true; onChange(); onSelection()
+        undoDocuments.append(document); document = next; selectedID = nil; invalidateOverlay(); onChange(); onSelection()
     }
     func deleteSelected() {
         finishTextEditing(); guard let selectedID else { return }
@@ -267,7 +348,7 @@ import AppKit
             } else { selectedID = hitTestMark(start)?.id; resizing = false }
             if let selected { color = selected.color; lineWidth = selected.lineWidth; filled = selected.fill; fontSize = selected.fontSize }
             if event.clickCount == 2, selected?.tool == .text { beginText(at: selected!.points[0], element: selected) }
-            needsDisplay = true; onSelection(); return
+            invalidateOverlay(); onSelection(); return
         }
         selectedID = nil; onSelection()
         guard document.elements.count < ImageMarkupDocument.maximumElements,
@@ -276,7 +357,7 @@ import AppKit
         let p = unit(start)
         draft = ImageMarkupElement(tool: tool, points: tool == .pen || tool == .marker ? [p] : [p, p], color: color,
                                    lineWidth: lineWidth, fill: filled && (tool == .rectangle || tool == .ellipse), fontSize: fontSize)
-        needsDisplay = true
+        invalidateOverlay()
     }
     override func mouseDragged(with event: NSEvent) {
         if panning, let scroll = zoomScroll { scroll.pan(to: scroll.viewportPoint(for: event)); return }
@@ -303,7 +384,7 @@ import AppKit
                 let y = max(-(ys.min() ?? 0), min(1 - (ys.max() ?? 1), dy))
                 element.points = old.points.map { MarkupPoint(x: $0.x + x, y: $0.y + y) }
             }
-            document.elements[index] = element; needsDisplay = true; return
+            document.elements[index] = element; invalidateOverlay(); return
         }
         guard var value = draft else { return }
         if tool == .pen || tool == .marker {
@@ -323,15 +404,15 @@ import AppKit
             }
             value.points[1] = unit(end)
         }
-        draft = value; needsDisplay = true
+        draft = value; invalidateOverlay()
     }
     override func mouseUp(with event: NSEvent) {
         if panning { zoomScroll?.endPan(); panning = false; return }
         if isCropping {
             updateCropDrag(at: point(event)); cropDrag = nil; cropDragSelection = nil; dragStart = nil
-            needsDisplay = true; onSelection(); return
+            invalidateOverlay(); onSelection(); return
         }
-        defer { draft = nil; dragStart = nil; dragDocument = nil; resizing = false; needsDisplay = true }
+        defer { draft = nil; dragStart = nil; dragDocument = nil; resizing = false; invalidateOverlay() }
         guard isMarkupEditing else { super.mouseUp(with: event); return }
         let previous = dragDocument ?? document
         if let draft, document.elements.count < ImageMarkupDocument.maximumElements {
@@ -395,7 +476,7 @@ import AppKit
     }
     override func setFrameSize(_ newSize: NSSize) {
         if newSize != frame.size { finishTextEditing() }
-        super.setFrameSize(newSize)
+        super.setFrameSize(newSize); invalidateOverlay()
     }
     @discardableResult func finishTextEditing() -> Bool {
         guard let editor = textEditor else { return true }

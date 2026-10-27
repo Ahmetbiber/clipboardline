@@ -37,7 +37,7 @@ test('build69 pins the genuine published 1.7.5 build68 size, hash and source', (
   assert.throws(() => verifyPreviousInstaller(69, Buffer.alloc(100)), /exact reviewed size/);
 });
 test('unknown, coerced or missing candidate profiles cannot select a previous installer', () => {
-  for (const build of [undefined,null,true,'67','68','69',62,70,NaN,67.5]) {
+  for (const build of [undefined,null,true,'67','68','69','70',62,71,NaN,67.5]) {
     assert.throws(() => reviewedPrevious(build), /reviewed/);
     assert.throws(() => previousInstallerURL(build), /reviewed/);
     assert.throws(() => previousInstallerOptions(build), /reviewed/);
@@ -47,4 +47,11 @@ test('previous bytes must satisfy the exact reviewed size and cryptographic iden
   assert.throws(() => verifyPreviousInstaller(67, Buffer.alloc(100)), /exact reviewed size/);
   assert.throws(() => verifyPreviousInstaller(66, Buffer.from('synthetic tampered installer')), /pinned release SHA256/);
   assert.throws(() => verifyPreviousInstaller(67, 'not binary bytes'), /downloaded as bytes/);
+});
+
+test('build70 pins the genuine published1.7.6build69 without modifying earlier profiles',()=>{
+ assert.deepEqual(reviewedPrevious(70),{version:'1.7.6',build:69,size:545771823,sha256:'76af8435fca09d076ae7eb17c396399fc4dfdfd5099b8ce9b5ad67ddc7e9d531',sourceRevision:'9517b92eb83deb619a4a8f0ab1fbc288e87747e5'});
+ assert.equal(previousInstallerURL(70),'https://github.com/orkunisitmak/clipboardline-desktop/releases/download/windows-1.7.6-build69/ClipBoardLine-Setup-1.7.6-x64.exe');
+ assert.deepEqual(previousInstallerOptions(70),{maximum:545771823,timeout:120000});
+ assert.throws(()=>verifyPreviousInstaller(70,Buffer.alloc(100)),/exact reviewed size/);
 });

@@ -52,7 +52,11 @@ final class TextClipboardWatcher {
             guard source.changeCount == count else { return }
             guard let data,
                   !data.isEmpty, data.count <= Self.maximumDataBytes,
-                  let text = String(data: data, encoding: .utf8), !text.isEmpty else { continue }
+                  String(data: data, encoding: .utf8) != nil else { continue }
+            // Decode the validated UTF-8 literally; Foundation's encoding initializer
+            // consumes a leading BOM, which changes an otherwise valid copy.
+            let text = String(decoding: data, as: UTF8.self)
+            guard text.unicodeScalars.contains(where: { !$0.properties.isWhitespace }) else { continue }
             guard source.changeCount == count else { return }
             if capturesLinks(), let onLink, let url = LinkIdentity.standalone(text) { onLink(url) }
             else if capturesText() { onText(text) }

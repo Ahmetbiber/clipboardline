@@ -4,6 +4,12 @@ import CryptoKit
 import Darwin
 
 enum LibraryKind: String, Codable, CaseIterable { case image, text, link }
+/// Capture versions protect a recopy that reuses a deduplicated identity.
+struct UnsavedHistorySnapshot: Equatable {
+    let kind: LibraryKind?
+    let ids: [UUID]
+    let captures: [UUID: String]
+}
 struct LibraryRecord: Codable, Equatable, Identifiable {
     let id: UUID
     let kind: LibraryKind
@@ -11,6 +17,8 @@ struct LibraryRecord: Codable, Equatable, Identifiable {
     var updatedAt: Date
     var lastCopiedAt: Date?
     var lastCapturedAt: Date?
+    /// Optional for existing libraries; unrelated edits preserve this value.
+    var captureRevision: UUID?
     var retainedAt: Date?
     var favorite = false
     var onShelf = true
@@ -430,7 +438,7 @@ extension String {
     @discardableResult func captureImage(_ url: URL, capturedAt: Date? = nil) throws -> LibraryRecord {
         if let existing = try LibrarySQL.decode(db.rows("SELECT payload FROM items WHERE path=? AND deleted IS NULL", [.text(url.standardizedFileURL.path)])).first { return existing }
         guard files.isRegularFile(url) else { throw HistoryFiles.Failure.unsafeFile }
-        let date = capturedAt ?? now(); var item = LibraryRecord(id: UUID(), kind: .image, createdAt: date, updatedAt: date); item.path = url.standardizedFileURL.path
+        let date = capturedAt ?? now(); var item = LibraryRecord(id: UUID(), kind: .image, createdAt: date, updatedAt: date); item.path = url.standardizedFileURL.path; item.captureRevision = UUID()
         try db.transaction { try put(item) }; changed([item.id]); return item
     }
     @discardableResult func captureText(_ text: String) throws -> LibraryRecord? {
@@ -481,6 +489,7 @@ extension String {
             }
             result.text = text; result.createdAt = orderedDate; result.updatedAt = date
             result.lastCapturedAt = date; result.lastCopiedAt = date; result.onShelf = true
+            result.captureRevision = UUID()
             try put(result)
             affected.append(result.id)
             return result
@@ -498,11 +507,11 @@ extension String {
     @discardableResult func captureLink(_ url: URL) throws -> LibraryRecord {
         guard let normalized = LinkIdentity.normalized(url) else { throw HistoryFiles.Failure.unsafeFile }
         if var item = try LibrarySQL.decode(db.rows("SELECT payload FROM items WHERE normalized=? AND deleted IS NULL ORDER BY created DESC,rowid DESC LIMIT 1", [.text(normalized)])).first {
-            item.onShelf = true; item.updatedAt = now(); item.lastCopiedAt = now(); item.lastCapturedAt = now()
+            item.onShelf = true; item.updatedAt = now(); item.lastCopiedAt = now(); item.lastCapturedAt = now(); item.captureRevision = UUID()
             try db.transaction { try put(item) }; changed([item.id]); return item
         }
         let date = now(); var item = LibraryRecord(id: UUID(), kind: .link, createdAt: date, updatedAt: date)
-        item.originalURL = url.absoluteString; item.normalizedURL = normalized; item.lastCapturedAt = date
+        item.originalURL = url.absoluteString; item.normalizedURL = normalized; item.lastCapturedAt = date; item.captureRevision = UUID()
         try db.transaction { try put(item) }; changed([item.id]); return item
     }
     private func ensureOwned(_ item: inout LibraryRecord) throws {
@@ -741,8 +750,45 @@ extension String {
         shelfRemovalUndo = shelfRemovalUndo.map { $0.filter { !affected.contains($0.id) } }.filter { !$0.isEmpty }
     }
     func trash(_ ids: [UUID]) throws { try mutate(ids) { $0.deletedAt = self.now(); $0.onShelf = false }; invalidateShelfUndo(ids) }
+    private static let unsavedHistoryWhere = "i.deleted IS NULL AND i.retained IS NULL AND i.favorite=0 AND NOT EXISTS(SELECT 1 FROM item_collections c WHERE c.item=i.id) AND NOT EXISTS(SELECT 1 FROM item_tags t WHERE t.item=i.id)"
+    func unsavedHistoryCount(kind: LibraryKind? = nil) throws -> Int {
+        let clause = Self.unsavedHistoryWhere + (kind == nil ? "" : " AND i.kind=?")
+        let values: [SQLValue] = kind.map { [.text($0.rawValue)] } ?? []
+        return Int(try db.rows("SELECT COUNT(*) AS n FROM items i WHERE " + clause, values).first?["n"]?.number ?? 0)
+    }
+    func unsavedHistorySnapshot(kind: LibraryKind? = nil) throws -> UnsavedHistorySnapshot {
+        let clause = Self.unsavedHistoryWhere + (kind == nil ? "" : " AND i.kind=?")
+        let values: [SQLValue] = kind.map { [.text($0.rawValue)] } ?? []
+        let rows = try db.rows("SELECT i.id,printf('%!.17g|%!.17g|%s|%s',i.created,i.updated,COALESCE(json_extract(CAST(i.payload AS TEXT),'$.captureRevision'),''),COALESCE(json_extract(CAST(i.payload AS TEXT),'$.lastCopiedAt'),'')) AS version FROM items i WHERE " + clause + " ORDER BY i.id", values)
+        var ids = [UUID](), captures = [UUID: String]()
+        for row in rows {
+            guard let id = row["id"]?.string.flatMap(UUID.init(uuidString:)), let version = row["version"]?.string else { throw HistoryFiles.Failure.unsafeFile }
+            ids.append(id); captures[id] = version
+        }
+        return UnsavedHistorySnapshot(kind: kind, ids: ids, captures: captures)
+    }
+    @discardableResult func clearUnsavedHistory(_ snapshot: UnsavedHistorySnapshot) throws -> [UUID] {
+        guard !snapshot.ids.isEmpty else { return [] }
+        let date = now()
+        var eligible = [UUID]()
+        // Acquire the writer lock before reading eligibility or payloads. A
+        // rollback app's save must never be overwritten by a stale read.
+        try db.transaction {
+            let current = try unsavedHistorySnapshot(kind: snapshot.kind)
+            var seen = Set<UUID>()
+            for id in snapshot.ids where seen.insert(id).inserted {
+                guard let version = snapshot.captures[id], current.captures[id] == version,
+                      var value = try item(id) else { continue }
+                value.deletedAt = date; value.onShelf = false; value.updatedAt = date
+                try put(value); eligible.append(id)
+            }
+        }
+        guard !eligible.isEmpty else { return [] }
+        invalidateShelfUndo(eligible); changed(eligible)
+        return eligible
+    }
     func restore(_ ids: [UUID]) throws { try mutate(ids) { $0.deletedAt = nil; $0.onShelf = true }; invalidateShelfUndo(ids) }
-    func markCopied(_ ids: [UUID]) throws { try mutate(ids) { $0.lastCopiedAt = self.now() } }
+    func markCopied(_ ids: [UUID]) throws { try mutate(ids) { $0.lastCopiedAt = self.now(); $0.captureRevision = UUID() } }
     func prune() throws {
         var expired = [LibraryRecord]()
         for kind in LibraryKind.allCases {

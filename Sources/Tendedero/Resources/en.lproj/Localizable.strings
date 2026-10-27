@@ -26,8 +26,6 @@
 "Check upstream releases…" = "Check upstream releases…";
 "Choose a valid destination or a unique name (1–64 characters)" = "Choose a valid destination or a unique name (1–64 characters)";
 "Clear filters" = "Clear filters";
-"Clear unpinned image history?" = "Clear unpinned image history?";
-"Clear unpinned image history…" = "Clear unpinned image history…";
 "Clipboard" = "Clipboard";
 "Close" = "Close";
 "Close preview" = "Close preview";
@@ -37,7 +35,6 @@
 "Copied" = "Copied";
 "Copied web addresses appear here when link capture is enabled" = "Copied web addresses appear here when link capture is enabled";
 "Copies are saved locally. Text and link capture is silent. A single web address goes to Links; paragraphs stay as text." = "Copies are saved locally. Text and link capture is silent. A single web address goes to Links; paragraphs stay as text.";
-"Copies will move to Trash. Favorites and original files are kept." = "Copies will move to Trash. Pinned items and original files are kept.";
 "Copy" = "Copy";
 "Copy latest image" = "Copy latest image";
 "Copy-latest shortcut" = "Copy-latest shortcut";
@@ -480,3 +477,16 @@
 "Checks at launch and every hour. You choose when to download and install." = "Checks at launch and every hour. You choose when to download and install.";
 
 "Signed updates · No account or token needed" = "Signed updates · No account or token needed";
+
+"Copies to clear" = "Copies to clear";
+
+"%d unsaved copies" = "%d unsaved copies";
+
+"Clear unsaved copies…" = "Clear unsaved copies…";
+
+"Clear unsaved copies?" = "Clear unsaved copies?";
+
+"%d unsaved copies will move to recoverable Library Trash. Pinned items, saved items, folders, tags and original files are kept." = "%d unsaved copies will move to recoverable Library Trash. Pinned items, saved items, folders, tags and original files are kept.";
+
+
+"A shortcut could not be restored after recording. Choose another combination in Settings." = "A shortcut could not be restored after recording. Choose another combination in Settings.";

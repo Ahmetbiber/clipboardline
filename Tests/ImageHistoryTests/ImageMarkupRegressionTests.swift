@@ -49,10 +49,10 @@ import XCTest
             XCTAssertTrue(editor.frame.width > viewport.contentSize.width)
             XCTAssertTrue(viewport.contentView.bounds.minX > 0, "The native caret should remain reachable in long text")
             XCTAssertTrue(viewport.frame.width <= canvas.bounds.width)
-            XCTAssertEqual(canvas.subviews.count, 1)
+            XCTAssertEqual(canvas.subviews.filter { $0 is NSScrollView }.count, 1)
             canvas.finishTextEditing()
             XCTAssertEqual(canvas.document.elements.first?.text, text)
-            XCTAssertTrue(canvas.subviews.isEmpty)
+            XCTAssertFalse(canvas.subviews.contains { $0 is NSScrollView })
         }
     }
 
@@ -125,7 +125,7 @@ import XCTest
             canvas.setTool(.text); click(canvas, NSPoint(x: 40, y: 50))
             try XCTUnwrap(canvas.textEditor).string = "Renk ve boyut ✓"
             canvas.applyStyle(color: .blue, fontSize: 0.08)
-            XCTAssertFalse(canvas.isTextEditing); XCTAssertTrue(canvas.subviews.isEmpty)
+            XCTAssertFalse(canvas.isTextEditing); XCTAssertFalse(canvas.subviews.contains { $0 is NSScrollView })
             let styled = try XCTUnwrap(canvas.document.elements.first)
             XCTAssertEqual(styled.color, .blue); XCTAssertEqual(styled.fontSize, 0.08)
             canvas.undoMarkup(); XCTAssertEqual(canvas.document.elements.first?.fontSize, 0.05)
@@ -133,10 +133,10 @@ import XCTest
             canvas.setTool(.text); click(canvas, NSPoint(x: 40, y: 50))
             try XCTUnwrap(canvas.textEditor).string = "Zoom sırasında korunur 🌍"
             canvas.setFrameSize(NSSize(width: 800, height: 480))
-            XCTAssertFalse(canvas.isTextEditing); XCTAssertTrue(canvas.subviews.isEmpty)
+            XCTAssertFalse(canvas.isTextEditing); XCTAssertFalse(canvas.subviews.contains { $0 is NSScrollView })
             XCTAssertEqual(canvas.document.elements.first?.text, "Zoom sırasında korunur 🌍")
             XCTAssertEqual(canvas.document.elements.first?.points, [MarkupPoint(x: 0.1, y: 50.0 / 240)])
-            canvas.load(.init()); XCTAssertFalse(canvas.isTextEditing); XCTAssertTrue(canvas.subviews.isEmpty)
+            canvas.load(.init()); XCTAssertFalse(canvas.isTextEditing); XCTAssertFalse(canvas.subviews.contains { $0 is NSScrollView })
         }
     }
 }
