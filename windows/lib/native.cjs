@@ -40,11 +40,15 @@ function monitor(changed, failed, focused = () => {}) {
   const queries=new ClipboardSequenceQueries(value=>child.stdin.write(value));sequenceQueries=queries;
   const stopped=()=>{queries.close();if(sequenceQueries===queries)sequenceQueries=null;};
   child.stdin.on('error',stopped);
+  // Drain stderr so PowerShell warnings can never fill the pipe and block the monitor.
+  child.stderr.resume();
   let buffer=''; child.stdout.on('data',chunk => {
     buffer += chunk.toString(); if (buffer.length > 64000) { child.kill(); return; }
     let newline;
     while ((newline=buffer.indexOf('\n')) >= 0) { const line=buffer.slice(0,newline);buffer=buffer.slice(newline+1);try { const v=JSON.parse(line); if(v.clipboardQuery!==undefined){queries.receive(v);}else if(Number.isInteger(v.sequence)) changed(v.sequence); if(v.focus) focused(v.focus); } catch {} }
   });
-  child.on('error',error=>{stopped();failed(error);}); child.on('exit',code => { stopped();if(code) failed(new Error('Native clipboard monitor stopped.')); }); return child;
+  // A killed child exits with code null and a signal, so report any exit exactly once.
+  let reported=false;const report=error=>{stopped();if(!reported){reported=true;failed(error);}};
+  child.on('error',report); child.on('exit',()=>report(new Error('Native clipboard monitor stopped.'))); return child;
 }
 module.exports = {clipboardSequence:async({standalone=false}={})=>{if(!standalone&&sequenceQueries)return sequenceQueries.read();if(process.platform!=='win32')return null;const value=await run('ClipboardSequence');return value.sequence;},cancelPaste:()=>{for(const child of pasteChildren)child.kill();pasteChildren.clear();},capture:()=>run('Capture'),captureDiagnostics:async()=>{const trace=lastCaptureTrace,details=await run('CaptureDiagnostics');return trace?{...details,captureTrace:trace}:details;},selfTestFocusPolicy:()=>run('FocusPolicySelfTest'), restore:target=>run('Restore',target),preparePaste:target=>run('PreparePaste',target),validatePaste:target=>run('ValidatePaste',{...target,prepared:true}),paste:target=>run('Paste',target),copyImages:payload=>run('CopyImages',payload),monitor};

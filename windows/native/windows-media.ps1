@@ -1,5 +1,7 @@
 param([ValidateSet('Inspect','Trim')][string]$Mode='Inspect')
 $ErrorActionPreference='Stop'
+# Node exchanges UTF-8 JSON; Windows PowerShell otherwise uses the OEM code page and garbles non-ASCII text and paths.
+[Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
 # No UI, executable download or third-party codec process. WinRT uses the
 # installed Windows media stack on this non-window-owning MTA thread.
 function Initialize-MediaRuntime {

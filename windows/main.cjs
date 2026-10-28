@@ -274,13 +274,31 @@ async function recognize(id,quiet=false) {
     const source=app.isPackaged?path.join(process.resourcesPath,'ocr-data',language,'4.0.0_best_int',language+'.traineddata.gz'):path.join(__dirname,'node_modules','@tesseract.js-data',language,'4.0.0_best_int',language+'.traineddata.gz');
     const destination=path.join(languageDirectory,language+'.traineddata.gz');if(!fs.existsSync(destination))fs.copyFileSync(source,destination);
   }
-  const worker=await createWorker(['eng','tur'],1,{langPath:languageDirectory,cachePath:languageDirectory,gzip:true});
-  try{let image=nativeImage.createFromPath(file);const size=image.getSize(),scale=Math.min(1,2400/Math.max(size.width,size.height));if(scale<1)image=image.resize({width:Math.round(size.width*scale),height:Math.round(size.height*scale)});const result=await worker.recognize(image.toPNG());if(!store.data.items.includes(item)||(item.renderedFile||item.imageFile)!==fingerprint)throw new Error('Image changed during recognition');item.ocrText=String(result.data.text||'').slice(0,1024*1024);store.persist();if(!quiet)notify(item.ocrText?'Image text ready':'No text found');else broadcast();return{text:item.ocrText,id};}
-  finally{await worker.terminate();}
+  const worker=await ocrEngine(()=>createWorker(['eng','tur'],1,{langPath:languageDirectory,cachePath:languageDirectory,gzip:true}));let failed=true;
+  try{let image=nativeImage.createFromPath(file);const size=image.getSize(),scale=Math.min(1,2400/Math.max(size.width,size.height));if(scale<1)image=image.resize({width:Math.round(size.width*scale),height:Math.round(size.height*scale)});const result=await worker.recognize(image.toPNG());if(!store.data.items.includes(item)||(item.renderedFile||item.imageFile)!==fingerprint)throw new Error('Image changed during recognition');item.ocrText=String(result.data.text||'').slice(0,1024*1024);store.persist();if(!quiet)notify(item.ocrText?'Image text ready':'No text found');else broadcast();failed=false;return{text:item.ocrText,id};}
+  finally{releaseOcr(failed);}
 }
+// One Tesseract worker serves queued recognitions and stops after a minute idle,
+// instead of loading both language models again for every image.
+let ocrWorker=null,ocrUsers=0,ocrIdleTimer=null;
+function ocrEngine(create){clearTimeout(ocrIdleTimer);ocrUsers++;if(!ocrWorker)ocrWorker=create().catch(error=>{ocrWorker=null;throw error;});return ocrWorker.catch(error=>{ocrUsers--;throw error;});}
+function stopOcr(){clearTimeout(ocrIdleTimer);const worker=ocrWorker;ocrWorker=null;void worker?.then(value=>value.terminate()).catch(()=>{});}
+function releaseOcr(failed){ocrUsers--;if(failed&&ocrUsers===0)stopOcr();else if(ocrUsers===0)ocrIdleTimer=setTimeout(stopOcr,60000);}
+// Restart a stopped clipboard monitor with backoff; polling covers the gap.
+let monitorRestartTimer=null,monitorRestartDelay=2000;
+function startMonitor(){
+  const started=Date.now();
+  monitor=native.monitor(()=>{if(!testMode)void readClipboard();},error=>{monitor?.kill();monitor=null;pasteTargets.clear();if(closing)return;
+    if(Date.now()-started>60000)monitorRestartDelay=2000;
+    if(monitorRestartDelay===2000)notify(error.message+' Falling back to bounded clipboard polling.');
+    clearTimeout(monitorRestartTimer);stopOcr();monitorRestartTimer=setTimeout(()=>{if(!closing&&!monitor)startMonitor();},monitorRestartDelay);monitorRestartDelay=Math.min(monitorRestartDelay*2,300000);
+  },focus=>pasteTargets.observe(focus));
+}
+let watchTimers=[];
 function configureWatchers() {
   for(const watcher of watchers)watcher.close();watchers=[];
-  for(const folder of store.data.settings.watchFolders){try{if(!fs.statSync(folder).isDirectory())continue;const timers=new Map();const watcher=fs.watch(folder,(_event,name)=>{if(!name||!/[.](png|jpe?g|webp|bmp|mov|mp4)$/i.test(name))return;clearTimeout(timers.get(name));timers.set(name,setTimeout(()=>{timers.delete(name);try{const file=path.join(folder,path.basename(name));const item=importFile(file);Promise.resolve(item).then(record=>{broadcast();if(store.data.settings.openAfterScreenshot)void show('shelves',{selectId:record.id,kind:'image'});}).catch(()=>{});}catch{}},700));});watcher.on('error',()=>{});watchers.push(watcher);}catch{}}
+  for(const timers of watchTimers)for(const timer of timers.values())clearTimeout(timer);watchTimers=[];
+  for(const folder of store.data.settings.watchFolders){try{if(!fs.statSync(folder).isDirectory())continue;const timers=new Map();watchTimers.push(timers);const watcher=fs.watch(folder,(_event,name)=>{if(!name||!/[.](png|jpe?g|webp|bmp|mov|mp4)$/i.test(name))return;clearTimeout(timers.get(name));timers.set(name,setTimeout(()=>{timers.delete(name);try{const file=path.join(folder,path.basename(name));const item=importFile(file);Promise.resolve(item).then(record=>{broadcast();if(store.data.settings.openAfterScreenshot)void show('shelves',{selectId:record.id,kind:'image'});}).catch(()=>{});}catch{}},700));});watcher.on('error',()=>{});watchers.push(watcher);}catch{}}
 }
 let shortcutRegistry,shortcutRecording=null;
 function finishShortcutRecording(token=null){
@@ -446,7 +464,7 @@ else app.whenReady().then(async()=>{
   window.webContents.on('render-process-gone',()=>finishShortcutRecording());
   window.webContents.on('did-start-navigation',()=>finishShortcutRecording());
   await window.loadURL(entry);
-  monitor=native.monitor(()=>{if(!testMode)void readClipboard();},error=>{monitor?.kill();monitor=null;pasteTargets.clear();if(!closing)notify(error.message+' Falling back to bounded clipboard polling.');},focus=>pasteTargets.observe(focus));
+  startMonitor();
   if(!testMode||testTray){
     if(process.platform==='win32')app.setAppUserModelId('com.clipboardline.desktop.windows');
     createTray();
@@ -456,7 +474,7 @@ else app.whenReady().then(async()=>{
     configureShortcuts();configureWatchers();
 
     clipboardTimer=setInterval(()=>{if(!monitor)void readClipboard();},1000);
-    retentionTimer=setInterval(()=>{store.expire();refreshImageSearch();broadcast();},3600000);
+    retentionTimer=setInterval(()=>{try{store.expire();refreshImageSearch();broadcast();}catch(error){notify(error.message);}},3600000);
     updateTimer=setInterval(()=>void updateScheduler.tick(),60000);
     updateLaunchTimer=setTimeout(()=>void updateScheduler.tick(),10000);updateLaunchTimer.unref();
     powerMonitor.on('resume',()=>void updateScheduler.tick());
@@ -467,4 +485,4 @@ else app.whenReady().then(async()=>{
 }).catch(error=>{dialog.showErrorBox('ClipBoardLine could not start',error.message);app.exit(1);});
 app.on('second-instance',()=>{if(window)void show('shelves');});
 app.on('activate',()=>{if(window)void show('shelves');});
-app.on('before-quit',()=>{closing=true;visibilityGeneration++;shelfMotion.cancel();trayPresentation?.dispose();tray?.destroy();cancelRecordingTrims();mediaJobs?.dispose();dragFiles?.dispose();clearTimeout(imageSearchTimer);void imageSearch?.stop();clearInterval(clipboardTimer);clearInterval(retentionTimer);clearInterval(updateTimer);clearTimeout(updateLaunchTimer);monitor?.kill();watchers.forEach(w=>w.close());shortcutRegistry?.dispose();globalShortcut.unregisterAll();});
+app.on('before-quit',()=>{closing=true;visibilityGeneration++;shelfMotion.cancel();trayPresentation?.dispose();tray?.destroy();cancelRecordingTrims();mediaJobs?.dispose();dragFiles?.dispose();clearTimeout(imageSearchTimer);void imageSearch?.stop();clearInterval(clipboardTimer);clearTimeout(monitorRestartTimer);clearInterval(retentionTimer);clearInterval(updateTimer);clearTimeout(updateLaunchTimer);monitor?.kill();watchers.forEach(w=>w.close());shortcutRegistry?.dispose();globalShortcut.unregisterAll();});

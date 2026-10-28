@@ -1,4 +1,6 @@
 $ErrorActionPreference='Stop'
+# Node exchanges UTF-8 JSON; Windows PowerShell otherwise uses the OEM code page and garbles non-ASCII text and paths.
+[Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
 try {
  Add-Type -AssemblyName System.Windows.Forms
  $payload=[Console]::In.ReadToEnd()|ConvertFrom-Json

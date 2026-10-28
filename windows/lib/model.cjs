@@ -87,6 +87,9 @@ function plainURL(value) {
   try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password ? u.href : null; } catch { return null; }
 }
 
+const LIBRARY_LOAD_LIMIT=64*1024*1024;
+// Antivirus, Search indexing and OneDrive briefly lock library.json on Windows.
+function renameRetrying(source,destination){for(let attempt=0;;attempt++){try{fs.renameSync(source,destination);return;}catch(error){if(attempt>=5||!['EPERM','EBUSY','EACCES'].includes(error.code))throw error;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,25*(attempt+1));}}}
 class Store {
   constructor(directory, {clock = Date.now} = {}) {
     this.directory = path.resolve(directory); this.clock = clock; this.undoStack = []; this.trashUndoStack = []; this.textIdentities = new WeakMap();this.revision=0;
@@ -104,7 +107,7 @@ class Store {
     this.data = {schema: 1, items: [], folders: [], settings: clone(DEFAULTS)};
     if (fs.existsSync(this.file)) {
       if(fs.lstatSync(this.file).isSymbolicLink())fail('Library must not be a symlink.');
-      if (fs.statSync(this.file).size > 64 * 1024 * 1024) fail('Library exceeds safe load size');
+      if (fs.statSync(this.file).size > LIBRARY_LOAD_LIMIT) fail('Library exceeds safe load size');
       let parsed;
       try { parsed = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { fail('Library is unreadable. Original data was preserved; recover library.json.backup.'); }
       if (parsed.schema !== 1 || !Array.isArray(parsed.items) || parsed.items.length > 20000 || !Array.isArray(parsed.folders)) fail('Unsupported library format');
@@ -136,9 +139,11 @@ class Store {
     const temporary = this.file + '.tmp-' + crypto.randomUUID();
     let descriptor;
     try {
-      descriptor = fs.openSync(temporary, 'wx', 0o600); fs.writeFileSync(descriptor, JSON.stringify(this.data)); fs.fsyncSync(descriptor); fs.closeSync(descriptor); descriptor = null;
+      // Never write a library the next launch would refuse to load.
+      const serialized=JSON.stringify(this.data);if(Buffer.byteLength(serialized)>LIBRARY_LOAD_LIMIT)fail('Library is full. Empty Trash or remove large items to keep capturing.');
+      descriptor = fs.openSync(temporary, 'wx', 0o600); fs.writeFileSync(descriptor, serialized); fs.fsyncSync(descriptor); fs.closeSync(descriptor); descriptor = null;
       if (fs.existsSync(this.file)) fs.copyFileSync(this.file, this.file + '.backup');
-      fs.renameSync(temporary, this.file);this.revision++;
+      renameRetrying(temporary, this.file);this.revision++;
     } finally { if (descriptor != null) fs.closeSync(descriptor); if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
   }
   mediaReferences(){return new Set(this.data.items.flatMap(item=>[item.imageFile,item.renderedFile,item.thumbnailFile,item.videoFile,item.renderedVideoFile]).filter(Boolean));}

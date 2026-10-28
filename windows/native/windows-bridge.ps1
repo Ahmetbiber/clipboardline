@@ -1,5 +1,7 @@
 param([ValidateSet('Capture','CaptureDiagnostics','FocusPolicySelfTest','Restore','PreparePaste','ValidatePaste','Paste','Monitor','CopyImages','ClipboardSequence')][string]$Mode)
 $ErrorActionPreference = 'Stop'
+# Node exchanges UTF-8 JSON; Windows PowerShell otherwise uses the OEM code page and garbles non-ASCII text and paths.
+[Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName Accessibility
